@@ -1252,6 +1252,41 @@ def trigger_youtube_pipeline_tool(genre: str = "auto") -> str:
         return f"Error triggering studio pipeline: {e}"
 
 
+def separate_audio_stems_tool(media_path: str) -> str:
+    """Uses Meta Demucs deep neural model to isolate Vocals (dialogue/screams), Drums, Bass, and Other."""
+    try:
+        from youtube_studio import separate_audio_stems
+        res = separate_audio_stems(media_path)
+        return (
+            f"🎵 Meta Demucs Stem Separation Complete!\n"
+            f"• Vocals (Dialogue/Screams): {res.get('vocals')}\n"
+            f"• Drums (Percussion): {res.get('drums')}\n"
+            f"• Bass (Sub/808s): {res.get('bass')}\n"
+            f"• Other (Music/Synths): {res.get('other')}"
+        )
+    except Exception as e:
+        return f"Stem separation error: {e}"
+
+
+def export_timeline_tool(video_path: str, format_type: str = "fcpxml") -> str:
+    """Exports beat-synchronized video cuts to Apple Final Cut Pro XML (.fcpxml) or EDL for CapCut Pro, Premiere Pro, and DaVinci Resolve."""
+    try:
+        from youtube_studio import split_raw_into_scenes, export_fcpxml_timeline, export_edl_timeline
+        from pathlib import Path
+        scenes = split_raw_into_scenes(video_path)
+        if not scenes:
+            return f"No scenes detected in {video_path}."
+        clips = [{"source_path": video_path, "src_in": s[0], "src_out": s[1], "dst_in": s[0], "dst_out": s[1]} for s in scenes]
+        out_path = f"workspace/timelines/{Path(video_path).stem}.{format_type}"
+        if format_type.lower() == "edl":
+            res = export_edl_timeline(clips, out_path)
+        else:
+            res = export_fcpxml_timeline(clips, out_path)
+        return f"✅ Timeline exported successfully to {res}! Import directly into CapCut Pro, Premiere, or DaVinci Resolve."
+    except Exception as e:
+        return f"Timeline export error: {e}"
+
+
 # Registry the agent uses to look up and call tools by name.
 TOOL_REGISTRY = {
     "change_voice": change_voice,
@@ -1328,6 +1363,10 @@ TOOL_REGISTRY = {
     "create_channel_playlists": create_channel_playlists_tool,
     "generate_manga_recap": generate_manga_recap_tool,
     "capture_gesture": capture_gesture_tool,
+    "separate_audio_stems": separate_audio_stems_tool,
+    "isolate_dialogue": separate_audio_stems_tool,
+    "export_timeline": export_timeline_tool,
+    "export_capcut_timeline": lambda video_path="": export_timeline_tool(video_path, "fcpxml"),
     "toggle_ultron_mode": toggle_ultron_mode,
     "code_review": code_review,
     "review_code": code_review,
