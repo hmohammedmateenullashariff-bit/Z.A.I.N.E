@@ -6,7 +6,7 @@ Orchestrates automated daily YouTube Shorts generation, publishing, and analytic
 - 17:00 (5:00 PM): Channel growth stats extraction and executive briefing to Sir
 """
 
-import os
+import time
 import json
 import datetime
 from pathlib import Path
@@ -39,25 +39,27 @@ def save_schedule_state(state: Dict[str, Any]):
         json.dump(state, f, indent=2)
 
 
-DAY_GENRES = {
-    0: "tech",       # Monday: Tech Intelligence
-    1: "cat",        # Tuesday: Funny Cat Memes & Chaos
-    2: "kids",       # Wednesday: Funny Toddler & Kids Humor
-    3: "animated",   # Thursday: Whimsical Animated Stories
-    4: "tech",       # Friday: High-Impact Tech Breakthroughs
-    5: "cat",        # Saturday: Weekend Feline Laughs
-    6: "animated",   # Sunday: Animated Tales & Cartoons
-}
+DAILY_SLOTS = [
+    {"id": "slot_1", "hour": 9, "minute": 0, "genre": "facts", "label": "Morning Curiosity (Facts)"},
+    {"id": "slot_2", "hour": 12, "minute": 30, "genre": "cat", "label": "Lunchtime Laughs (Cat Memes)"},
+    {"id": "slot_3", "hour": 15, "minute": 30, "genre": "gaming", "label": "Afternoon Lore (Gaming)"},
+    {"id": "slot_4", "hour": 18, "minute": 30, "genre": "anime", "label": "Prime Battles (Anime)"},
+    {"id": "slot_5", "hour": 21, "minute": 30, "genre": "tech", "label": "Late-Night Peak (Tech/Toon)"},
+]
+
+MIN_UPLOAD_GAP_SECONDS = 2.5 * 3600  # 2.5 hours anti-spam cooldown between uploads
 
 
 def check_and_run_daily_youtube_schedule(force: bool = False, topic: str = "", genre: str = "auto") -> Dict[str, Any]:
     """
     Called periodically by heartbeat.py daemon or on-demand by user.
-    Checks if current local time is within the 14:00 - 17:00 (2-5 PM) window
-    (or force=True) and triggers daily studio milestones across rotating genres:
-    1. Content Generation (Short video: Tech / Cat / Kids / Animated)
-    2. YouTube Upload / Queueing
-    3. Channel Analytics Dossier
+    Manages the 5-Videos-Daily cadence with anti-spam spacing:
+    - Slot 1 (09:00): Mind-Blowing Facts
+    - Slot 2 (12:30): Funny Cat Memes & Chaos
+    - Slot 3 (15:30): Epic Gaming Secrets & Next-Gen Physics
+    - Slot 4 (18:30): High-Stakes Anime Battles & Matchups
+    - Slot 5 (21:30): Frontier Tech Intelligence / Cartoons
+    Enforces minimum 2.5-hour gaps between uploads to protect channel authority.
     """
     now = datetime.datetime.now()
     today_str = now.date().isoformat()
@@ -68,87 +70,99 @@ def check_and_run_daily_youtube_schedule(force: bool = False, topic: str = "", g
     actions_taken = []
     dossier_text = ""
 
-    in_window = (14 <= current_hour <= 17)
+    if "completed_slots" not in state or not isinstance(state["completed_slots"], dict):
+        state["completed_slots"] = {}
+    if today_str not in state["completed_slots"]:
+        state["completed_slots"][today_str] = []
 
-    # Determine genre
-    selected_genre = genre if genre and genre != "auto" else DAY_GENRES.get(now.weekday(), "cat")
+    completed_today = state["completed_slots"][today_str]
 
-    if in_window or force:
-        # 1. Milestone 1: Content Generation
-        if force or (current_hour >= 14 and state.get("last_generation_date") != today_str):
-            print(f"\n[YouTube Studio Scheduler] Milestone 1 Triggered: Initiating AI Short generation ({selected_genre.upper()})...")
+    # Check anti-spam cooldown
+    last_upload_ts = state.get("last_upload_timestamp", 0)
+    time_since_last_upload = time.time() - last_upload_ts
+
+    # Determine which slot to run
+    active_slot = None
+    if force:
+        # Pick next uncompleted slot or default to requested genre
+        active_slot = next((s for s in DAILY_SLOTS if s["id"] not in completed_today), DAILY_SLOTS[0])
+        if genre and genre != "auto":
+            active_slot = {"id": f"forced_{genre}", "hour": current_hour, "minute": current_minute, "genre": genre, "label": f"Forced ({genre})"}
+    else:
+        # Check time-based slots
+        for s in DAILY_SLOTS:
+            if s["id"] not in completed_today:
+                # Is it past this slot's time?
+                if current_hour > s["hour"] or (current_hour == s["hour"] and current_minute >= s["minute"]):
+                    active_slot = s
+                    break
+
+    # If slot is ready and anti-spam cooldown is satisfied (or forced)
+    if active_slot:
+        if not force and time_since_last_upload < MIN_UPLOAD_GAP_SECONDS:
+            remaining_mins = int((MIN_UPLOAD_GAP_SECONDS - time_since_last_upload) / 60)
+            actions_taken.append(f"Anti-spam protection active: {remaining_mins}m remaining before next upload window.")
+        else:
+            slot_genre = active_slot["genre"]
+            print(f"\n[YouTube Studio Scheduler] Executing {active_slot['label']} ({slot_genre.upper()})...")
             try:
                 import thermal_guard
                 thermal_guard.wait_for_thermal_cooldown()
 
+                # 1. Content Generation
                 from .content_generator import generate_youtube_short
-                short_result = generate_youtube_short(topic=topic, genre=selected_genre)
+                short_result = generate_youtube_short(topic=topic, genre=slot_genre, upload_now=True)
 
                 state["last_generation_date"] = today_str
                 state["latest_video_path"] = short_result.get("video_path", "")
+                state["last_upload_date"] = today_str
+                state["last_upload_timestamp"] = time.time()
+                if active_slot["id"] not in completed_today:
+                    completed_today.append(active_slot["id"])
+                state["completed_slots"][today_str] = completed_today
                 save_schedule_state(state)
-                actions_taken.append(f"Rendered Short [{short_result.get('genre', selected_genre).upper()}]: '{short_result.get('title')}' ({short_result.get('duration_sec')}s, {short_result.get('file_size_mb')} MB)")
+
+                v_title = short_result.get("title", "")
+                dur = short_result.get("duration_sec", 0)
+                mb = short_result.get("file_size_mb", 0)
+                uploaded_msg = "LIVE on YouTube" if short_result.get("uploaded") else "Queued locally"
+                actions_taken.append(f"Published Slot [{active_slot['id'].upper()} - {slot_genre.upper()}]: '{v_title}' ({dur}s, {mb} MB) -> {uploaded_msg}")
             except Exception as e:
-                actions_taken.append(f"Generation error: {e}")
+                actions_taken.append(f"Slot execution error: {e}")
 
-        # 2. Milestone 2: Video Upload / Queue
-        if force or ((current_hour > 14 or (current_hour == 14 and current_minute >= 30)) and state.get("last_upload_date") != today_str):
-            video_path = state.get("latest_video_path")
-            if video_path and os.path.exists(video_path):
-                print("[YouTube Studio Scheduler] Milestone 2 Triggered: Uploading Short to channel...")
-                try:
-                    from .uploader import upload_youtube_video
-                    json_path = video_path.replace(".mp4", ".json")
-                    title = "Daily AI Breakthrough #Shorts"
-                    description = ""
-                    tags = ["Shorts", "AI", "Technology"]
-                    if os.path.exists(json_path):
-                        with open(json_path, "r", encoding="utf-8") as f:
-                            meta = json.load(f)
-                            title = meta.get("title", title)
-                            description = meta.get("description", description)
-                            tags = meta.get("tags", tags)
+    # Nightly Analytics Checkpoint (after 22:00)
+    if force or (current_hour >= 22 and state.get("last_analytics_date") != today_str):
+        print("[YouTube Studio Scheduler] Compiling Nightly YouTube Analytics dossier...")
+        try:
+            from .analytics import format_analytics_dossier
+            dossier_text = format_analytics_dossier()
 
-                    up_result = upload_youtube_video(video_path, title=title, description=description, tags=tags)
-                    state["last_upload_date"] = today_str
-                    save_schedule_state(state)
-                    status_msg = up_result.get("message") or up_result.get("status")
-                    actions_taken.append(f"Upload: {status_msg}")
-                except Exception as e:
-                    actions_taken.append(f"Upload error: {e}")
-
-        # 3. Milestone 3: Channel Analytics & Briefing
-        if force or (current_hour >= 17 and state.get("last_analytics_date") != today_str):
-            print("[YouTube Studio Scheduler] Milestone 3 Triggered: Compiling YouTube Analytics dossier...")
+            # Push to Telegram if configured
             try:
-                from .analytics import format_analytics_dossier
-                dossier_text = format_analytics_dossier()
+                import telegram_bridge
+                telegram_bridge.send_telegram_broadcast(f"📺 **Daily YouTube Studio Report**\n\n{dossier_text}")
+            except Exception:
+                pass
 
-                # Push to Telegram if configured
-                try:
-                    import telegram_bridge
-                    telegram_bridge.send_telegram_broadcast(f"📺 **Daily YouTube Studio Report**\n\n{dossier_text}")
-                except Exception:
-                    pass
+            # Save to Second Brain Vault
+            try:
+                import vault
+                vault.add_to_vault(
+                    title=f"YouTube Channel Growth - {today_str}",
+                    content=dossier_text,
+                    category="Creator Analytics",
+                    tags="youtube,analytics,creator,studio"
+                )
+            except Exception:
+                pass
 
-                # Save to Second Brain Vault
-                try:
-                    import vault
-                    vault.add_to_vault(
-                        title=f"YouTube Channel Growth - {today_str}",
-                        content=dossier_text,
-                        category="Creator Analytics",
-                        tags="youtube,analytics,creator,studio"
-                    )
-                except Exception:
-                    pass
+            state["last_analytics_date"] = today_str
+            save_schedule_state(state)
+            actions_taken.append("Analytics: Dossier compiled, broadcast, and archived.")
+        except Exception as e:
+            actions_taken.append(f"Analytics error: {e}")
 
-                state["last_analytics_date"] = today_str
-                save_schedule_state(state)
-                actions_taken.append("Delivered YouTube Analytics debrief")
-            except Exception as e:
-                actions_taken.append(f"Analytics error: {e}")
-
+    in_window = (9 <= current_hour <= 22)
     return {
         "current_time": now.strftime("%H:%M:%S"),
         "in_studio_window": in_window,

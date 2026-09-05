@@ -33,6 +33,11 @@ finetune/zaine-3b-qlora/
 # Workspace Scratchpad
 workspace/
 
+# Large Model Tasks & Weights
+models/*.task
+data/youtube_playlists.json
+scratch/
+
 # Logs & IDE
 .vscode/
 .idea/

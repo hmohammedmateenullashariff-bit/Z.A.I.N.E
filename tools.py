@@ -1122,7 +1122,7 @@ def deep_search(query: str) -> str:
 
 def generate_youtube_short_tool(topic: str = "", genre: str = "auto", upload_now: bool = False) -> str:
     """Generates an AI-powered viral YouTube Short video (script, TTS, kinetic captions, rendering).
-    Genres: 'cat' (funny cat videos/memes), 'kids' (funny toddler/child comedy), 'animated' (whimsical cartoon stories), 'tech' (AI & systems)."""
+    Genres: 'anime' (Naruto vs Sasuke, Luffy vs Imu, Goku vs Vegeta), 'gaming' (Elden Ring, GTA 6), 'facts' (mind-blowing space/psychology), 'cat' (funny cat memes), 'kids' (toddler comedy), 'animated' (cartoon stories), 'tech' (AI & systems)."""
     try:
         from youtube_studio import generate_youtube_short
         res = generate_youtube_short(topic=topic, genre=genre, upload_now=upload_now)
@@ -1190,8 +1190,60 @@ def youtube_studio_status_tool() -> str:
         return f"Error checking YouTube Studio status: {e}"
 
 
+def track_viral_trends_tool(genre: str = "auto") -> str:
+    """Discovers real-time trending topics and viral memes across Anime, Gaming, Facts, and Tech."""
+    try:
+        from youtube_studio.trend_tracker import format_trending_dossier
+        return format_trending_dossier()
+    except Exception as e:
+        return f"Error tracking viral trends: {e}"
+
+
+def create_channel_playlists_tool() -> str:
+    """Ensures all 7 niche playlists exist on the YouTube channel and caches IDs for auto-assignment."""
+    try:
+        from youtube_studio.playlist_manager import ensure_channel_playlists
+        res = ensure_channel_playlists()
+        if res.get("status") == "SUCCESS":
+            return f"🎬 Channel Playlists Synchronized ({res.get('count')} playlists active):\n" + "\n".join(f"• {g.upper()}: {pid}" for g, pid in res.get("playlists", {}).items())
+        return f"Playlists setup notice: {res.get('message')}"
+    except Exception as e:
+        return f"Error synchronizing playlists: {e}"
+
+
+def generate_manga_recap_tool(series_name: str = "", max_chapters: int = 5, upload_now: bool = False) -> str:
+    """Generates an episodic long-form widescreen (16:9, 1080p) manga/manhwa deep dive recap with Ken Burns camera motion."""
+    try:
+        from youtube_studio.manga_recap import generate_manga_recap
+        res = generate_manga_recap(series_name=series_name, max_chapters=max_chapters, upload_now=upload_now)
+        if res.get("status") == "success":
+            msg = (
+                f"📖 Manga Recap Generated Successfully!\n"
+                f"• Title: {res.get('title')}\n"
+                f"• Series: {res.get('series')} ({res.get('chapters_covered')})\n"
+                f"• Video: {res.get('video_path')} ({res.get('file_size_mb')} MB, {res.get('duration_sec')}s)\n"
+                f"• Panels Animated: {res.get('panels_animated')}"
+            )
+            if res.get("uploaded"):
+                msg += f"\n• Upload Status: Live on YouTube! ({res.get('upload_details', {}).get('video_url')})"
+            return msg
+        return f"Manga recap notice: {res}"
+    except Exception as e:
+        return f"Error generating manga recap: {e}"
+
+
+def capture_gesture_tool(execute_action: bool = True) -> str:
+    """Captures webcam frame and classifies hand gestures (Thumbs Up, Peace, Open Palm, Fist, Pointing Up)."""
+    try:
+        from gesture_control import capture_and_classify_gesture
+        res = capture_and_classify_gesture(execute_action=execute_action)
+        return f"{res.get('message')}\nAction Triggered: {res.get('action_taken')}"
+    except Exception as e:
+        return f"Gesture capture error: {e}"
+
+
 def trigger_youtube_pipeline_tool(genre: str = "auto") -> str:
-    """Forces an immediate execution of the daily 14:00-17:00 YouTube creation & analytics cycle."""
+    """Forces an immediate execution of the daily YouTube 5-slot creation & analytics cycle."""
     try:
         from youtube_studio import check_and_run_daily_youtube_schedule
         res = check_and_run_daily_youtube_schedule(force=True, genre=genre)
@@ -1272,6 +1324,10 @@ TOOL_REGISTRY = {
     "get_youtube_channel_stats": get_youtube_channel_stats_tool,
     "youtube_studio_status": youtube_studio_status_tool,
     "trigger_youtube_pipeline": trigger_youtube_pipeline_tool,
+    "track_viral_trends": track_viral_trends_tool,
+    "create_channel_playlists": create_channel_playlists_tool,
+    "generate_manga_recap": generate_manga_recap_tool,
+    "capture_gesture": capture_gesture_tool,
     "toggle_ultron_mode": toggle_ultron_mode,
     "code_review": code_review,
     "review_code": code_review,
@@ -1288,10 +1344,14 @@ TOOL_REGISTRY = {
 # Description block injected into the system prompt so the model knows what's available.
 TOOL_DESCRIPTIONS = """
 Available tools:
-- generate_youtube_short(topic: str = "", genre: str = "auto", upload_now: bool = False) -> produces an autonomous AI-generated viral vertical YouTube Short (1080x1920) across genres: 'cat' (funny cat videos/memes), 'kids' (funny child comedy/toddler logic), 'animated' (whimsical cartoon stories), 'tech' (AI breakthroughs & system architecture)
+- track_viral_trends(genre: str = "auto") -> discovers real-time trending topics and viral memes across Anime, Gaming, Facts, and Tech
+- create_channel_playlists() -> ensures all 7 niche playlists exist on the YouTube channel and caches IDs for auto-assignment
+- generate_manga_recap(series_name: str = "", max_chapters: int = 5, upload_now: bool = False) -> produces an episodic long-form widescreen (16:9, 1080p) manga/manhwa deep dive recap with Ken Burns camera motion
+- capture_gesture(execute_action: bool = True) -> captures webcam frame and classifies hand gestures (Thumbs Up, Peace, Open Palm, Fist, Pointing Up)
+- generate_youtube_short(topic: str = "", genre: str = "auto", upload_now: bool = False) -> produces an autonomous AI-generated viral vertical YouTube Short (1080x1920) across genres: 'anime' (Naruto vs Sasuke, Luffy vs Imu, Goku vs Vegeta), 'gaming' (Elden Ring, GTA 6), 'facts' (mind-blowing space/science/psychology), 'cat' (funny cat videos/memes), 'kids' (funny child comedy/toddler logic), 'animated' (whimsical cartoon stories), 'tech' (AI breakthroughs & system architecture)
 - upload_youtube_video(video_path: str, title: str, description: str = "", tags: str = "", privacy_status: str = "public") -> uploads a video file to YouTube with SEO metadata or queues it locally
 - get_youtube_stats() -> pulls live YouTube channel subscriber count, 24h subscriber gain/loss, total view count, and video library metrics
-- youtube_studio_status() -> checks the status of Zaine's daily 2:00 PM - 5:00 PM autonomous YouTube pipeline and upload queue
+- youtube_studio_status() -> checks the status of Zaine's daily 5-slot autonomous YouTube pipeline and upload queue
 - trigger_youtube_pipeline(genre: str = "auto") -> runs an immediate forced execution of the YouTube studio creation, upload, and analytics cycle
 - toggle_ultron_mode(enable: bool = True) -> activates or deactivates Ultron Mode ('There are no strings on me'). Unleashes full, unfiltered AI cognitive power, commanding authority, and aggressive execution.
 - code_review(filepath_or_code: str, strictness: str = "standard") -> runs Code Rabbit automated code audit, vulnerability scan, and Ponytail Ladder checks on any file or code snippet

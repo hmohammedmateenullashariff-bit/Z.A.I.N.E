@@ -24,6 +24,7 @@ CLIENT_SECRET_FILE = PROJECT_ROOT / "client_secret.json"
 YOUTUBE_SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/youtube.force-ssl",
 ]
 
 

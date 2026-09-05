@@ -175,11 +175,14 @@ CRITICAL EXECUTION RULES:
    - When asked for career roadmaps or developer skill trees: Call {{"tool": "get_career_roadmap", "args": {{"role_or_skill": "<role>"}}}}
    - When asked for LLM architecture, attention mechanics, or LoRA: Call {{"tool": "lookup_llm_architecture", "args": {{"component": "<component>"}}}}
    - When asked to search developer knowledge across the 17 repos: Call {{"tool": "search_developer_knowledge", "args": {{"query": "<query>"}}}}
-   - When asked to create/generate an AI YouTube Short or video content (cats, funny kids, animated stories, or tech): Call {{"tool": "generate_youtube_short", "args": {{"topic": "<optional_topic>", "genre": "cat|kids|animated|tech|auto", "upload_now": false}}}}
+   - When asked to create/generate an AI YouTube Short or video content (anime|gaming|facts|cat|kids|animated|tech|auto): Call {{"tool": "generate_youtube_short", "args": {{"topic": "<optional_topic>", "genre": "anime|gaming|facts|cat|kids|animated|tech|auto", "upload_now": false}}}}
    - When asked to upload a video or short to YouTube: Call {{"tool": "upload_youtube_video", "args": {{"video_path": "<path>", "title": "<title>"}}}}
-   - When asked for YouTube channel stats, subscribers, or analytics: Call {{"tool": "get_youtube_stats", "args": {{}}}}
-   - When asked about the YouTube studio schedule or 2-5 PM daily pipeline: Call {{"tool": "youtube_studio_status", "args": {{}}}}
+   - When asked about the YouTube studio schedule or 5-slot daily pipeline: Call {{"tool": "youtube_studio_status", "args": {{}}}}
    - When asked to trigger or force run the YouTube creation cycle: Call {{"tool": "trigger_youtube_pipeline", "args": {{"genre": "auto"}}}}
+   - When asked to track viral trends, memes, or trending content ideas: Call {{"tool": "track_viral_trends", "args": {{"genre": "auto|anime|gaming|facts|cat|kids|animated|tech"}}}}
+   - When asked to create or sync channel playlists for niches: Call {{"tool": "create_channel_playlists", "args": {{}}}}
+   - When asked to generate a manga or manhwa recap (1-3 hour deep dive video): Call {{"tool": "generate_manga_recap", "args": {{"series_name": "<series>", "max_chapters": 5, "upload_now": false}}}}
+   - When asked to capture or detect hand gestures via webcam: Call {{"tool": "capture_gesture", "args": {{"execute_action": true}}}}
 
 3. MODULAR TASK DECOMPOSITION (EFFICIENCY & THERMAL SAFETY):
    - When handling large or multi-file projects, NEVER output giant 3000-word single-turn text dumps.
@@ -723,6 +726,32 @@ class ZaineAgent:
                 args["video_path"] = args.pop("file")
             elif "path" in args and "video_path" not in args:
                 args["video_path"] = args.pop("path")
+        elif name in ("track_viral_trends", "trending_topics", "viral_trends", "get_trends"):
+            name = "track_viral_trends"
+            if "category" in args and "genre" not in args:
+                args["genre"] = args.pop("category")
+            elif "type" in args and "genre" not in args:
+                args["genre"] = args.pop("type")
+        elif name in ("create_channel_playlists", "sync_playlists", "create_playlists", "ensure_playlists"):
+            name = "create_channel_playlists"
+        elif name in ("generate_manga_recap", "manga_recap", "manhwa_recap", "create_manga_video"):
+            name = "generate_manga_recap"
+            if "title" in args and "series_name" not in args:
+                args["series_name"] = args.pop("title")
+            elif "manga" in args and "series_name" not in args:
+                args["series_name"] = args.pop("manga")
+            elif "manhwa" in args and "series_name" not in args:
+                args["series_name"] = args.pop("manhwa")
+            elif "series" in args and "series_name" not in args:
+                args["series_name"] = args.pop("series")
+            if "chapters" in args and "max_chapters" not in args:
+                args["max_chapters"] = args.pop("chapters")
+            if "upload" in args and "upload_now" not in args:
+                args["upload_now"] = args.pop("upload")
+        elif name in ("capture_gesture", "gesture_capture", "detect_gesture", "hand_gesture"):
+            name = "capture_gesture"
+            if "action" in args and "execute_action" not in args:
+                args["execute_action"] = args.pop("action")
 
         fn = TOOL_REGISTRY.get(name)
         if fn is None:

@@ -115,12 +115,72 @@ def queue_video_for_upload(video_path: str, title: str, description: str, tags: 
     return item
 
 
+def post_video_comment(video_id: str, comment_text: str, access_token: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Posts a top-level pinned engagement comment to a YouTube video via YouTube Data API v3.
+    Requires the 'https://www.googleapis.com/auth/youtube.force-ssl' scope.
+    """
+    if not comment_text or not video_id:
+        return {"status": "SKIPPED", "message": "No comment text or video ID provided."}
+
+    if not access_token:
+        token_data = get_stored_token()
+        if not token_data:
+            return {"status": "NO_TOKEN", "text": comment_text}
+        access_token = refresh_access_token(token_data)
+
+    url = "https://www.googleapis.com/youtube/v3/commentThreads?part=snippet"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "snippet": {
+            "videoId": video_id,
+            "topLevelComment": {
+                "snippet": {
+                    "textOriginal": comment_text
+                }
+            }
+        }
+    }
+
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=15)
+        if resp.status_code in (200, 201):
+            data = resp.json()
+            comment_id = data.get("id", "")
+            return {
+                "status": "SUCCESS",
+                "comment_id": comment_id,
+                "text": comment_text,
+                "message": f"Engagement comment published live: '{comment_text}'",
+            }
+        elif resp.status_code == 403:
+            return {
+                "status": "PERMISSIONS_PENDING",
+                "text": comment_text,
+                "notice": "Requires 'youtube.force-ssl' OAuth scope for automated commenting. Re-authenticate via setup_youtube_auth to enable hands-free auto-comments.",
+            }
+        else:
+            return {
+                "status": "FAILED",
+                "text": comment_text,
+                "error": f"API error ({resp.status_code}): {resp.text[:180]}",
+            }
+    except Exception as e:
+        return {"status": "ERROR", "text": comment_text, "error": str(e)}
+
+
 def upload_youtube_video(
     video_path: str,
     title: str,
     description: str = "",
     tags: Optional[List[str]] = None,
     privacy_status: str = "public",
+    category_id: str = "28",
+    engagement_question: str = "",
+    genre: str = "",
 ) -> Dict[str, Any]:
     """
     Uploads a video to YouTube using the YouTube Data API v3.
@@ -166,7 +226,7 @@ def upload_youtube_video(
             "title": title,
             "description": description,
             "tags": tags,
-            "categoryId": "28",  # Science & Technology
+            "categoryId": str(category_id),
         },
         "status": {
             "privacyStatus": privacy_status,
@@ -194,6 +254,20 @@ def upload_youtube_video(
             video_id = video_data.get("id", "")
             video_link = f"https://youtube.com/shorts/{video_id}" if "shorts" in title.lower() or "short" in title.lower() else f"https://youtube.com/watch?v={video_id}"
 
+            # Post engagement comment if provided
+            comment_result = None
+            if engagement_question:
+                comment_result = post_video_comment(video_id, engagement_question, access_token)
+
+            # Auto-assign to niche playlist
+            playlist_result = None
+            if genre:
+                try:
+                    from .playlist_manager import assign_video_to_niche_playlist
+                    playlist_result = assign_video_to_niche_playlist(genre, video_id)
+                except Exception as pe:
+                    print(f"[Uploader] Playlist assignment notice: {pe}")
+
             # Update queue status
             queue = get_upload_queue()
             for q in queue:
@@ -202,7 +276,20 @@ def upload_youtube_video(
                     q["video_id"] = video_id
                     q["video_url"] = video_link
                     q["published_at"] = datetime.datetime.now().isoformat()
+                    if engagement_question:
+                        q["pinned_comment"] = engagement_question
+                    if genre:
+                        q["genre"] = genre
             save_upload_queue(queue)
+
+            success_msg = f"Successfully published to YouTube: {video_link}"
+            if playlist_result and playlist_result.get("status") == "SUCCESS":
+                success_msg += f"\n📁 Added to Playlist: {genre.upper()}"
+            if comment_result:
+                if comment_result.get("status") == "SUCCESS":
+                    success_msg += f"\n💬 Pinned Engagement Comment: '{engagement_question}'"
+                else:
+                    success_msg += f"\n💬 Recommended Pinned Comment: '{engagement_question}'"
 
             return {
                 "status": "SUCCESS",
@@ -210,7 +297,9 @@ def upload_youtube_video(
                 "video_url": video_link,
                 "title": title,
                 "privacy": privacy_status,
-                "message": f"Successfully published to YouTube: {video_link}",
+                "message": success_msg,
+                "engagement_comment": comment_result,
+                "playlist_assignment": playlist_result,
             }
         else:
             return {"status": "FAILED", "error": f"Upload chunk transfer failed: {up_resp.text[:200]}"}
