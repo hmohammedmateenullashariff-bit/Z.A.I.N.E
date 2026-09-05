@@ -298,6 +298,14 @@ class HeartbeatDaemon:
             pass
         return {"greeting_sent": False}
 
+    def check_youtube_studio_schedule(self) -> dict:
+        """Executes the daily 14:00 - 17:00 autonomous YouTube Shorts creation, upload & analytics cycle."""
+        try:
+            from youtube_studio import check_and_run_daily_youtube_schedule
+            return check_and_run_daily_youtube_schedule(force=False)
+        except Exception as e:
+            return {"ran": False, "error": str(e)}
+
     def run_cycle(self) -> dict:
         """Executes one complete sentinel inspection cycle."""
         rem_res = self.check_reminders()
@@ -307,6 +315,7 @@ class HeartbeatDaemon:
         d_res = self.check_disk_space()
         e_res = self.check_ergonomics()
         pres_res = self.check_desk_presence_sentinel()
+        yt_res = self.check_youtube_studio_schedule()
 
         return {
             "reminders_fired": rem_res,
@@ -316,6 +325,7 @@ class HeartbeatDaemon:
             "disk": d_res,
             "ergonomics": e_res,
             "desk_presence": pres_res,
+            "youtube_studio": yt_res,
             "night_mode": self.is_night_mode(),
             "timestamp": datetime.datetime.now().isoformat(),
         }

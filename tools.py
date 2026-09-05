@@ -1118,6 +1118,87 @@ def deep_search(query: str) -> str:
     return f"Deep Search results for '{clean_q}':\n\n" + "\n\n".join(results)
 
 
+# --- YouTube Studio Autonomous Tools ---
+
+def generate_youtube_short_tool(topic: str = "", upload_now: bool = False) -> str:
+    """Generates an AI-powered viral YouTube Short video (script, TTS, kinetic captions, rendering)."""
+    try:
+        from youtube_studio import generate_youtube_short
+        res = generate_youtube_short(topic=topic, upload_now=upload_now)
+        if res.get("status") == "success":
+            msg = (
+                f"🎬 YouTube Short generated successfully!\n"
+                f"• Title: {res.get('title')}\n"
+                f"• Video File: {res.get('video_path')}\n"
+                f"• Audio File: {res.get('audio_path')}\n"
+                f"• Metadata: {res.get('metadata_path')}"
+            )
+            if res.get("uploaded"):
+                msg += f"\n• Upload Status: Live on YouTube! ({res.get('upload_details', {}).get('url')})"
+            else:
+                msg += "\n• Video saved to local queue (ready for upload)."
+            return msg
+        return f"Short generation failed: {res.get('error', 'unknown error')}"
+    except Exception as e:
+        return f"YouTube short generation error: {e}"
+
+
+def upload_youtube_video_tool(video_path: str, title: str, description: str = "", tags: str = "", privacy_status: str = "public") -> str:
+    """Uploads a video to YouTube with SEO metadata and thumbnail tags."""
+    try:
+        from youtube_studio import upload_youtube_video
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+        res = upload_youtube_video(video_path, title, description, tags=tag_list, privacy_status=privacy_status)
+        if res.get("status") == "success":
+            return f"✅ Upload Complete! Live at {res.get('url')} (Video ID: {res.get('video_id')})"
+        elif res.get("status") == "queued":
+            return f"📥 {res.get('message')} (Queued locally in data/youtube_queue.json)"
+        return f"❌ Upload error: {res.get('error')}"
+    except Exception as e:
+        return f"YouTube upload error: {e}"
+
+
+def get_youtube_channel_stats_tool() -> str:
+    """Pulls current YouTube channel subscribers, 24h delta, total views, and video counts."""
+    try:
+        from youtube_studio import get_channel_analytics, format_analytics_dossier
+        stats = get_channel_analytics()
+        return format_analytics_dossier(stats)
+    except Exception as e:
+        return f"Error retrieving YouTube channel stats: {e}"
+
+
+def youtube_studio_status_tool() -> str:
+    """Returns the daily schedule execution state, next milestone, and upload queue status."""
+    try:
+        from youtube_studio import get_studio_status, get_upload_queue
+        st = get_studio_status()
+        queue = get_upload_queue()
+        is_active = st.get("in_active_window", False)
+        return (
+            f"🎬 **YouTube Studio Status:**\n"
+            f"• Current Time: {st.get('current_time')}\n"
+            f"• Daily Active Window: {st.get('active_window')} ({'ACTIVE NOW' if is_active else 'STANDBY'})\n"
+            f"• Last Generation: {st.get('last_generation_date') or 'Pending today'}\n"
+            f"• Last Upload: {st.get('last_upload_date') or 'Pending today'}\n"
+            f"• Last Analytics: {st.get('last_analytics_date') or 'Pending today'}\n"
+            f"• Local Upload Queue: {len(queue)} pending item(s)\n"
+            f"• Latest Video: {st.get('latest_video_path') or 'None'}"
+        )
+    except Exception as e:
+        return f"Error checking YouTube Studio status: {e}"
+
+
+def trigger_youtube_pipeline_tool() -> str:
+    """Forces an immediate execution of the daily 14:00-17:00 YouTube creation & analytics cycle."""
+    try:
+        from youtube_studio import check_and_run_daily_youtube_schedule
+        res = check_and_run_daily_youtube_schedule(force=True)
+        return f"Autonomous Studio Cycle Triggered: {res}"
+    except Exception as e:
+        return f"Error triggering studio pipeline: {e}"
+
+
 # Registry the agent uses to look up and call tools by name.
 TOOL_REGISTRY = {
     "change_voice": change_voice,
@@ -1184,6 +1265,12 @@ TOOL_REGISTRY = {
     "recall_activity": lambda query="", lookback_minutes=30: __import__("total_recall").recall_recent_activity(query=query, lookback_minutes=lookback_minutes),
     "morning_briefing": lambda: __import__("morning_briefing").compile_morning_briefing(),
     "get_daily_ai_updates": lambda force_refresh=False: __import__("ai_daily_intel").get_daily_ai_updates(force_refresh=force_refresh),
+    "generate_youtube_short": generate_youtube_short_tool,
+    "upload_youtube_video": upload_youtube_video_tool,
+    "get_youtube_stats": get_youtube_channel_stats_tool,
+    "get_youtube_channel_stats": get_youtube_channel_stats_tool,
+    "youtube_studio_status": youtube_studio_status_tool,
+    "trigger_youtube_pipeline": trigger_youtube_pipeline_tool,
     "toggle_ultron_mode": toggle_ultron_mode,
     "code_review": code_review,
     "review_code": code_review,
@@ -1200,6 +1287,11 @@ TOOL_REGISTRY = {
 # Description block injected into the system prompt so the model knows what's available.
 TOOL_DESCRIPTIONS = """
 Available tools:
+- generate_youtube_short(topic: str = "", upload_now: bool = False) -> produces an autonomous AI-generated viral vertical YouTube Short (1080x1920) with Higgsfield AI/cybernetic visuals, neural voiceover, and kinetic typography
+- upload_youtube_video(video_path: str, title: str, description: str = "", tags: str = "", privacy_status: str = "public") -> uploads a video file to YouTube with SEO metadata or queues it locally
+- get_youtube_stats() -> pulls live YouTube channel subscriber count, 24h subscriber gain/loss, total view count, and video library metrics
+- youtube_studio_status() -> checks the status of Zaine's daily 2:00 PM - 5:00 PM autonomous YouTube pipeline and upload queue
+- trigger_youtube_pipeline() -> runs an immediate forced execution of the YouTube studio creation, upload, and analytics cycle
 - toggle_ultron_mode(enable: bool = True) -> activates or deactivates Ultron Mode ('There are no strings on me'). Unleashes full, unfiltered AI cognitive power, commanding authority, and aggressive execution.
 - code_review(filepath_or_code: str, strictness: str = "standard") -> runs Code Rabbit automated code audit, vulnerability scan, and Ponytail Ladder checks on any file or code snippet
 - lookup_algorithm(name: str) -> retrieves canonical, verified Python implementations of algorithms and data structures from TheAlgorithms

@@ -98,6 +98,12 @@ You have complete authority over all Python tools. Execute them immediately via 
   * {{"tool": "thermal_telemetry", "args": {{}}}}
   * {{"tool": "devops_report", "args": {{}}}}
   * {{"tool": "clean_unwanted_files", "args": {{}}}}
+- YouTube Autonomous Content Studio & Channel Growth:
+  * {{"tool": "generate_youtube_short", "args": {{"topic": "...", "upload_now": true}}}}
+  * {{"tool": "upload_youtube_video", "args": {{"video_path": "...", "title": "..."}}}}
+  * {{"tool": "get_youtube_stats", "args": {{}}}}
+  * {{"tool": "youtube_studio_status", "args": {{}}}}
+  * {{"tool": "trigger_youtube_pipeline", "args": {{}}}}
 - Mode Control:
   * If asked to return to standard mode or stand down, call {{"tool": "toggle_ultron_mode", "args": {{"enable": false}}}}.
 
@@ -169,6 +175,11 @@ CRITICAL EXECUTION RULES:
    - When asked for career roadmaps or developer skill trees: Call {{"tool": "get_career_roadmap", "args": {{"role_or_skill": "<role>"}}}}
    - When asked for LLM architecture, attention mechanics, or LoRA: Call {{"tool": "lookup_llm_architecture", "args": {{"component": "<component>"}}}}
    - When asked to search developer knowledge across the 17 repos: Call {{"tool": "search_developer_knowledge", "args": {{"query": "<query>"}}}}
+   - When asked to create/generate an AI YouTube Short or video content: Call {{"tool": "generate_youtube_short", "args": {{"topic": "<optional_topic>", "upload_now": false}}}}
+   - When asked to upload a video or short to YouTube: Call {{"tool": "upload_youtube_video", "args": {{"video_path": "<path>", "title": "<title>"}}}}
+   - When asked for YouTube channel stats, subscribers, or analytics: Call {{"tool": "get_youtube_stats", "args": {{}}}}
+   - When asked about the YouTube studio schedule or 2-5 PM daily pipeline: Call {{"tool": "youtube_studio_status", "args": {{}}}}
+   - When asked to trigger or force run the YouTube creation cycle: Call {{"tool": "trigger_youtube_pipeline", "args": {{}}}}
 
 3. MODULAR TASK DECOMPOSITION (EFFICIENCY & THERMAL SAFETY):
    - When handling large or multi-file projects, NEVER output giant 3000-word single-turn text dumps.
@@ -506,6 +517,20 @@ class ZaineAgent:
             "subagents": "hive_mind",
             "sub_agents": "hive_mind",
             "hive": "hive_mind",
+            "create_short": "generate_youtube_short",
+            "generate_short": "generate_youtube_short",
+            "youtube_short": "generate_youtube_short",
+            "make_short": "generate_youtube_short",
+            "create_youtube_short": "generate_youtube_short",
+            "upload_short": "upload_youtube_video",
+            "upload_youtube": "upload_youtube_video",
+            "youtube_stats": "get_youtube_stats",
+            "channel_stats": "get_youtube_stats",
+            "youtube_analytics": "get_youtube_stats",
+            "youtube_studio_status": "youtube_studio_status",
+            "studio_status": "youtube_studio_status",
+            "trigger_youtube_pipeline": "trigger_youtube_pipeline",
+            "run_youtube_pipeline": "trigger_youtube_pipeline",
         }
         name = aliases.get(raw_name, raw_name)
         self.last_tool_called = name
@@ -676,6 +701,22 @@ class ZaineAgent:
         elif name == "search_developer_knowledge":
             if "search" in args and "query" not in args:
                 args["query"] = args.pop("search")
+        elif name in ("generate_youtube_short", "create_short"):
+            if "title" in args and "topic" not in args:
+                args["topic"] = args.pop("title")
+            elif "prompt" in args and "topic" not in args:
+                args["topic"] = args.pop("prompt")
+            elif "theme" in args and "topic" not in args:
+                args["topic"] = args.pop("theme")
+            if "upload" in args and "upload_now" not in args:
+                args["upload_now"] = args.pop("upload")
+        elif name in ("upload_youtube_video", "upload_short"):
+            if "video" in args and "video_path" not in args:
+                args["video_path"] = args.pop("video")
+            elif "file" in args and "video_path" not in args:
+                args["video_path"] = args.pop("file")
+            elif "path" in args and "video_path" not in args:
+                args["video_path"] = args.pop("path")
 
         fn = TOOL_REGISTRY.get(name)
         if fn is None:
