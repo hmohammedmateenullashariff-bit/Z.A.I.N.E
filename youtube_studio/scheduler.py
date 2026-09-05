@@ -7,9 +7,7 @@ Orchestrates automated daily YouTube Shorts generation, publishing, and analytic
 """
 
 import os
-import sys
 import json
-import time
 import datetime
 from pathlib import Path
 from typing import Dict, Any
@@ -59,7 +57,7 @@ def check_and_run_daily_youtube_schedule() -> Dict[str, Any]:
     if 14 <= current_hour <= 17:
         # 1. Milestone 1: 14:00 (2:00 PM) — Content Generation
         if current_hour >= 14 and state.get("last_generation_date") != today_str:
-            print(f"\n[YouTube Studio Scheduler] 14:00 Milestone Triggered. Initiating AI Short generation...")
+            print("\n[YouTube Studio Scheduler] 14:00 Milestone Triggered. Initiating AI Short generation...")
             try:
                 # Check thermal safety before rendering
                 import thermal_guard
@@ -79,7 +77,7 @@ def check_and_run_daily_youtube_schedule() -> Dict[str, Any]:
         if (current_hour > 14 or (current_hour == 14 and current_minute >= 30)) and state.get("last_upload_date") != today_str:
             video_path = state.get("latest_video_path")
             if video_path and os.path.exists(video_path):
-                print(f"[YouTube Studio Scheduler] 14:30 Milestone Triggered. Uploading Short to channel...")
+                print("[YouTube Studio Scheduler] 14:30 Milestone Triggered. Uploading Short to channel...")
                 try:
                     from .uploader import upload_youtube_video
                     # Load companion metadata JSON if present
@@ -103,7 +101,7 @@ def check_and_run_daily_youtube_schedule() -> Dict[str, Any]:
 
         # 3. Milestone 3: 17:00 (5:00 PM) — Channel Analytics & Briefing
         if current_hour >= 17 and state.get("last_analytics_date") != today_str:
-            print(f"[YouTube Studio Scheduler] 17:00 Milestone Triggered. Compiling YouTube Analytics dossier...")
+            print("[YouTube Studio Scheduler] 17:00 Milestone Triggered. Compiling YouTube Analytics dossier...")
             try:
                 from .analytics import format_analytics_dossier
                 dossier = format_analytics_dossier()

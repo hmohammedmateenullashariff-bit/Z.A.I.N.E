@@ -10,12 +10,10 @@ Features:
 """
 
 import os
-import sys
 import time
-import json
 import requests
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BROLL_DIR = PROJECT_ROOT / "workspace" / "youtube_shorts" / "broll"

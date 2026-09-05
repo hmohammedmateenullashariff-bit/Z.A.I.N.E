@@ -11,12 +11,10 @@ Creates viral, high-retention YouTube Shorts (1080x1920, 9:16 vertical):
 import asyncio
 import os
 import re
-import sys
 import json
 import time
 import datetime
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
 import numpy as np
@@ -223,10 +221,7 @@ def render_short_video(
 
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # Word index tracker for subtitles
     word_count = len(words)
-    w_idx = 0
-
     # Build 3-4 word subtitle windows
     chunks = []
     chunk_size = 3
@@ -270,7 +265,6 @@ def render_short_video(
         if active_chunk:
             # Center of the screen
             sub_y = height // 2 - 40
-            full_chunk_text = " ".join(w[0] for w in active_chunk["words"])
 
             # Find active word
             active_word_str = ""

@@ -5,7 +5,6 @@ and generates formatted executive growth dossiers for Telegram and voice.
 """
 
 import os
-import sys
 import json
 import datetime
 import requests
