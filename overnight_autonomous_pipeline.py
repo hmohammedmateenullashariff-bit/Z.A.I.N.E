@@ -198,12 +198,12 @@ def main_overnight_loop():
 
     while True:
         now = datetime.datetime.now()
-        # Check if 4:00 AM reached
-        if now.hour >= 4 and now.minute >= 0:
-            log("4:00 AM target time reached! Overnight autonomous run concluding gracefully.")
+        # Check if 5:00 AM reached (Mateen sir wakes at 5:00 AM)
+        if now.hour >= 5 and now.minute >= 0:
+            log("5:00 AM target time reached! Overnight autonomous run concluding gracefully.")
             break
 
-        log(f"\n>>> Starting 5-Iteration Evolution Block {cycle_batch} at {now.strftime('%H:%M:%S')} (Target: 04:00 AM) <<<")
+        log(f"\n>>> Starting 5-Iteration Evolution Block {cycle_batch} at {now.strftime('%H:%M:%S')} (Target: 05:00 AM) <<<")
 
         # Run 5 training iterations with question changing after each even iteration
         for iter_num in range(1, 6):
@@ -215,7 +215,7 @@ def main_overnight_loop():
         log("  STARTING 15-MINUTE REFLECTION, COOLING & MAINTENANCE INTERVAL")
         log("==================================================================")
 
-        # Perform maintenance & backup during cooldown
+        # 1. Perform database maintenance & safety backup during cooldown
         backup_res = home_ops.backup_database()
         log(f"  [Maintenance] {backup_res}")
         maint_res = home_ops.perform_database_maintenance()
@@ -223,17 +223,28 @@ def main_overnight_loop():
         purged = thermal_guard.clean_unwanted_files()
         log(f"  [Sanitation] Cleaned {len(purged)} temporary files.")
 
-        # Distill new lessons learned from recently completed turns
+        # 2. Distill new lessons learned from recently completed turns
         distilled = self_distillation.run_self_distillation_cycle()
         log(f"  [Cognitive Distillation] Synthesized {distilled} new experiential lessons.")
 
-        # Harvest & Learn Daily Top 10 AI Updates from the Web
+        # 3. Harvest & Learn Daily Top 10 AI Updates from the Web
         try:
             import ai_daily_intel
             ai_updates = ai_daily_intel.get_daily_ai_updates(force_refresh=True)
             log(f"  [AI Daily Intel] Harvested and learned {len(ai_updates)} daily AI breakthroughs from the web.")
         except Exception as e:
             log(f"  [AI Daily Intel] Harvest notice: {e}")
+
+        # 4. Check & Run Autonomous YouTube Studio Cadence (4:00 AM Night Anime Slot)
+        try:
+            from youtube_studio import check_and_run_daily_youtube_schedule
+            yt_res = check_and_run_daily_youtube_schedule(force=False, genre="anime")
+            actions = yt_res.get("actions_taken", [])
+            if actions:
+                for act in actions:
+                    log(f"  [YouTube Studio] {act}")
+        except Exception as e:
+            log(f"  [YouTube Studio] Scheduler notice: {e}")
 
         for minute in range(1, 16):
             time.sleep(60)
@@ -243,11 +254,28 @@ def main_overnight_loop():
         log("15-minute cooling & maintenance interval concluded. Refreshing agent state.")
         cycle_batch += 1
 
-    # Conclude with Morning Briefing
+    # Conclude with Morning Executive Briefing at 05:00 AM
     log("\nGenerating Morning Executive Briefing Dossier for Sir...")
     try:
-        morning_briefing.compile_morning_briefing()
+        briefing_text = morning_briefing.compile_morning_briefing()
         log("Executive Briefing successfully compiled to data/morning_briefing.md")
+
+        # Dispatch executive briefing to Telegram
+        try:
+            from telegram_bridge import send_telegram_alert
+            send_telegram_alert(
+                f"🌅 **Good morning, Mateen sir! (05:00 AM)**\n\n"
+                f"Z.A.I.N.E overnight evolution and surveillance cycles have completed successfully.\n\n"
+                f"• All database stores backed up & optimized\n"
+                f"• Cognitive distillation completed\n"
+                f"• YouTube anime battle slots monitored & executed\n"
+                f"• Executive morning intelligence compiled\n\n"
+                f"Ready for your review, Sir. Have a productive morning!",
+                parse_mode="Markdown"
+            )
+            log("Morning briefing alert dispatched to Telegram (@Zaine_mateen_bot).")
+        except Exception:
+            pass
     except Exception as e:
         log(f"Error compiling morning briefing: {e}")
 
