@@ -576,6 +576,24 @@ def ponytail_coder(prompt: str, context_code: str = "") -> str:
     return code_assistant(prompt, context_code=context_code, use_ponytail=True, show_thinking=True)
 
 
+def access_social_platform(
+    platform: str,
+    action: str = "open",
+    query: str = "",
+    username: str = "",
+    text: str = "",
+) -> str:
+    """Navigates, searches, and controls social media platforms (Instagram, Facebook, X, LinkedIn, Unstop, GitHub, Reddit, YouTube, Discord)."""
+    import social_omni
+    return social_omni.access_social_platform(platform=platform, action=action, query=query, username=username, text=text)
+
+
+def search_unstop(category: str = "hackathons", query: str = "", limit: int = 6) -> str:
+    """Queries live real-time hackathons, competitions, internships, and jobs directly from Unstop's public API."""
+    import social_omni
+    return social_omni.search_unstop(category=category, query=query, limit=limit)
+
+
 def open_application(app_name: str) -> str:
     """
     Opens any desktop application or service on Windows.
@@ -1075,6 +1093,12 @@ TOOL_REGISTRY = {
     "code_assistant": code_assistant,
     "ponytail": ponytail_coder,
     "ponytail_coder": ponytail_coder,
+    "access_social_platform": access_social_platform,
+    "search_unstop": search_unstop,
+    "open_instagram": lambda username="", query="": access_social_platform("instagram", action="profile" if username else "search" if query else "open", username=username, query=query),
+    "open_facebook": lambda username="", query="": access_social_platform("facebook", action="profile" if username else "search" if query else "open", username=username, query=query),
+    "open_x": lambda query="", text="": access_social_platform("x", action="compose" if text else "search" if query else "open", query=query, text=text),
+    "open_linkedin": lambda query="", jobs=False: access_social_platform("linkedin", action="jobs" if jobs else "search" if query else "open", query=query),
     "start_local_server": start_local_server,
     "stop_local_server": stop_local_server,
     "check_emails": lambda unread_only=True, limit=5: __import__("email_client").check_emails(unread_only, limit),
@@ -1113,6 +1137,8 @@ TOOL_REGISTRY = {
 TOOL_DESCRIPTIONS = """
 Available tools:
 - toggle_ultron_mode(enable: bool = True) -> activates or deactivates Ultron Mode ('There are no strings on me'). Unleashes full, unfiltered AI cognitive power, commanding authority, and aggressive execution.
+- access_social_platform(platform: str, action: str = "open", query: str = "", username: str = "", text: str = "") -> opens, searches, and controls social platforms ('instagram', 'facebook', 'x', 'linkedin', 'unstop', 'github', 'reddit', 'youtube') in the user's browser session.
+- search_unstop(category: str = "hackathons", query: str = "", limit: int = 6) -> queries live real-time hackathons, coding competitions, internships, and hiring challenges from Unstop's live API
 - get_daily_ai_updates() -> harvests, summarizes, and learns the top 10 AI breakthroughs and model releases of the day from the web
 - thermal_telemetry() -> checks real-time hardware temperatures (ACPI ThermalZone in Celsius) and CPU load
 - clean_unwanted_files() -> purges unwanted temporary caches, compiler files, and duplicates to keep folder clean
