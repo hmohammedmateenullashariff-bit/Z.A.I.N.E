@@ -1,0 +1,67 @@
+{
+  "summary": {
+    "total_analyzed": 20,
+    "target_short_duration_range": "30s - 60s (Average: 45s)",
+    "target_full_video_duration_range": "50s - 95s (Average: 72s)",
+    "dominant_genres": [
+      "Raga of Revenge & Indian Drill Hybrid",
+      "Brazilian Phonk / Montagem Slowed",
+      "Epic Anime Matchup & Parallel",
+      "Gaming Badass Anthem (DMC / GOW)",
+      "Pure High-Fidelity 4K Widescreen AMV (1-Min)"
+    ]
+  },
+  "proven_viral_formula": {
+    "audio_styles": [
+      {
+        "name": "Indian Dark Bass & Flute Drill (Anirudh / Raga of Revenge / Dhurandhar)",
+        "tempo_bpm": "135 - 145 BPM",
+        "vibe": "Unstoppable villain menace, godly aura entrance",
+        "references": [
+          "McHjOrsrabE",
+          "DmA4td9hge0",
+          "85pDBeNQLyI",
+          "W5-uJ-XWQE4",
+          "Oor3HszVVuw",
+          "JhBhqqnlIOk",
+          "-4dCU6Nj0dI"
+        ]
+      },
+      {
+        "name": "Brazilian Phonk / Montagem Oscurida (Slowed + Reverb)",
+        "tempo_bpm": "115 - 125 BPM",
+        "vibe": "Cold, detached assassin, sharingan glow, Sigma villain",
+        "references": [
+          "Pqb_ze51y7Y",
+          "8Fyb0LXw1BU",
+          "HPutj7SF16c"
+        ]
+      },
+      {
+        "name": "Cinematic Heavy Vocal Phonk / Slowed Pop (Raya / Weeknd / Bad Boy)",
+        "tempo_bpm": "100 - 120 BPM",
+        "vibe": "Emotional power awakening, Ultra Instinct transcendence",
+        "references": [
+          "j7194a18FEo",
+          "I8YMZccA7Bw",
+          "X-o5miPUU9w",
+          "QS1JXYTT-SU"
+        ]
+      }
+    ],
+    "visual_pacing_and_cut_rhythm": {
+      "anticipation_phase": "0.0s - 4.5s: 1 single holding shot (Character eye close-up or iconic dialogue line with quiet audio/reverb)",
+      "build_up_phase": "4.5s - 12.0s: Medium pace cuts (1.5s - 2.0s per shot), character walking or preparing jutsu",
+      "bass_drop_climax": "12.0s - 40.0s+: Rapid kinetic cuts (0.4s - 0.8s per shot) synchronized to drum kicks",
+      "impact_accent": "White flash strobe (2-3 frames) + micro screen shake (12-16px offset) on bass transients",
+      "motion_slow_down": "Holding 2.0s slow-mo freeze on decisive knockout punch or ultimate jutsu"
+    },
+    "color_and_texture_standards": {
+      "contrast": "1.20 - 1.25 (Deep crushed pitch blacks in hair, clothing folds, shadows)",
+      "saturation": "1.30 - 1.35 (Boosted red Sharingan, blue Rasengan, golden Super Saiyan auras)",
+      "edge_enhancement": "unsharp 5:5:1.1 (Razor-sharp anime cel lines)",
+      "vignette": "PI/4.4 (Darkening corners to pull attention into center action)",
+      "framerate": "60fps (High fluid motion interpolation)"
+    }
+  }
+}

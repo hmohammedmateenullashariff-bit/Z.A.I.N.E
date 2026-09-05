@@ -381,6 +381,7 @@ def generate_anime_amv(
         "category_id": "1",  # Film & Animation
         "engagement_question": question,
         "genre": "anime",
+        "duration_sec": clamped_duration,
         "file_size_mb": round(os.path.getsize(output_path) / (1024 * 1024), 2),
     }
 

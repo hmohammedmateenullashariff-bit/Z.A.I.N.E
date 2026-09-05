@@ -988,7 +988,7 @@ def generate_youtube_short(
         meta["category_id"] = anime_edit["category_id"]
         meta["engagement_question"] = anime_edit["engagement_question"]
         file_size_mb = anime_edit["file_size_mb"]
-        duration = 24.37
+        duration = anime_edit.get("duration_sec", 45.0)
         wav_path = str(PROJECT_ROOT / "workspace" / "audio" / "bg_music" / "raga_of_revenge_authentic.wav")
     else:
         print(f"1. Synthesizing voiceover [{meta['genre'].upper()}] for: '{meta['title']}'...")
