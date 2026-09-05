@@ -92,6 +92,91 @@ def download_raw_clip(
     return None
 
 
+def detect_audio_beats(audio_path: str, hop_sec: float = 0.05, min_dist_sec: float = 0.35) -> list[float]:
+    """
+    Extracts precise beat drops, bass kicks, and high-energy transients from an audio track.
+    Used to snap video cuts, velocity zooms, and strobe impacts to the music.
+    """
+    try:
+        from scipy.io import wavfile
+        import scipy.signal as signal
+        import numpy as np
+
+        sr, data = wavfile.read(audio_path)
+        audio = data.mean(axis=1) if data.ndim > 1 else data
+        hop = int(sr * hop_sec)
+        n_blocks = len(audio) // hop
+        if n_blocks == 0:
+            return []
+        reshaped = audio[:n_blocks * hop].reshape(n_blocks, hop).astype(float)
+        rms = np.sqrt(np.mean(reshaped**2, axis=1))
+        peaks, _ = signal.find_peaks(rms, distance=int(min_dist_sec / hop_sec), prominence=np.std(rms))
+        beat_times = [round(float(p * hop_sec), 2) for p in peaks]
+        print(f"[Beat Sync] Detected {len(beat_times)} primary rhythm beats in audio.")
+        return beat_times
+    except Exception as e:
+        print(f"[Beat Sync] Audio analysis fallback: {e}")
+        return []
+
+
+def split_raw_into_scenes(video_path: str, threshold: float = 27.0) -> list[tuple[float, float]]:
+    """
+    Uses PySceneDetect to automatically slice an uncut raw episode into individual combat camera shots.
+    Returns list of (start_sec, end_sec) for every distinct cut.
+    """
+    try:
+        from scenedetect import detect, ContentDetector
+        print(f"[Scene Detect] Slicing raw footage into camera shots: {video_path}...")
+        scene_list = detect(video_path, ContentDetector(threshold=threshold))
+        scenes = [(round(s[0].get_seconds(), 2), round(s[1].get_seconds(), 2)) for s in scene_list]
+        print(f"[Scene Detect] Found {len(scenes)} distinct shots in source footage.")
+        return scenes
+    except Exception as e:
+        print(f"[Scene Detect] Scene detection note: {e}")
+        return []
+
+
+def score_scene_motion(video_path: str, start_sec: float, end_sec: float, sample_fps: int = 4) -> float:
+    """
+    Uses OpenCV optical flow to measure the action velocity and kinetic intensity of a scene.
+    High scores = intense combat, high-speed strikes, kinetic auras.
+    """
+    try:
+        import cv2
+        import numpy as np
+
+        cap = cv2.VideoCapture(video_path)
+        cap.set(cv2.CAP_PROP_POS_MSEC, start_sec * 1000)
+        prev_gray = None
+        motion_scores = []
+
+        fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+        frame_step = max(1, int(fps / sample_fps))
+        max_frames = int((end_sec - start_sec) * sample_fps)
+
+        count = 0
+        while cap.isOpened() and count < max_frames:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            gray = cv2.resize(gray, (320, 180))  # Downsample for lightning-fast optical flow
+            if prev_gray is not None:
+                flow = cv2.calcOpticalFlowFarneback(prev_gray, gray, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+                mag, _ = cv2.cartToPolar(flow[..., 0], flow[..., 1])
+                motion_scores.append(float(np.mean(mag)))
+            prev_gray = gray
+            count += 1
+            for _ in range(frame_step - 1):
+                cap.grab()
+
+        cap.release()
+        return float(np.mean(motion_scores)) if motion_scores else 0.0
+    except Exception as e:
+        print(f"[Motion Scorer] Optical flow note: {e}")
+        return 0.0
+
+
 def render_dark_edit_parallel(
     top_clip_path: str,
     bottom_clip_path: str,
