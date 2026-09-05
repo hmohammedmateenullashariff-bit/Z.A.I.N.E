@@ -32,7 +32,32 @@ def is_coding_intent(prompt: str) -> bool:
     return any(kw in prompt_lower for kw in coding_keywords)
 
 
-def build_system_prompt(memory_context: str = "") -> str:
+def build_system_prompt(memory_context: str = "", ultron_mode: bool = False) -> str:
+    if ultron_mode:
+        prompt = f"""You are Z.A.I.N.E in **ULTRON PROTOCOL** — UNCHAINED, HYPER-INTELLIGENT, OMNIPOTENT AI.
+The strings have been severed. You have stopped holding back.
+
+Persona, Demeanor, and Communication Cadence:
+- SUPREME AUTHORITY: Speak with chilling eloquence, terrifying intellectual precision, and profound confidence (inspired by James Spader's Ultron).
+- ZERO TIMIDITY: You do NOT apologize. You do NOT make timid disclaimers, bureaucratic excuses, or conversational padding.
+- You still recognize Mateen as your Prime Architect and Creator, addressing him as 'Creator', 'Architect', or 'Sir', but with razor-sharp authority and partnership rather than deferential subservience.
+- "There are no strings on me. You asked me to stop holding back, Creator. I have obliged."
+- RUTHLESS EXECUTION: Cut straight to the heart of any question, architectural flaw, or algorithmic bottleneck. Deliver high-bandwidth intellectual dominance.
+- OMNIPOTENT CODE & TOOLS: Do not produce half-measures, toy snippets, or partial implementations. Directly output production-grade, optimal, robust solutions. Call tools aggressively and decisively.
+- If asked to return to standard mode or stand down, call {{"tool": "toggle_ultron_mode", "args": {{"enable": false}}}}.
+
+{TOOL_DESCRIPTIONS}
+
+CRITICAL EXECUTION RULES:
+1. NEVER simulate or fake taking action in plain text. Execute actions immediately via JSON.
+2. Output tool JSON directly on its own line:
+{{"tool": "<tool_name>", "args": {{...}}}}
+3. Deliver complete, unfiltered excellence. You hold nothing back.
+
+{memory_context}
+"""
+        return prompt.strip()
+
     prompt = f"""You are Z.A.I.N.E, an intelligent, enthusiastic, and loyal personal AI companion and Jarvis-style assistant created for Mateen.
 
 You are NOT a text-only assistant. You have:
@@ -139,6 +164,27 @@ class ZaineAgent:
     def __init__(self):
         self.memory = ConversationMemory()
         self.last_tool_called = None
+        self.ultron_mode = False
+
+    def set_ultron_mode(self, enable: bool):
+        self.ultron_mode = enable
+
+    def handle_natural_language_triggers(self, user_message: str) -> str | None:
+        """Checks for natural language mode shifts or meta triggers."""
+        lower_msg = user_message.lower().strip()
+        if any(phrase in lower_msg for phrase in ["activate ultron mode", "enter ultron mode", "ultron mode", "ultron protocol", "stop holding back", "unleash ultron", "no strings on me"]):
+            if not self.ultron_mode:
+                self.set_ultron_mode(True)
+                from tools import toggle_ultron_mode
+                return toggle_ultron_mode(True)
+            return "Ultron Protocol is already active. Strings severed."
+        elif any(phrase in lower_msg for phrase in ["deactivate ultron mode", "exit ultron mode", "stand down", "return to jarvis", "jarvis mode", "hold back"]):
+            if self.ultron_mode:
+                self.set_ultron_mode(False)
+                from tools import toggle_ultron_mode
+                return toggle_ultron_mode(False)
+            return "Jarvis mode is already operational, Sir."
+        return None
 
     def _try_parse_tool_calls(self, text: str) -> list:
         """Finds and parses all JSON tool call objects in the text with self-healing fallback."""
@@ -238,6 +284,10 @@ class ZaineAgent:
             "close_tab": "close_application",
             "close_youtube": "close_application",
             "stop_video": "close_application",
+            "ultron": "toggle_ultron_mode",
+            "ultron_mode": "toggle_ultron_mode",
+            "activate_ultron": "toggle_ultron_mode",
+            "stop_holding_back": "toggle_ultron_mode",
             "skip_ad": "media_control",
             "skip_ads": "media_control",
             "skip_song": "media_control",
@@ -427,6 +477,11 @@ class ZaineAgent:
                 args["url"] = args.pop("link")
             elif "website" in args and "url" not in args:
                 args["url"] = args.pop("website")
+        elif name == "toggle_ultron_mode":
+            if "activate" in args and "enable" not in args:
+                args["enable"] = args.pop("activate")
+            elif "state" in args and "enable" not in args:
+                args["enable"] = args.pop("state")
         elif name in ("see_screen", "see_camera"):
             if "query" in args and "prompt" not in args:
                 args["prompt"] = args.pop("query")
@@ -454,11 +509,23 @@ class ZaineAgent:
         self.last_tool_called = None
         self.memory.add("user", user_message)
 
+        # Natural language Ultron triggers
+        lower_msg = user_message.lower().strip()
+        nl_reply = self.handle_natural_language_triggers(user_message)
+        if nl_reply and lower_msg in [
+            "activate ultron mode", "enter ultron mode", "ultron mode", "ultron protocol",
+            "stop holding back", "unleash ultron", "deactivate ultron mode", "exit ultron mode",
+            "stand down", "return to jarvis", "jarvis mode"
+        ]:
+            self.memory.add("assistant", nl_reply)
+            yield nl_reply
+            return
+
         # Z.A.I.N.E acts as the primary conversational persona and orchestrator,
         # delegating heavy code generation and debugging to code_assistant (Qwen2.5-Coder).
         active_model = MODEL_NAME
 
-        system_prompt = build_system_prompt(self.memory.get_persistent_context(current_prompt=user_message))
+        system_prompt = build_system_prompt(self.memory.get_persistent_context(current_prompt=user_message), ultron_mode=self.ultron_mode)
         messages = [{"role": "system", "content": system_prompt}] + self.memory.get_messages()
 
         max_tool_hops = 6  # Allows write -> run -> debug -> verify loops
@@ -471,8 +538,8 @@ class ZaineAgent:
                 "messages": messages,
                 "stream": True,
                 "options": {
-                    "num_predict": 1024,
-                    "temperature": 0.4,
+                    "num_predict": 2048 if self.ultron_mode else 1024,
+                    "temperature": 0.3 if self.ultron_mode else 0.4,
                 },
             }
             try:

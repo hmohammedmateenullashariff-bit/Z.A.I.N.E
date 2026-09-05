@@ -137,8 +137,10 @@ class HUDRequestHandler(BaseHTTPRequestHandler):
 
             # Push initial state & telemetry upon connection
             init_status = {"type": "status", "status": self.server.ui_instance.current_status}
+            init_mode = {"type": "mode", "mode": getattr(self.server.ui_instance, "current_mode", "jarvis")}
             init_telem = {"type": "telemetry", "data": _get_system_telemetry()}
             self.wfile.write(f"data: {json.dumps(init_status)}\n\n".encode("utf-8"))
+            self.wfile.write(f"data: {json.dumps(init_mode)}\n\n".encode("utf-8"))
             self.wfile.write(f"data: {json.dumps(init_telem)}\n\n".encode("utf-8"))
             self.wfile.flush()
 
@@ -206,6 +208,17 @@ class HUDRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(payload)
             return
 
+        # 4b. Ultron Mode Status (/api/mode)
+        if path == "/api/mode":
+            mode = getattr(self.server.ui_instance, "current_mode", "jarvis")
+            payload = json.dumps({"status": "ok", "mode": mode}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
         # 5. Snapshots (/api/snapshot/screen and /api/snapshot/camera)
         if path == "/api/snapshot/screen":
             global _screen_cache
@@ -250,7 +263,23 @@ class HUDRequestHandler(BaseHTTPRequestHandler):
         except Exception:
             req_data = {}
 
-        # 1. Chat Transmission (/api/chat)
+        # 1. Ultron Mode Toggle (/api/mode)
+        if path == "/api/mode":
+            target_mode = req_data.get("mode", "").lower().strip()
+            curr = getattr(self.server.ui_instance, "current_mode", "jarvis")
+            enable = (target_mode == "ultron") if target_mode else (curr != "ultron")
+            from tools import toggle_ultron_mode
+            res_str = toggle_ultron_mode(enable)
+            active_mode = "ultron" if enable else "jarvis"
+            resp_payload = json.dumps({"status": "ok", "mode": active_mode, "message": res_str}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(resp_payload)))
+            self.end_headers()
+            self.wfile.write(resp_payload)
+            return
+
+        # 2. Chat Transmission (/api/chat)
         if path == "/api/chat":
             user_msg = req_data.get("message", "").strip()
             if not user_msg:
@@ -348,6 +377,12 @@ class HUDRequestHandler(BaseHTTPRequestHandler):
                 except Exception as e:
                     reply = f"Error getting status: {e}"
 
+            elif action in ("toggle_ultron", "ultron"):
+                curr = getattr(self.server.ui_instance, "current_mode", "jarvis")
+                enable = (curr != "ultron")
+                from tools import toggle_ultron_mode
+                reply = toggle_ultron_mode(enable)
+
             elif action == "night_mode":
                 telem = _get_system_telemetry()
                 reply = f"Night Mode is {'Active (Whisper-Quiet)' if telem['night_mode'] else 'Disabled (Daytime Normal)'}."
@@ -387,6 +422,7 @@ class ZaineUI:
         self.agent = agent
         self.port = port
         self.current_status = "idle"
+        self.current_mode = "jarvis"
         self.subscribers = []
         self._lock = threading.Lock()
         self.stop_event = threading.Event()
@@ -394,6 +430,14 @@ class ZaineUI:
         self.server_thread = None
         self.telemetry_thread = None
 
+    def set_mode(self, mode: str):
+        """Thread-safe update of current persona mode (jarvis, ultron)."""
+        clean = mode.lower().strip()
+        if clean != self.current_mode:
+            self.current_mode = clean
+            self.broadcast({"type": "mode", "mode": clean})
+            if self.agent and hasattr(self.agent, "set_ultron_mode"):
+                self.agent.set_ultron_mode(clean == "ultron")
 
     def subscribe(self) -> queue.Queue:
         q = queue.Queue(maxsize=64)

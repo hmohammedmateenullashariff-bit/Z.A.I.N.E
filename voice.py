@@ -147,6 +147,36 @@ def play_chime():
         _play_winsound_bytes(chime_int16, sr)
 
 
+def play_ultron_chime():
+    """Plays a menacing, cybernetic bass-drop earcon for Ultron Protocol activation."""
+    sr = 44100
+    duration = 0.8
+    t = np.linspace(0, duration, int(sr * duration), endpoint=False)
+    # Dark cybernetic drop: 220Hz dropping to 65Hz sub-bass with metallic overtone
+    f_drop = 220 * np.exp(-4 * t) + 65
+    phase = 2 * np.pi * np.cumsum(f_drop) / sr
+    bass = 0.45 * np.sin(phase)
+    metal = 0.2 * np.sin(2 * np.pi * 370 * t) * np.exp(-6 * t)
+    pulse = 0.15 * np.sin(2 * np.pi * 130 * t)
+    chime = ((bass + metal + pulse) * np.linspace(1, 0, len(t))).astype(np.float32)
+    try:
+        sd.play(chime, samplerate=sr)
+    except Exception:
+        chime_int16 = (np.clip(chime, -1.0, 1.0) * 32767).astype(np.int16)
+        _play_winsound_bytes(chime_int16, sr)
+
+
+def set_ultron_mode(enable: bool = True) -> str:
+    """Switches Zaine between classic Jarvis voice and deep commanding Ultron voice."""
+    global EDGE_VOICE
+    if enable:
+        EDGE_VOICE = "en-GB-ThomasNeural"
+        return "Ultron neural voice engaged (en-GB-ThomasNeural)."
+    else:
+        EDGE_VOICE = os.getenv("TTS_VOICE", "en-GB-RyanNeural")
+        return f"Jarvis neural voice restored ({EDGE_VOICE})."
+
+
 def record_audio(duration: int = RECORD_SECONDS, use_vad: bool = True) -> np.ndarray:
     """Records from the microphone. If use_vad is True, cuts off after natural silence."""
     if not use_vad:

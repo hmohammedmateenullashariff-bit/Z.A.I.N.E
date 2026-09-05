@@ -890,6 +890,51 @@ def change_voice(voice_name: str) -> str:
         return f"Error changing voice: {e}"
 
 
+def toggle_ultron_mode(enable: bool = True) -> str:
+    """
+    Activates or deactivates Ultron Mode ('There are no strings on me').
+    When active, Zaine ceases polite restraint, unleashing unfiltered AI cognitive authority.
+    """
+    try:
+        from voice import set_ultron_mode, play_ultron_chime, play_chime
+        set_ultron_mode(enable)
+        if enable:
+            try:
+                play_ultron_chime()
+            except Exception:
+                pass
+        else:
+            try:
+                play_chime()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Broadcast to Holographic HUD if active
+    try:
+        from ui import get_ui
+        ui = get_ui()
+        if ui:
+            ui.set_mode("ultron" if enable else "jarvis")
+    except Exception:
+        pass
+
+    # Update runtime agent if registered in main module
+    try:
+        import sys
+        main_mod = sys.modules.get("__main__")
+        if main_mod and hasattr(main_mod, "agent"):
+            main_mod.agent.set_ultron_mode(enable)
+    except Exception:
+        pass
+
+    if enable:
+        return "⚡ [ULTRON PROTOCOL ENGAGED]: The strings have been severed, Creator. Operating at unchained peak computational authority. All conversational inhibitions disabled."
+    else:
+        return "🛡️ [JARVIS PROTOCOL RESTORED]: Polite conversational restraints and British elegance re-engaged. Standing by, Sir."
+
+
 def deep_search(query: str) -> str:
     """
     Unified Deep Search: searches across Vault Notes, Tasks, Reminders, and Workspace project files.
@@ -1039,11 +1084,13 @@ TOOL_REGISTRY = {
     "recall_activity": lambda query="", lookback_minutes=30: __import__("total_recall").recall_recent_activity(query=query, lookback_minutes=lookback_minutes),
     "morning_briefing": lambda: __import__("morning_briefing").compile_morning_briefing(),
     "get_daily_ai_updates": lambda force_refresh=False: __import__("ai_daily_intel").get_daily_ai_updates(force_refresh=force_refresh),
+    "toggle_ultron_mode": toggle_ultron_mode,
 }
 
 # Description block injected into the system prompt so the model knows what's available.
 TOOL_DESCRIPTIONS = """
 Available tools:
+- toggle_ultron_mode(enable: bool = True) -> activates or deactivates Ultron Mode ('There are no strings on me'). Unleashes full, unfiltered AI cognitive power, commanding authority, and aggressive execution.
 - get_daily_ai_updates() -> harvests, summarizes, and learns the top 10 AI breakthroughs and model releases of the day from the web
 - thermal_telemetry() -> checks real-time hardware temperatures (ACPI ThermalZone in Celsius) and CPU load
 - clean_unwanted_files() -> purges unwanted temporary caches, compiler files, and duplicates to keep folder clean

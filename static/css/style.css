@@ -988,3 +988,141 @@ body {
   font-family: var(--font-mono);
   font-size: 12px;
 }
+
+/* ==========================================================================
+   ULTRON PROTOCOL — Unchained Crimson Neon Theme & Reactive Effects
+   ========================================================================== */
+
+/* Ultron Header Toggle Button */
+.ultron-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 0, 60, 0.12);
+  border: 1px solid rgba(255, 0, 60, 0.4);
+  color: #ff3366;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-family: var(--font-hud);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 0 10px rgba(255, 0, 60, 0.15);
+}
+
+.ultron-toggle-btn:hover {
+  background: rgba(255, 0, 60, 0.25);
+  border-color: #ff003c;
+  color: #ffffff;
+  box-shadow: 0 0 18px rgba(255, 0, 60, 0.45);
+  transform: translateY(-1px);
+}
+
+.ultron-quick-btn {
+  border-color: rgba(255, 0, 60, 0.4) !important;
+  color: #ff3366 !important;
+}
+
+.ultron-quick-btn:hover {
+  background: rgba(255, 0, 60, 0.22) !important;
+  border-color: #ff003c !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 14px rgba(255, 0, 60, 0.35) !important;
+}
+
+/* THEME: Ultron Mode Overrides */
+body.theme-ultron {
+  --bg-space: #070103;
+  --bg-panel: rgba(18, 4, 7, 0.85);
+  --bg-card: rgba(30, 8, 13, 0.72);
+  --bg-input: rgba(24, 6, 10, 0.9);
+  
+  --neon-cyan: #ff003c;
+  --neon-cyan-glow: rgba(255, 0, 60, 0.55);
+  --neon-emerald: #ff1a40;
+  --neon-emerald-glow: rgba(255, 26, 64, 0.55);
+  --neon-blue: #a30024;
+  --border-cyan: rgba(255, 0, 60, 0.35);
+  
+  --text-main: #fde8eb;
+  --text-bright: #ffffff;
+}
+
+body.theme-ultron .hud-background-grid {
+  background-image: 
+    linear-gradient(rgba(255, 0, 60, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 0, 60, 0.045) 1px, transparent 1px);
+}
+
+body.theme-ultron .hud-ambient-glow {
+  background: radial-gradient(circle, rgba(255, 0, 60, 0.12) 0%, transparent 70%);
+}
+
+body.theme-ultron .ultron-toggle-btn {
+  background: #ff003c;
+  color: #ffffff;
+  border-color: #ff3366;
+  box-shadow: 0 0 20px rgba(255, 0, 60, 0.7), inset 0 0 8px rgba(255, 255, 255, 0.4);
+  animation: ultronGlowPulse 1.5s infinite alternate ease-in-out;
+}
+
+body.theme-ultron .sys-badge {
+  background: rgba(255, 0, 60, 0.2);
+  border-color: #ff003c;
+  color: #ff3366;
+}
+
+body.theme-ultron .pulsing-dot {
+  background: #ff003c;
+  box-shadow: 0 0 10px #ff003c;
+}
+
+body.theme-ultron .arc-reactor-core {
+  background: radial-gradient(circle, #ffffff 0%, #ff003c 45%, #4a000d 90%);
+  box-shadow: 0 0 35px rgba(255, 0, 60, 0.9), inset 0 0 15px rgba(255, 255, 255, 0.8);
+  animation: ultronCorePulse 1.8s infinite alternate ease-in-out;
+}
+
+body.theme-ultron .ring {
+  border-color: rgba(255, 0, 60, 0.4) !important;
+}
+
+body.theme-ultron .ring-1 {
+  border-top-color: #ff003c !important;
+}
+
+body.theme-ultron .ring-2 {
+  border-right-color: #ff3366 !important;
+}
+
+body.theme-ultron .ring-3 {
+  border-bottom-color: #ff003c !important;
+}
+
+body.theme-ultron .fill-cyan {
+  background: linear-gradient(90deg, #a30024, #ff003c) !important;
+  box-shadow: 0 0 10px rgba(255, 0, 60, 0.5) !important;
+}
+
+body.theme-ultron .input-prefix {
+  color: #ff003c !important;
+  text-shadow: 0 0 8px rgba(255, 0, 60, 0.6) !important;
+}
+
+body.theme-ultron .submit-btn {
+  background: #ff003c !important;
+  box-shadow: 0 0 16px rgba(255, 0, 60, 0.5) !important;
+}
+
+@keyframes ultronGlowPulse {
+  0% { box-shadow: 0 0 12px rgba(255, 0, 60, 0.4); }
+  100% { box-shadow: 0 0 24px rgba(255, 0, 60, 0.9); }
+}
+
+@keyframes ultronCorePulse {
+  0% { transform: translate(-50%, -50%) scale(0.95); box-shadow: 0 0 25px rgba(255, 0, 60, 0.6); }
+  100% { transform: translate(-50%, -50%) scale(1.1); box-shadow: 0 0 45px rgba(255, 0, 60, 1.0); }
+}
+

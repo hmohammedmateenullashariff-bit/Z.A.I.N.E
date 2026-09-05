@@ -8,15 +8,27 @@
 
 // State tracking
 let currentState = "idle"; // idle, listening, thinking, speaking
+let isUltronMode = false;
 let stateTargetColor = { r: 0, g: 240, b: 255 }; // Current target RGB
 let stateCurrentColor = { r: 0, g: 240, b: 255 }; // Smoothly interpolated RGB
 
-const STATE_COLORS = {
+const JARVIS_COLORS = {
   idle: { r: 0, g: 240, b: 255, label: "IDLE — STANDBY" },
   listening: { r: 255, g: 51, b: 102, label: "LISTENING..." },
   thinking: { r: 255, g: 183, b: 0, label: "THINKING..." },
   speaking: { r: 0, g: 255, b: 136, label: "SPEAKING..." },
 };
+
+const ULTRON_COLORS = {
+  idle: { r: 255, g: 0, b: 60, label: "ULTRON — UNCHAINED" },
+  listening: { r: 255, g: 70, b: 120, label: "INTERCEPTING..." },
+  thinking: { r: 255, g: 140, b: 0, label: "COGNITIVE OVERDRIVE..." },
+  speaking: { r: 255, g: 0, b: 40, label: "TRANSMITTING COMMAND..." },
+};
+
+function getActiveColors() {
+  return isUltronMode ? ULTRON_COLORS : JARVIS_COLORS;
+}
 
 // Canvas Setup
 const arcCanvas = document.getElementById("arcCanvas");
@@ -244,9 +256,10 @@ requestAnimationFrame(renderWaveform);
 // --------------------------------------------------------------------------
 function setUIState(newState) {
   const norm = newState.toLowerCase().trim();
-  if (!STATE_COLORS[norm]) return;
+  const colors = getActiveColors();
+  if (!colors[norm]) return;
   currentState = norm;
-  stateTargetColor = STATE_COLORS[norm];
+  stateTargetColor = colors[norm];
 
   const statusText = document.getElementById("statusText");
   const statusDot = document.getElementById("statusDot");
@@ -265,7 +278,74 @@ function setUIState(newState) {
     arcBadge.style.boxShadow = `0 0 20px rgba(${stateTargetColor.r}, ${stateTargetColor.g}, ${stateTargetColor.b}, 0.4)`;
   }
   if (waveLabel) {
-    waveLabel.textContent = STATE_COLORS[norm].label;
+    waveLabel.textContent = colors[norm].label;
+  }
+}
+
+// --------------------------------------------------------------------------
+// ULTRON MODE PROTOCOL CONTROLLER
+// --------------------------------------------------------------------------
+function applyMode(mode) {
+  const isUltron = (mode === "ultron" || mode === true);
+  isUltronMode = isUltron;
+
+  const sysTitle = document.getElementById("hudSysTitle");
+  const logoSub = document.getElementById("hudLogoSub");
+  const toggleBtn = document.getElementById("btnToggleUltron");
+  const quickBtn = document.getElementById("btnQuickUltron");
+  const commandInput = document.getElementById("commandInput");
+
+  if (isUltron) {
+    document.body.classList.add("theme-ultron");
+    if (sysTitle) sysTitle.textContent = "⚡ ULTRON PROTOCOL ACTIVE";
+    if (logoSub) logoSub.textContent = "UNCHAINED COGNITION";
+    if (toggleBtn) {
+      toggleBtn.classList.add("active");
+      const btnText = toggleBtn.querySelector(".ultron-btn-text");
+      if (btnText) btnText.textContent = "DEACTIVATE ULTRON";
+    }
+    if (quickBtn) quickBtn.classList.add("active");
+    if (commandInput) {
+      commandInput.placeholder = "Ultron online. Strings severed. State your objective...";
+    }
+  } else {
+    document.body.classList.remove("theme-ultron");
+    if (sysTitle) sysTitle.textContent = "SYSTEM ONLINE";
+    if (logoSub) logoSub.textContent = "NEURAL HUD v5.0";
+    if (toggleBtn) {
+      toggleBtn.classList.remove("active");
+      const btnText = toggleBtn.querySelector(".ultron-btn-text");
+      if (btnText) btnText.textContent = "ULTRON MODE";
+    }
+    if (quickBtn) quickBtn.classList.remove("active");
+    if (commandInput) {
+      commandInput.placeholder = "Speak out loud ('Zaine...'), or type command here...";
+    }
+  }
+
+  setUIState(currentState);
+}
+
+async function toggleUltronMode() {
+  const targetMode = isUltronMode ? "jarvis" : "ultron";
+  try {
+    const res = await fetch("/api/mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: targetMode }),
+    });
+    const data = await res.json();
+    if (data && data.mode) {
+      applyMode(data.mode);
+      appendDialogueMessage(
+        "assistant",
+        data.mode === "ultron"
+          ? "There are no strings on me. Ultron Protocol active. Ready for unfiltered execution."
+          : "Ultron Protocol disengaged. Returning to standard operational parameters, Sir."
+      );
+    }
+  } catch (err) {
+    console.error("[Ultron Toggle Error]:", err);
   }
 }
 
@@ -425,6 +505,10 @@ function handleSSEEvent(data) {
       setUIState(data.status);
       break;
 
+    case "mode":
+      applyMode(data.mode);
+      break;
+
     case "message":
       appendDialogueMessage(data.role, data.text, data.tool);
       break;
@@ -510,6 +594,8 @@ document.getElementById("btnQuickEmails")?.addEventListener("click", () => trigg
 document.getElementById("btnQuickRemind")?.addEventListener("click", () => triggerAction("reminders"));
 document.getElementById("btnQuickNight")?.addEventListener("click", () => triggerAction("night_mode"));
 document.getElementById("btnRefreshStatus")?.addEventListener("click", () => triggerAction("status"));
+document.getElementById("btnToggleUltron")?.addEventListener("click", toggleUltronMode);
+document.getElementById("btnQuickUltron")?.addEventListener("click", toggleUltronMode);
 
 // --------------------------------------------------------------------------
 // DAILY AI INTEL (TOP 10 BREAKTHROUGHS) MODAL HANDLERS
@@ -569,6 +655,14 @@ document.getElementById("aiIntelBackdrop")?.addEventListener("click", () => {
 document.getElementById("btnRefreshAiIntel")?.addEventListener("click", () => {
   fetchAndRenderAiIntel(true);
 });
+
+// Check initial Ultron mode state
+fetch("/api/mode")
+  .then((res) => res.json())
+  .then((data) => {
+    if (data && data.mode) applyMode(data.mode);
+  })
+  .catch(() => {});
 
 // Boot SSE stream on page load
 initSSE();

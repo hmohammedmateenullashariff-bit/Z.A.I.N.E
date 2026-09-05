@@ -21,17 +21,21 @@
     <!-- Top Header Bar -->
     <header class="hud-header">
       <div class="header-left">
-        <div class="sys-badge">
-          <span class="pulsing-dot"></span>
-          <span class="sys-title">SYSTEM ONLINE</span>
+        <div class="sys-badge" id="hudSysBadge">
+          <span class="pulsing-dot" id="hudSysDot"></span>
+          <span class="sys-title" id="hudSysTitle">SYSTEM ONLINE</span>
         </div>
-        <h1 class="logo-text">Z.A.I.N.E <span class="logo-sub">NEURAL HUD v5.0</span></h1>
+        <h1 class="logo-text" id="hudLogoText">Z.A.I.N.E <span class="logo-sub" id="hudLogoSub">NEURAL HUD v5.0</span></h1>
       </div>
       <div class="header-center">
         <div class="clock-display" id="hudClock">00:00:00</div>
         <div class="date-display" id="hudDate">FRIDAY, SEPTEMBER 04, 2026</div>
       </div>
       <div class="header-right">
+        <button class="ultron-toggle-btn" id="btnToggleUltron" title="Toggle Ultron Mode Protocol">
+          <span class="ultron-btn-icon">⚡</span>
+          <span class="ultron-btn-text">ULTRON MODE</span>
+        </button>
         <div class="mode-indicator" id="nightModeIndicator">
           <span class="indicator-icon">☀️</span>
           <span class="indicator-text">DAYTIME NORMAL</span>
@@ -234,6 +238,10 @@
         <button class="quick-btn" id="btnQuickNight" title="Toggle Quiet Night Mode">
           <span class="btn-icon">🌙</span>
           <span>NIGHT MODE</span>
+        </button>
+        <button class="quick-btn ultron-quick-btn" id="btnQuickUltron" title="Toggle Ultron Protocol (Unfiltered Cognition)">
+          <span class="btn-icon">⚡</span>
+          <span>ULTRON</span>
         </button>
       </div>
 
