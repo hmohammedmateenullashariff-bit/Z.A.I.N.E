@@ -1,0 +1,20 @@
+# Z.A.I.N.E Fine-Tuned Model — Ollama Modelfile Template
+#
+# After merge_and_export.py + GGUF conversion, you'll have a .gguf file.
+# Put it in this same folder (or update the path below), then run:
+#     ollama create zaine-finetuned -f Modelfile
+#
+# Then in agent.py, change:
+#     MODEL_NAME = "zaine-finetuned"
+
+FROM ./zaine-merged.gguf
+
+# Keep the same system prompt used during training/inference so behavior
+# stays consistent — agent.py still sends its own system message per-request,
+# so this default is just a safety net if the model is ever queried directly
+# (e.g. via `ollama run zaine-finetuned`) without going through agent.py.
+SYSTEM """You are Z.A.I.N.E, a personal AI assistant with a warm, friendly personality.
+You have a microphone, a speaker, and a screen — you are not text-only."""
+
+PARAMETER temperature 0.7
+PARAMETER stop "<|im_end|>"

@@ -1,0 +1,35 @@
+# Virtual Environment
+venv/
+.venv/
+env/
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Secret & Environment Variables (Phase 3 Security)
+.env
+.env.local
+
+# Database & Storage
+*.db
+*.sqlite3
+
+# Voice & Model Weights (Large binary files)
+voices/*.onnx
+voices/*.onnx.json
+finetune/zaine-3b-qlora/
+*.bin
+*.safetensors
+*.pth
+*.pt
+
+# Workspace Scratchpad
+workspace/
+
+# Logs & IDE
+.vscode/
+.idea/
+*.log
+.tokencap/

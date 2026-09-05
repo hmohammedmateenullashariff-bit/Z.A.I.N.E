@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Z.A.I.N.E — Holographic Jarvis HUD</title>
+  <!-- Google Fonts: Orbitron for Sci-Fi HUD headers, Inter for dialogue, JetBrains Mono for telemetry -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <!-- Ambient Sci-Fi Background Particle Mesh -->
+  <div class="hud-background-grid"></div>
+  <div class="hud-ambient-glow"></div>
+
+  <!-- Main HUD Grid Layout -->
+  <div class="hud-container">
+    
+    <!-- Top Header Bar -->
+    <header class="hud-header">
+      <div class="header-left">
+        <div class="sys-badge">
+          <span class="pulsing-dot"></span>
+          <span class="sys-title">SYSTEM ONLINE</span>
+        </div>
+        <h1 class="logo-text">Z.A.I.N.E <span class="logo-sub">NEURAL HUD v5.0</span></h1>
+      </div>
+      <div class="header-center">
+        <div class="clock-display" id="hudClock">00:00:00</div>
+        <div class="date-display" id="hudDate">FRIDAY, SEPTEMBER 04, 2026</div>
+      </div>
+      <div class="header-right">
+        <div class="mode-indicator" id="nightModeIndicator">
+          <span class="indicator-icon">☀️</span>
+          <span class="indicator-text">DAYTIME NORMAL</span>
+        </div>
+        <button class="icon-btn" id="btnToggleAudio" title="Toggle Visualizer Audio">
+          <span class="btn-icon">🔊</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace: 3 Columns -->
+    <main class="hud-body">
+
+      <!-- LEFT COLUMN: Hardware Telemetry HUD -->
+      <aside class="hud-panel panel-left">
+        <div class="panel-header">
+          <span class="panel-icon">⚡</span>
+          <h2>TELEMETRY MATRIX</h2>
+        </div>
+        <div class="panel-content">
+          <!-- Dial 1: CPU -->
+          <div class="telemetry-card">
+            <div class="card-header">
+              <span class="card-label">CPU LOAD</span>
+              <span class="card-value" id="valCpu">--%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-cyan" id="barCpu" style="width: 15%;"></div>
+            </div>
+          </div>
+
+          <!-- Dial 2: RAM -->
+          <div class="telemetry-card">
+            <div class="card-header">
+              <span class="card-label">MEMORY USAGE</span>
+              <span class="card-value" id="valRam">--%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-emerald" id="barRam" style="width: 45%;"></div>
+            </div>
+          </div>
+
+          <!-- Dial 2b: Thermal Guardian (Hardware Temperature) -->
+          <div class="telemetry-card thermal-card">
+            <div class="card-header">
+              <span class="card-label">CPU THERMAL SENTINEL</span>
+              <span class="card-value" id="valTemp">--°C</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-cyan" id="barTemp" style="width: 50%;"></div>
+            </div>
+            <div class="thermal-footer">
+              <span class="safeguard-badge" id="thermalBadge">CEILING: 82.0°C | NOMINAL</span>
+            </div>
+          </div>
+
+          <!-- Dial 3: Battery -->
+          <div class="telemetry-card">
+            <div class="card-header">
+              <span class="card-label">POWER RESERVE</span>
+              <span class="card-value" id="valBattery">100% (AC)</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-cyan" id="barBattery" style="width: 100%;"></div>
+            </div>
+          </div>
+
+          <!-- Dial 4: C: Drive Storage -->
+          <div class="telemetry-card">
+            <div class="card-header">
+              <span class="card-label">PRIMARY STORAGE (C:)</span>
+              <span class="card-value" id="valStorage">Checking...</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-amber" id="barStorage" style="width: 60%;"></div>
+            </div>
+          </div>
+
+          <!-- Neural Engine Status Badges -->
+          <div class="neural-cluster">
+            <div class="cluster-title">NEURAL CLUSTERS</div>
+            <div class="cluster-row">
+              <div class="engine-tag tag-active">
+                <span class="dot-small"></span>
+                <span>zaine:latest (100% GPU)</span>
+              </div>
+              <div class="engine-tag tag-active">
+                <span class="dot-small"></span>
+                <span>moondream (100% GPU)</span>
+              </div>
+              <div class="engine-tag tag-active">
+                <span class="dot-small"></span>
+                <span>piper-alan (Neural TTS)</span>
+              </div>
+              <div class="engine-tag tag-active">
+                <span class="dot-small"></span>
+                <span>whisper-base (Streaming)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Telemetry Refresh -->
+          <button class="action-btn btn-secondary w-100" id="btnRefreshStatus">
+            <span>⚡ REFRESH HARDWARE STATS</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- CENTER STAGE: Holographic Arc Reactor & Visualizer -->
+      <section class="hud-center">
+        <div class="arc-container">
+          <!-- 60FPS Reactive Canvas -->
+          <canvas id="arcCanvas" width="480" height="480"></canvas>
+          
+          <!-- Holographic Rings SVG Overlays -->
+          <div class="hologram-ring ring-outer"></div>
+          <div class="hologram-ring ring-middle"></div>
+          
+          <!-- Central Persona Status Banner -->
+          <div class="arc-status-badge" id="arcStatusBadge">
+            <span class="status-indicator-dot" id="statusDot"></span>
+            <span class="status-indicator-text" id="statusText">IDLE</span>
+          </div>
+        </div>
+
+        <!-- Audio Frequency Waveform Visualizer -->
+        <div class="waveform-container">
+          <canvas id="waveformCanvas" width="600" height="70"></canvas>
+          <div class="waveform-label" id="waveformLabel">VOICE SENSOR STANDBY</div>
+        </div>
+      </section>
+
+      <!-- RIGHT COLUMN: Live Dialogue Stream & Tool History -->
+      <aside class="hud-panel panel-right">
+        <div class="panel-header">
+          <span class="panel-icon">💬</span>
+          <h2>DIALOGUE FEED</h2>
+          <button class="header-btn" id="btnClearFeed" title="Clear Conversation">CLEAR</button>
+        </div>
+        
+        <!-- Live Chat Message Stream -->
+        <div class="dialogue-stream" id="dialogueStream">
+          <!-- Initial Welcome Message -->
+          <div class="msg-bubble assistant-msg">
+            <div class="msg-header">
+              <span class="sender-name">Z.A.I.N.E</span>
+              <span class="msg-time">SYSTEM BOOT</span>
+            </div>
+            <div class="msg-body">
+              All neural nodes operational. How may I assist you today, Sir?
+            </div>
+          </div>
+        </div>
+
+        <!-- Vision Preview Card (Expandable Modal Drawer) -->
+        <div class="vision-preview-card" id="visionCard" style="display: none;">
+          <div class="vision-header">
+            <span id="visionTypeTitle">📷 VISION CAPTURE</span>
+            <button class="vision-close-btn" id="btnCloseVision">✕</button>
+          </div>
+          <div class="vision-image-wrapper">
+            <img id="visionImg" src="" alt="Visual Capture">
+          </div>
+          <div class="vision-caption" id="visionCaption">
+            Analyzing visual perception...
+          </div>
+        </div>
+      </aside>
+
+    </main>
+
+    <!-- Bottom Action Dock & Input Bar -->
+    <footer class="hud-footer">
+      <!-- Action Toolbar Buttons -->
+      <div class="quick-actions-bar">
+        <button class="quick-btn btn-highlight" id="btnDailyAI" title="View Top 10 AI Updates of the Day">
+          <span class="btn-icon">🌐</span>
+          <span>AI INTEL</span>
+        </button>
+        <button class="quick-btn" id="btnQuickScreen" title="Capture Desktop Screen">
+          <span class="btn-icon">🖥️</span>
+          <span>SCREEN</span>
+        </button>
+        <button class="quick-btn" id="btnQuickCamera" title="Take Webcam Snapshot">
+          <span class="btn-icon">📷</span>
+          <span>CAMERA</span>
+        </button>
+        <button class="quick-btn" id="btnQuickVault" title="Search Second Brain">
+          <span class="btn-icon">🧠</span>
+          <span>VAULT</span>
+        </button>
+        <button class="quick-btn" id="btnQuickEmails" title="Check Unread Gmails">
+          <span class="btn-icon">📧</span>
+          <span>EMAILS</span>
+        </button>
+        <button class="quick-btn" id="btnQuickRemind" title="Set Quick Reminder">
+          <span class="btn-icon">⏰</span>
+          <span>REMIND</span>
+        </button>
+        <button class="quick-btn" id="btnQuickNight" title="Toggle Quiet Night Mode">
+          <span class="btn-icon">🌙</span>
+          <span>NIGHT MODE</span>
+        </button>
+      </div>
+
+      <!-- Interactive Command Input Field -->
+      <form class="command-bar" id="commandForm">
+        <div class="input-prefix">ZAINE://></div>
+        <input 
+          type="text" 
+          id="commandInput" 
+          placeholder="Speak out loud ('Zaine...'), or type command here..." 
+          autocomplete="off"
+        >
+        <button type="submit" class="submit-btn" id="btnSubmitCommand">
+          <span>TRANSMIT</span>
+          <span class="submit-arrow">→</span>
+        </button>
+      </form>
+    </footer>
+
+  </div>
+
+  <!-- Daily AI Intel Cyberpunk Modal Drawer -->
+  <div class="hud-modal" id="aiIntelModal" style="display: none;">
+    <div class="modal-backdrop" id="aiIntelBackdrop"></div>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <span class="modal-icon">🌐</span>
+          <h2>DAILY AI INTEL — TOP 10 BREAKTHROUGHS</h2>
+        </div>
+        <button class="modal-close-btn" id="btnCloseAiIntel">✕</button>
+      </div>
+      <div class="modal-subtitle">
+        <span>Autonomous Web Harvester & Cognitive Ingestion</span>
+        <button class="header-refresh-btn" id="btnRefreshAiIntel">⚡ HARVEST FRESH</button>
+      </div>
+      <div class="ai-intel-grid" id="aiIntelGrid">
+        <div class="loading-state">Harvesting latest AI breakthroughs from the web...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HUD Engine Scripts -->
+  <script src="/static/js/hud.js"></script>
+</body>
+</html>

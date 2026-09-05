@@ -1,0 +1,15 @@
+requests
+colorama
+faster-whisper
+sounddevice
+numpy
+scipy
+piper-tts
+Pillow
+psutil
+python-dotenv
+pyautogui
+opencv-python
+mss
+edge-tts
+av
