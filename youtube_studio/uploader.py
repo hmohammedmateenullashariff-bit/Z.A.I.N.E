@@ -55,7 +55,7 @@ def refresh_access_token(token_data: Dict[str, Any]) -> Optional[str]:
     client_secret = token_data.get("client_secret") or os.getenv("YOUTUBE_CLIENT_SECRET")
 
     if not (refresh_token and client_id and client_secret):
-        return token_data.get("access_token")
+        return token_data.get("access_token") or token_data.get("token")
 
     try:
         payload = {
@@ -68,6 +68,7 @@ def refresh_access_token(token_data: Dict[str, Any]) -> Optional[str]:
         if resp.status_code == 200:
             new_data = resp.json()
             token_data["access_token"] = new_data["access_token"]
+            token_data["token"] = new_data["access_token"]
             token_data["updated_at"] = datetime.datetime.now().isoformat()
             TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
             with open(TOKEN_FILE, "w", encoding="utf-8") as f:
@@ -76,7 +77,7 @@ def refresh_access_token(token_data: Dict[str, Any]) -> Optional[str]:
     except Exception as e:
         print(f"[YouTube Uploader] Token refresh notice: {e}")
 
-    return token_data.get("access_token")
+    return token_data.get("access_token") or token_data.get("token")
 
 
 def get_upload_queue() -> List[Dict[str, Any]]:

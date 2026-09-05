@@ -11,6 +11,11 @@ __pycache__/
 # Secret & Environment Variables (Phase 3 Security)
 .env
 .env.local
+client_secret*.json
+data/youtube_token.json
+data/youtube_queue.json
+data/youtube_schedule_state.json
+data/youtube_analytics_history.json
 
 # Database & Storage
 *.db

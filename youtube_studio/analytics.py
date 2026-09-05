@@ -27,8 +27,8 @@ def get_channel_analytics(channel_id: Optional[str] = None) -> Dict[str, Any]:
     api_key = os.getenv("YOUTUBE_API_KEY", "").strip()
 
     # 1. Try Authenticated Channel Request
-    if token_data and (token_data.get("access_token") or token_data.get("refresh_token")):
-        access_token = refresh_access_token(token_data)
+    if token_data and (token_data.get("access_token") or token_data.get("token") or token_data.get("refresh_token")):
+        access_token = refresh_access_token(token_data) or token_data.get("token")
         headers = {"Authorization": f"Bearer {access_token}"}
         url = "https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&mine=true"
         try:
@@ -47,6 +47,17 @@ def get_channel_analytics(channel_id: Optional[str] = None) -> Dict[str, Any]:
                         "subscribers": int(stats.get("subscriberCount", 0)),
                         "total_views": int(stats.get("viewCount", 0)),
                         "total_videos": int(stats.get("videoCount", 0)),
+                        "source": "YouTube Data API (OAuth2)",
+                    })
+                else:
+                    return _record_analytics_snapshot({
+                        "connected": True,
+                        "channel_title": "Authenticated Google Account",
+                        "custom_url": "",
+                        "subscribers": 0,
+                        "total_views": 0,
+                        "total_videos": 0,
+                        "notice": "Google OAuth is active! If your channel has not been initialized yet, visit https://www.youtube.com/create_channel to set your channel name.",
                         "source": "YouTube Data API (OAuth2)",
                     })
         except Exception as e:
