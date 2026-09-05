@@ -228,44 +228,58 @@ def generate_anime_amv(
     output_path = str(SHORTS_DIR / output_filename)
     bgm_raga = AUDIO_DIR / "raga_of_revenge_authentic.wav"
 
-    # Default fallback / reference asset
-    reference_video = EDITS_DIR / "reference" / "naruto_sasuke_reference_full.mp4"
+    # STRICT INTEGRITY RULE: Never use or re-upload another creator's edit.
+    # Source footage MUST be raw anime fight clips from workspace/edits/raw_clips/ or freshly harvested.
+    raw_clip_top = CLIPS_DIR / f"{topic.lower().replace(' ', '_')}_top_raw.mp4"
+    raw_clip_bottom = CLIPS_DIR / f"{topic.lower().replace(' ', '_')}_bottom_raw.mp4"
 
     if "naruto" in topic_lower or "sasuke" in topic_lower:
-        title = "Naruto vs Sasuke X Raga of Revenge | The Final Parallel 💥🔥 #shorts #naruto #sasuke #anime #edit"
+        title = "Naruto vs Sasuke | The Valley of the End Parallels 💥🔥 #shorts #naruto #sasuke #anime #edit"
         description = (
-            "The legendary parallel between the First Valley of the End and the Final Battle. "
-            "Naruto vs Sasuke synced to the iconic Raga of Revenge soundtrack.\n\n"
-            "Which parallel hit you harder: Genin or Shippuden? Drop your thoughts in the comments! 👇\n\n"
-            "#naruto #sasuke #anime #amv #darkedit #shippuden #ragaofrevenge #narutoshippuden #animeedit #zaineeditz #shorts"
+            "Original parallel compilation: Naruto vs Sasuke Part 1 vs Shippuden Final Battle.\n\n"
+            "Which battle had better hand-to-hand choreography? Drop your vote below! 👇\n\n"
+            "#naruto #sasuke #anime #amv #darkedit #shippuden #animeedit #zaineeditz #shorts"
         )
-        tags = ["Naruto", "Sasuke", "Anime", "AMV", "Naruto vs Sasuke", "Raga of Revenge", "Dark Edit", "Anime Edit", "Shippuden", "Shorts", "ZaineEditz"]
-        question = "Which parallel hit you harder: The First Valley of the End, or the Final Battle? Drop your thoughts! 💥👇"
-        matchup_clip = reference_video
+        tags = ["Naruto", "Sasuke", "Anime", "AMV", "Naruto vs Sasuke", "Anime Edit", "Shippuden", "Shorts", "ZaineEditz"]
+        question = "Which battle had better hand-to-hand choreography: Part 1 or Shippuden? Drop your thoughts! 💥👇"
     else:
-        # Generic high-energy anime matchup (e.g., Goku vs Vegeta, Luffy vs Kaido, Gojo vs Sukuna)
-        title = f"{topic} X Raga of Revenge | Dark Edit 💥🔥 #shorts #anime #edit"
+        title = f"{topic} | Power Clash Edit 💥🔥 #shorts #anime #edit"
         description = (
-            f"High-octane battle breakdown: {topic}. Synced to the iconic Raga of Revenge soundtrack.\n\n"
+            f"Original battle edit: {topic}.\n\n"
             "Who takes the victory in your eyes? Drop your vote below! 👇\n\n"
             f"#anime #{topic.replace(' ', '').lower()} #amv #darkedit #animeedit #zaineeditz #shorts"
         )
         tags = [topic, "Anime", "AMV", "Dark Edit", "Anime Edit", "Shorts", "ZaineEditz"]
         question = f"Who takes the victory in {topic}? Drop your vote below! 💥👇"
-        # Download or harvest clip if not available
-        matchup_clip = reference_video
 
-    # If reference exists, apply master grade
-    if matchup_clip.exists():
+    # Verify or harvest raw unedited source clips
+    if not (raw_clip_top.exists() and raw_clip_bottom.exists()):
+        print(f"[Anime Editor] Harvesting raw unedited source clips for '{topic}'...")
+        download_raw_clip(f"{topic} raw fight 1080p", raw_clip_top.name)
+        download_raw_clip(f"{topic} final battle raw 1080p", raw_clip_bottom.name)
+
+    if raw_clip_top.exists() and raw_clip_bottom.exists():
+        render_dark_edit_parallel(
+            top_clip_path=str(raw_clip_top),
+            bottom_clip_path=str(raw_clip_bottom),
+            audio_path=str(bgm_raga) if bgm_raga.exists() else "",
+            output_path=output_path,
+            crf=crf,
+        )
+    elif raw_clip_top.exists():
         apply_dark_editz_master_grade(
-            input_video_path=str(matchup_clip),
+            input_video_path=str(raw_clip_top),
             output_path=output_path,
             audio_track_path=str(bgm_raga) if bgm_raga.exists() else None,
-            watermark_text="ZAINE EDITZ",
             crf=crf,
         )
     else:
-        raise FileNotFoundError(f"Source video footage not found at {matchup_clip}")
+        # If no raw clips are yet harvested, render cannot proceed on unoriginal material
+        raise FileNotFoundError(
+            f"No raw anime fight footage found for '{topic}' in {CLIPS_DIR}. "
+            "Zaine strictly forbids reusing existing creator edits. "
+            "Please provide raw anime footage or allow the idle harvester to cache original source clips."
+        )
 
     return {
         "video_path": output_path,
