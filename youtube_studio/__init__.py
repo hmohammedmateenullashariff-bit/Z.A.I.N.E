@@ -8,6 +8,7 @@ from .content_generator import generate_youtube_short
 from .uploader import upload_youtube_video, get_upload_queue
 from .analytics import get_channel_analytics, format_analytics_dossier
 from .scheduler import check_and_run_daily_youtube_schedule, get_studio_status
+from .anime_editor import generate_anime_amv, harvest_anime_assets_during_idle
 
 __all__ = [
     "generate_youtube_short",
@@ -17,4 +18,7 @@ __all__ = [
     "format_analytics_dossier",
     "check_and_run_daily_youtube_schedule",
     "get_studio_status",
+    "generate_anime_amv",
+    "harvest_anime_assets_during_idle",
 ]
+

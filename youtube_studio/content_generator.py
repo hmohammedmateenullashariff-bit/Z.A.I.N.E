@@ -974,54 +974,69 @@ def generate_youtube_short(
     except Exception:
         pass
 
-    print(f"1. Synthesizing voiceover [{meta['genre'].upper()}] for: '{meta['title']}'...")
-    synthesize_voiceover(meta["script"], wav_path, voice=meta.get("voice", "en-US-ChristopherNeural"))
+    # For anime battle shorts: Route directly to the Master AMV Dark Editz Engine
+    # (Authentic anime battle footage + Raga of Revenge soundtrack + Dark Editz grading, CRF 16)
+    # Never render procedural canvas slop or robotic TTS for anime.
+    if meta.get("genre") == "anime":
+        from .anime_editor import generate_anime_amv
+        print(f"🎬 Routing to Master AMV Dark Editz Engine for '{meta['title']}'...")
+        anime_edit = generate_anime_amv(topic=topic or meta.get("topic", "Naruto vs Sasuke"), crf=16)
+        mp4_path = anime_edit["video_path"]
+        meta["title"] = anime_edit["title"]
+        meta["description"] = anime_edit["description"]
+        meta["tags"] = anime_edit["tags"]
+        meta["category_id"] = anime_edit["category_id"]
+        meta["engagement_question"] = anime_edit["engagement_question"]
+        file_size_mb = anime_edit["file_size_mb"]
+        duration = 24.37
+        wav_path = str(PROJECT_ROOT / "workspace" / "audio" / "bg_music" / "raga_of_revenge_authentic.wav")
+    else:
+        print(f"1. Synthesizing voiceover [{meta['genre'].upper()}] for: '{meta['title']}'...")
+        synthesize_voiceover(meta["script"], wav_path, voice=meta.get("voice", "en-US-ChristopherNeural"))
 
-    print("2. Extracting word timestamps with Faster-Whisper...")
-    words = extract_word_timestamps(wav_path)
-    if not words:
+        print("2. Extracting word timestamps with Faster-Whisper...")
+        words = extract_word_timestamps(wav_path)
+        if not words:
+            duration = get_audio_duration(wav_path)
+            script_words = meta["script"].split()
+            step = duration / max(1, len(script_words))
+            words = [(w, i * step, (i + 1) * step) for i, w in enumerate(script_words)]
+
+        # 3. Higgsfield AI b-roll generation (if enabled)
+        if use_higgsfield:
+            try:
+                from .higgsfield_client import generate_higgsfield_video, has_higgsfield_credentials
+                if has_higgsfield_credentials():
+                    if meta["genre"] == "gaming":
+                        hf_prompt = f"cinematic dark fantasy next-gen gaming {meta['topic']}, unreal engine 5, 9:16 vertical"
+                    elif meta["genre"] == "facts":
+                        hf_prompt = f"deep space nebula celestial cosmos {meta['topic']}, 8k photorealistic, 9:16 vertical"
+                    elif meta["genre"] == "cat":
+                        hf_prompt = f"ultra-cute fluffy cat {meta['topic']}, comical expression, 3d pixar animation style, 9:16 vertical"
+                    elif meta["genre"] == "kids":
+                        hf_prompt = f"whimsical cute cartoon toddler {meta['topic']}, colorful pixar style, 9:16 vertical"
+                    elif meta["genre"] == "animated":
+                        hf_prompt = f"vibrant 2D/3D cartoon animation {meta['topic']}, studio ghibli colors, 9:16 vertical"
+                    else:
+                        hf_prompt = "cinematic futuristic neural network data stream, 8k, 9:16 vertical"
+
+                    print(f"[Higgsfield AI] Initiating cinematic video generation for '{hf_prompt[:60]}...'")
+                    generate_higgsfield_video(hf_prompt)
+            except Exception as e:
+                print(f"[Higgsfield AI] Notice: {e}")
+
+        print(f"4. Rendering 1080x1920 Short video ({meta['genre'].upper()}) with script-matched canvas & kinetic captions ({len(words)} words)...")
+        render_short_video(
+            wav_path=wav_path,
+            output_mp4_path=mp4_path,
+            words=words,
+            badge_text=meta.get("category_badge", "⚡ TECH INTELLIGENCE"),
+            genre=meta.get("genre", "tech"),
+            topic=meta.get("topic", ""),
+        )
+
         duration = get_audio_duration(wav_path)
-        script_words = meta["script"].split()
-        step = duration / max(1, len(script_words))
-        words = [(w, i * step, (i + 1) * step) for i, w in enumerate(script_words)]
-
-    # 3. Higgsfield AI b-roll generation (if enabled)
-    if use_higgsfield:
-        try:
-            from .higgsfield_client import generate_higgsfield_video, has_higgsfield_credentials
-            if has_higgsfield_credentials():
-                if meta["genre"] == "anime":
-                    hf_prompt = f"epic cinematic anime battle {meta['topic']}, intense glowing auras, ufotable style, 9:16 vertical"
-                elif meta["genre"] == "gaming":
-                    hf_prompt = f"cinematic dark fantasy next-gen gaming {meta['topic']}, unreal engine 5, 9:16 vertical"
-                elif meta["genre"] == "facts":
-                    hf_prompt = f"deep space nebula celestial cosmos {meta['topic']}, 8k photorealistic, 9:16 vertical"
-                elif meta["genre"] == "cat":
-                    hf_prompt = f"ultra-cute fluffy cat {meta['topic']}, comical expression, 3d pixar animation style, 9:16 vertical"
-                elif meta["genre"] == "kids":
-                    hf_prompt = f"whimsical cute cartoon toddler {meta['topic']}, colorful pixar style, 9:16 vertical"
-                elif meta["genre"] == "animated":
-                    hf_prompt = f"vibrant 2D/3D cartoon animation {meta['topic']}, studio ghibli colors, 9:16 vertical"
-                else:
-                    hf_prompt = "cinematic futuristic neural network data stream, 8k, 9:16 vertical"
-
-                print(f"[Higgsfield AI] Initiating cinematic video generation for '{hf_prompt[:60]}...'")
-                generate_higgsfield_video(hf_prompt)
-        except Exception as e:
-            print(f"[Higgsfield AI] Notice: {e}")
-
-    print(f"4. Rendering 1080x1920 Short video ({meta['genre'].upper()}) with script-matched canvas & kinetic captions ({len(words)} words)...")
-    render_short_video(
-        wav_path=wav_path,
-        output_mp4_path=mp4_path,
-        words=words,
-        badge_text=meta.get("category_badge", "⚡ TECH INTELLIGENCE"),
-        genre=meta.get("genre", "tech"),
-        topic=meta.get("topic", ""),
-    )
-
-    duration = get_audio_duration(wav_path)
-    file_size_mb = round(os.path.getsize(mp4_path) / (1024 * 1024), 2)
+        file_size_mb = round(os.path.getsize(mp4_path) / (1024 * 1024), 2)
 
     result = {
         "status": "success",

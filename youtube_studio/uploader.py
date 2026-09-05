@@ -221,11 +221,20 @@ def upload_youtube_video(
         "X-Upload-Content-Type": "video/mp4",
     }
 
+    def _clean_str(text: str) -> str:
+        if not text:
+            return ""
+        return text.encode("utf-8", "replace").decode("utf-8")
+
+    safe_title = _clean_str(title).strip()
+    if len(safe_title) > 95:
+        safe_title = safe_title[:92] + "..."
+
     metadata = {
         "snippet": {
-            "title": title,
-            "description": description,
-            "tags": tags,
+            "title": safe_title,
+            "description": _clean_str(description),
+            "tags": [_clean_str(t) for t in (tags or [])],
             "categoryId": str(category_id),
         },
         "status": {
@@ -236,7 +245,12 @@ def upload_youtube_video(
 
     try:
         # Step 1: Initialize Resumable Upload
-        init_resp = requests.post(YOUTUBE_UPLOAD_URL, headers=headers, json=metadata, timeout=30)
+        init_resp = requests.post(
+            YOUTUBE_UPLOAD_URL,
+            headers=headers,
+            data=json.dumps(metadata).encode("utf-8"),
+            timeout=30,
+        )
         if init_resp.status_code != 200:
             return {"status": "FAILED", "error": f"Upload initialization failed ({init_resp.status_code}): {init_resp.text[:200]}"}
 
