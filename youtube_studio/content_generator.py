@@ -391,7 +391,7 @@ def generate_youtube_short(topic: str = "", upload_now: bool = False, use_higgsf
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
 
-    print(f"✅ YouTube Short successfully rendered: {mp4_path} ({file_size_mb} MB, {duration:.1f}s)")
+    print(f"[SUCCESS] YouTube Short successfully rendered: {mp4_path} ({file_size_mb} MB, {duration:.1f}s)")
 
     # 5. Handle immediate upload if requested
     if upload_now:
