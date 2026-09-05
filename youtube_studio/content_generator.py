@@ -91,21 +91,22 @@ def detect_genre(topic: str = "", requested_genre: str = "") -> str:
 GENRE_SCRIPTS = {
     "anime": [
         {
-            "title": "Naruto vs Sasuke: Who Was ACTUALLY Stronger? #Shorts #Anime #Naruto",
+            "title": "Naruto vs Sasuke: The Final Valley Truth Nobody Talks About #Shorts #Anime #Naruto",
             "topic": "Naruto vs Sasuke Final Valley Truth",
-            "badge": "⚔️ ANIME POWER DEBATE",
+            "badge": "⚔️ ANIME POWER ARENA",
             "voice": "en-US-GuyNeural",
             "category_id": "1",
-            "engagement_question": "Who had the greater character development throughout Shippuden: Naruto or Sasuke? Cast your vote below! 👇",
-            "tags": ["shorts", "anime", "naruto", "sasuke", "narutovssasuke", "shippuden", "animedebate", "viral", "manga"],
+            "engagement_question": "Did Sasuke's revolution actually make sense, or was Naruto's ideology right all along? Cast your vote below! 👇",
+            "tags": ["shorts", "anime", "naruto", "sasuke", "narutovssasuke", "shippuden", "rasengan", "chidori", "animedebate", "viral", "manga"],
             "script": (
-                "At the final valley, who actually walked away with the superior combat power: Naruto or Sasuke? "
-                "Sasuke had absorbed the chakra of all nine tailed beasts into his Indra Susanoo, "
-                "firing off the devastating Indra's Arrow with full intent to kill. "
-                "Meanwhile, Naruto was holding back, fighting purely on natural energy and Kurama's gift, "
-                "matching Sasuke's god-tier attack with a simple infused Ultra-Big Ball Rasenshuriken! "
-                "If Naruto had intended to execute Sasuke from second one, the battle ends in five minutes. "
-                "Hit subscribe to Zaine Studio and drop your vote below: who really won?"
+                "Kishimoto hid the undeniable truth about the Final Valley right in plain sight! "
+                "Sasuke entered this clash with the chakra of all nine Tailed Beasts infused into his Indra Susanoo, "
+                "firing off Indra's Arrow with absolute killer intent. "
+                "Yet Naruto was actively holding back, refusing to execute his brother, matching a god-level catastrophe using pure senjutsu! "
+                "When both exhausted their god-tier chakra, Sasuke infused Kagutsuchi black flames into a desperate Chidori. "
+                "Naruto met him with a single Rasengan—formed not by hatred, but by the spiritual hands of Jiraiya, Minato, and Team 7. "
+                "Sasuke woke up with his arm severed and finally admitted: I lost. "
+                "Hit subscribe to Zaine Studio and drop your vote below: Did Sasuke's revolution make sense, or was Naruto right all along?"
             ),
         },
         {
@@ -561,13 +562,14 @@ def render_short_video(
     badge_text: str = "⚡ TECH INTELLIGENCE",
     genre: str = "tech",
     topic: str = "",
+    bg_music_path: str = None,
     fps: int = 24,
     width: int = 1080,
     height: int = 1920,
 ) -> str:
     """
     Renders 1080x1920 vertical video tailored to the requested genre:
-    - Anime: Duel Split-Screen Canvas (Azure vs Crimson), Energy Speedlines & [VS] Badge
+    - Anime: Duel Split-Screen Canvas with Rasengan/Chidori VFX & [VS] Badge
     - Gaming: Tactical Gamer HUD, Health Bar, Crosshairs & Mini-Map Radar
     - Facts: Cosmic Space Nebula & Starfield with Dossier Focus Box
     - Cat: Warm Sunset Plum-Coral Gradient with Vector Paw Prints
@@ -750,25 +752,58 @@ def render_short_video(
         font_subtitle = ImageFont.load_default()
         font_hud = ImageFont.load_default()
 
-    # Launch FFmpeg pipe
-    cmd = [
-        ffmpeg_bin, "-y",
-        "-f", "rawvideo",
-        "-vcodec", "rawvideo",
-        "-s", f"{width}x{height}",
-        "-pix_fmt", "rgb24",
-        "-r", str(fps),
-        "-i", "-",
-        "-i", wav_path,
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-crf", "22",
-        "-pix_fmt", "yuv420p",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-shortest",
-        output_mp4_path,
-    ]
+    # Background Music (BGM) mixing with dynamic audio ducking
+    if not bg_music_path:
+        try:
+            from .audio_mixer import get_genre_soundtrack
+            bg_music_path = str(get_genre_soundtrack(genre))
+        except Exception:
+            bg_music_path = None
+
+    # Launch FFmpeg pipe with dual audio mixing if BGM is available
+    if bg_music_path and os.path.exists(bg_music_path):
+        cmd = [
+            ffmpeg_bin, "-y",
+            "-f", "rawvideo",
+            "-vcodec", "rawvideo",
+            "-s", f"{width}x{height}",
+            "-pix_fmt", "rgb24",
+            "-r", str(fps),
+            "-i", "-",
+            "-i", wav_path,
+            "-stream_loop", "-1",
+            "-i", bg_music_path,
+            "-filter_complex", "[1:a]volume=1.0[voice];[2:a]volume=0.22[bgm];[voice][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+            "-map", "0:v",
+            "-map", "[aout]",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "22",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            output_mp4_path,
+        ]
+    else:
+        cmd = [
+            ffmpeg_bin, "-y",
+            "-f", "rawvideo",
+            "-vcodec", "rawvideo",
+            "-s", f"{width}x{height}",
+            "-pix_fmt", "rgb24",
+            "-r", str(fps),
+            "-i", "-",
+            "-i", wav_path,
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "22",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            output_mp4_path,
+        ]
 
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -805,10 +840,47 @@ def render_short_video(
 
         # Genre-specific dynamic live elements
         if genre == "anime":
-            # Central anime VS clash badge
-            vs_y = 720
-            draw.ellipse([width // 2 - 65, vs_y - 65, width // 2 + 65, vs_y + 65], fill=(30, 15, 40), outline=(255, 215, 50), width=4)
-            draw.text((width // 2, vs_y), "VS", font=font_badge, fill=(255, 235, 50), anchor="mm")
+            # 1. Naruto Rasengan Aura (Left) - Swirling orange/golden chakra
+            ras_x, ras_y = width // 4, 720
+            ras_r = int(75 + 15 * np.sin(curr_time * 6.0))
+            draw.ellipse([ras_x - ras_r, ras_y - ras_r, ras_x + ras_r, ras_y + ras_r], fill=(255, 120, 20, 60), outline=(255, 180, 50), width=4)
+            core_r = ras_r // 2
+            draw.ellipse([ras_x - core_r, ras_y - core_r, ras_x + core_r, ras_y + core_r], fill=(255, 235, 90), outline=(255, 255, 255), width=3)
+            for ang_deg in range(0, 360, 60):
+                rad = np.radians(ang_deg + curr_time * 260.0)
+                px = ras_x + int(ras_r * np.cos(rad))
+                py = ras_y + int(ras_r * np.sin(rad))
+                draw.line([(ras_x, ras_y), (px, py)], fill=(255, 210, 60), width=2)
+            draw.text((ras_x, ras_y + ras_r + 30), "NARUTO • SAGE KURAMA", font=font_hud, fill=(255, 190, 60), anchor="mm")
+
+            # 2. Sasuke Chidori Aura (Right) - Crackling amethyst Susanoo lightning
+            chi_x, chi_y = (width * 3) // 4, 720
+            chi_r = int(75 + 15 * np.cos(curr_time * 7.0))
+            draw.ellipse([chi_x - chi_r, chi_y - chi_r, chi_x + chi_r, chi_y + chi_r], fill=(80, 20, 130, 60), outline=(180, 80, 255), width=4)
+            chi_core = chi_r // 2
+            draw.ellipse([chi_x - chi_core, chi_y - chi_core, chi_x + chi_core, chi_y + chi_core], fill=(210, 160, 255), outline=(255, 255, 255), width=3)
+            # Jagged lightning bolts arcing towards the center
+            for b_idx in range(4):
+                bx, by = chi_x, chi_y
+                for _ in range(4):
+                    nbx = bx - int(25 + 15 * np.sin(curr_time * 10.0 + b_idx))
+                    nby = by + int(20 * np.cos(curr_time * 14.0 + b_idx * 2))
+                    draw.line([(bx, by), (nbx, nby)], fill=(230, 190, 255), width=3)
+                    bx, by = nbx, nby
+            draw.text((chi_x, chi_y + chi_r + 30), "SASUKE • INDRA SUSANOO", font=font_hud, fill=(200, 140, 255), anchor="mm")
+
+            # 3. Central clash flare
+            clash_x, clash_y = width // 2, 720
+            flare_r = int(48 + 18 * np.sin(curr_time * 10.0))
+            draw.ellipse([clash_x - flare_r, clash_y - flare_r, clash_x + flare_r, clash_y + flare_r], fill=(255, 255, 255, 160), outline=(255, 230, 50), width=3)
+            draw.text((clash_x, clash_y), "VS", font=font_badge, fill=(255, 235, 50), anchor="mm")
+
+            # 4. Floating kinetic chakra embers
+            for emb_i in range(8):
+                emb_y = int((height - ((curr_time * 220.0 + emb_i * 180.0) % height)))
+                emb_x = int((width // 2) + 360 * np.sin(emb_i * 1.5 + curr_time * 2.5))
+                emb_col = (255, 180, 50) if emb_i % 2 == 0 else (190, 110, 255)
+                draw.ellipse([emb_x - 3, emb_y - 3, emb_x + 3, emb_y + 3], fill=emb_col)
         elif genre == "gaming":
             # Animated sweeping radar and HUD text
             draw_radar(draw, 170, 1480, radius=55, sweep_angle=curr_time * 3.2, color=(0, 240, 160))

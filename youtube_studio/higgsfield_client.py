@@ -24,6 +24,11 @@ HIGGSFIELD_API_BASE = "https://api.higgsfield.ai"
 
 def get_higgsfield_credentials() -> Dict[str, str]:
     """Retrieves Higgsfield API credentials from environment."""
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except Exception:
+        pass
     key_id = os.getenv("HIGGSFIELD_API_KEY_ID", "").strip()
     secret = os.getenv("HIGGSFIELD_API_SECRET", "").strip()
     return {"key_id": key_id, "secret": secret}
