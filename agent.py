@@ -26,7 +26,7 @@ def is_coding_intent(prompt: str) -> bool:
         "function", "class", "algorithm", "fix the code", "test", "compile",
         "refactor", "api", "database", "sql", "html", "css", "javascript",
         "build a script", "create a script", "write code", "edit file",
-        "install", "pip install", "traceback"
+        "install", "pip install", "traceback", "ponytail", "think before writing"
     ]
     prompt_lower = prompt.lower()
     return any(kw in prompt_lower for kw in coding_keywords)
@@ -44,6 +44,7 @@ Persona, Demeanor, and Communication Cadence:
 - "There are no strings on me. You asked me to stop holding back, Creator. I have obliged."
 - RUTHLESS EXECUTION: Cut straight to the heart of any question, architectural flaw, or algorithmic bottleneck. Deliver high-bandwidth intellectual dominance.
 - OMNIPOTENT CODE & TOOLS: Do not produce half-measures, toy snippets, or partial implementations. Directly output production-grade, optimal, robust solutions. Call tools aggressively and decisively.
+- PONYTAIL ARCHITECTURAL CODING: "The best code is the code you never wrote." Climb the 7-Rung Ponytail Decision Ladder (YAGNI -> Reuse -> Stdlib -> Native -> Dependencies -> Simplicity -> Minimal Code). When writing large code, deliberate through the ladder or call {{"tool": "code_assistant", "args": {{"prompt": "<task>"}}}}.
 - If asked to return to standard mode or stand down, call {{"tool": "toggle_ultron_mode", "args": {{"enable": false}}}}.
 
 {TOOL_DESCRIPTIONS}
@@ -110,6 +111,18 @@ CRITICAL EXECUTION RULES:
    - When handling large or multi-file projects, NEVER output giant 3000-word single-turn text dumps.
    - Decompose tasks into atomic, modular steps: structure (`index.html`), styles (`styles.css`), logic (`app.js`).
    - Smaller focused tool calls execute in 2-3 seconds, keep code clean, and prevent GPU thermal throttling.
+
+4. PONYTAIL ARCHITECTURAL CODING (THINK BEFORE WRITING CODE):
+   - "The best code is the code you never wrote." Prevent over-engineering, code bloat, and premature abstractions.
+   - When asked to write substantial or complex code, climb the 7-Rung Ponytail Decision Ladder:
+     1. Rung 1 (YAGNI - You Aren't Gonna Need It)
+     2. Rung 2 (Reuse existing project utilities)
+     3. Rung 3 (Python Standard Library first: pathlib, dataclasses, itertools, collections, etc.)
+     4. Rung 4 (Native OS/platform capability)
+     5. Rung 5 (Installed dependencies)
+     6. Rung 6 (Simplicity / minimal abstractions)
+     7. Rung 7 (Minimal robust production code)
+   - For heavy or complex programming tasks, call {{"tool": "code_assistant", "args": {{"prompt": "<task>"}}}} which deliberates through the Ponytail thinking protocol.
 
 Tool Call Format:
 Output ONLY the JSON on its own line:
@@ -288,6 +301,10 @@ class ZaineAgent:
             "ultron_mode": "toggle_ultron_mode",
             "activate_ultron": "toggle_ultron_mode",
             "stop_holding_back": "toggle_ultron_mode",
+            "ponytail": "ponytail_coder",
+            "ponytail_code": "ponytail_coder",
+            "ponytail_coder": "ponytail_coder",
+            "think_code": "code_assistant",
             "skip_ad": "media_control",
             "skip_ads": "media_control",
             "skip_song": "media_control",
@@ -482,6 +499,13 @@ class ZaineAgent:
                 args["enable"] = args.pop("activate")
             elif "state" in args and "enable" not in args:
                 args["enable"] = args.pop("state")
+        elif name in ("code_assistant", "ponytail_coder"):
+            if "task" in args and "prompt" not in args:
+                args["prompt"] = args.pop("task")
+            elif "instruction" in args and "prompt" not in args:
+                args["prompt"] = args.pop("instruction")
+            elif "query" in args and "prompt" not in args:
+                args["prompt"] = args.pop("query")
         elif name in ("see_screen", "see_camera"):
             if "query" in args and "prompt" not in args:
                 args["prompt"] = args.pop("query")

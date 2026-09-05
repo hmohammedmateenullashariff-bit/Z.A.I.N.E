@@ -528,8 +528,23 @@ def read_code_definitions(filepath: str) -> str:
         return f"Error analyzing definitions: {e}"
 
 
-def code_assistant(prompt: str, context_code: str = "") -> str:
-    """Uses the specialized local Qwen2.5-Coder model to generate high-quality, optimal code or debug difficult errors."""
+def code_assistant(prompt: str, context_code: str = "", use_ponytail: bool = True, show_thinking: bool = True) -> str:
+    """
+    Uses the specialized local Qwen2.5-Coder model with the Ponytail Architectural Thinking Engine.
+    Forces the model to think before writing code using the 7-Rung Ponytail Decision Ladder:
+    1. YAGNI -> 2. Reuse -> 3. Stdlib -> 4. Native -> 5. Dependencies -> 6. Simplicity -> 7. Minimal Code.
+    'The best code is the code you never wrote.'
+    """
+    if use_ponytail:
+        try:
+            from ponytail import run_ponytail_coder, format_ponytail_output
+            res = run_ponytail_coder(prompt, context_code=context_code)
+            if res.get("status") == "ok":
+                return format_ponytail_output(res.get("thinking", ""), res.get("code", ""), include_thinking=show_thinking)
+        except Exception as e:
+            print(f"[Ponytail Coder Notice]: Falling back to standard coder prompt: {e}")
+
+    # Fallback standard coder prompt
     import requests
     full_prompt = (
         "You are an expert software engineer. Write clean, production-grade code adhering strictly to the user prompt.\n"
@@ -554,6 +569,11 @@ def code_assistant(prompt: str, context_code: str = "") -> str:
         return f"Error from coder engine: {resp.text}"
     except Exception as e:
         return f"Coder engine error: {e}"
+
+
+def ponytail_coder(prompt: str, context_code: str = "") -> str:
+    """Executes the Ponytail Coder to think through the 7-Rung Decision Ladder before writing code."""
+    return code_assistant(prompt, context_code=context_code, use_ponytail=True, show_thinking=True)
 
 
 def open_application(app_name: str) -> str:
@@ -1053,6 +1073,8 @@ TOOL_REGISTRY = {
     "system_status": system_status,
     "learn_lesson": learn_lesson,
     "code_assistant": code_assistant,
+    "ponytail": ponytail_coder,
+    "ponytail_coder": ponytail_coder,
     "start_local_server": start_local_server,
     "stop_local_server": stop_local_server,
     "check_emails": lambda unread_only=True, limit=5: __import__("email_client").check_emails(unread_only, limit),
@@ -1122,7 +1144,8 @@ Available tools:
 - remember(key: str, value: str) -> saves a fact/preference to long-term memory
 - recall(query: str = "") -> recalls saved facts or preferences from long-term memory
 - learn_lesson(lesson: str, keywords: str = "") -> permanently saves an acquired lesson, bug fix, or pattern to your long-term skill memory
-- code_assistant(prompt: str, context_code: str = "") -> consults your local specialized Qwen2.5-Coder engine to generate complex algorithms, optimal code, or debug tracebacks
+- code_assistant(prompt: str, context_code: str = "") -> consults your local specialized Qwen2.5-Coder engine powered by Ponytail ("The best code is the code you never wrote"). Thinks through the 7-Rung Decision Ladder (YAGNI, stdlib, simplicity) before generating minimal, robust, production-grade code.
+- ponytail_coder(prompt: str, context_code: str = "") -> runs the Ponytail Senior Architect Decision Ladder to deliberate and think before writing substantial code or complex algorithms
 - see_screen(prompt: str = "Describe what is visible on my screen") -> captures desktop screen in RAM and uses local Moondream vision to read code, diagnose errors, or analyze visual UI
 - see_camera(prompt: str = "Describe what you see in front of the camera") -> captures a 1-shot snapshot from webcam to inspect physical objects, documents, or hardware
 - write_workspace_file(filepath: str, content: str) -> writes/creates a script, HTML, or code file in the workspace
