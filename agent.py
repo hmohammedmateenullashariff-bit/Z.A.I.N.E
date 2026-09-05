@@ -160,6 +160,15 @@ CRITICAL EXECUTION RULES:
    - When asked to look through camera, check webcam, or inspect an object: Call {{"tool": "see_camera", "args": {{"prompt": "<what_to_inspect>"}}}}
    - When asked to write, create, build, or test a script/code: You are an AUTONOMOUS AGENT. Do NOT just explain code. You MUST ACTUALLY CALL {{"tool": "write_workspace_file", "args": {{"filepath": "<name>.py", "content": "<code>"}}}} and then {{"tool": "run_python_script", "args": {{"script_path": "<name>.py"}}}} to test it!
    - When asked to build a website, landing page, or web project: Call {{"tool": "write_workspace_file", "args": {{"filepath": "index.html", "content": "..."}}}} and then {{"tool": "start_local_server", "args": {{"port": 8080}}}} to host and open it!
+   - When asked to review code, audit code, or check security: Call {{"tool": "code_review", "args": {{"filepath_or_code": "<code_or_path>"}}}}
+   - When asked to look up an algorithm, data structure, or algorithmic implementation: Call {{"tool": "lookup_algorithm", "args": {{"name": "<algorithm_name>"}}}}
+   - When asked for system design advice, scalability trade-offs, or CAP theorem: Call {{"tool": "system_design_advisor", "args": {{"topic": "<topic>", "scale_metrics": "<metrics>"}}}}
+   - When asked to build a system from scratch (Git, Redis, Docker, compiler): Call {{"tool": "get_architecture_blueprint", "args": {{"system_type": "<system_type>"}}}}
+   - When asked for free developer services, cloud hosting, or databases: Call {{"tool": "find_free_developer_services", "args": {{"category": "<category>", "query": "<query>"}}}}
+   - When asked for open source alternatives: Call {{"tool": "find_oss_alternatives", "args": {{"proprietary_tool": "<tool_name>"}}}}
+   - When asked for career roadmaps or developer skill trees: Call {{"tool": "get_career_roadmap", "args": {{"role_or_skill": "<role>"}}}}
+   - When asked for LLM architecture, attention mechanics, or LoRA: Call {{"tool": "lookup_llm_architecture", "args": {{"component": "<component>"}}}}
+   - When asked to search developer knowledge across the 17 repos: Call {{"tool": "search_developer_knowledge", "args": {{"query": "<query>"}}}}
 
 3. MODULAR TASK DECOMPOSITION (EFFICIENCY & THERMAL SAFETY):
    - When handling large or multi-file projects, NEVER output giant 3000-word single-turn text dumps.
