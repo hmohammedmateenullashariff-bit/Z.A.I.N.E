@@ -1,0 +1,111 @@
+[
+  {
+    "category": "Free Programming Books",
+    "items": [
+      {
+        "title": "Automate the Boring Stuff with Python",
+        "author": "Al Sweigart",
+        "url": "https://automatetheboringstuff.com/",
+        "topic": "Python scripting and automation"
+      },
+      {
+        "title": "Designing Data-Intensive Applications (DDIA)",
+        "author": "Martin Kleppmann",
+        "topic": "Distributed systems, reliability, storage engines"
+      },
+      {
+        "title": "The Rust Programming Language (The Book)",
+        "author": "Steve Klabnik, Carol Nichols",
+        "url": "https://doc.rust-lang.org/book/",
+        "topic": "Rust ownership, concurrency, memory safety"
+      },
+      {
+        "title": "Operating Systems: Three Easy Pieces (OSTEP)",
+        "author": "Remzi & Andrea Arpaci-Dusseau",
+        "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/",
+        "topic": "Virtualization, Concurrency, Persistence"
+      }
+    ]
+  },
+  {
+    "category": "Best Websites for Programmers",
+    "items": [
+      {
+        "name": "Roadmap.sh",
+        "url": "https://roadmap.sh",
+        "use": "Community-driven visual developer roadmaps and guides"
+      },
+      {
+        "name": "DevDocs.io",
+        "url": "https://devdocs.io",
+        "use": "Fast, offline-capable unified API documentation browser"
+      },
+      {
+        "name": "OverAPI",
+        "url": "https://overapi.com",
+        "use": "Cheat sheets for all programming languages and frameworks"
+      },
+      {
+        "name": "Regex101",
+        "url": "https://regex101.com",
+        "use": "Interactive regular expression testing, debugging, and explanation"
+      },
+      {
+        "name": "Excalidraw",
+        "url": "https://excalidraw.com",
+        "use": "Hand-drawn style collaborative whiteboard for system architecture diagrams"
+      }
+    ]
+  },
+  {
+    "category": "Engineering Blogs",
+    "items": [
+      {
+        "company": "Netflix TechBlog",
+        "url": "https://netflixtechblog.com",
+        "focus": "Microservices, Chaos Engineering, video encoding, real-time data pipelines"
+      },
+      {
+        "company": "Uber Engineering",
+        "url": "https://www.uber.com/blog/engineering/",
+        "focus": "Geospatial indexing (H3), distributed tracing, large-scale Go microservices"
+      },
+      {
+        "company": "Discord Blog",
+        "url": "https://discord.com/category/engineering",
+        "focus": "High-throughput messaging, Rust migration, Elixir real-time infrastructure"
+      },
+      {
+        "company": "Stripe Engineering",
+        "url": "https://stripe.com/blog/engineering",
+        "focus": "Idempotency keys, high-availability payment routing, Ruby Sorbet type-checking"
+      },
+      {
+        "company": "Cloudflare Blog",
+        "url": "https://blog.cloudflare.com",
+        "focus": "Internet infrastructure, BGP routing, Linux kernel performance tuning, eBPF"
+      }
+    ]
+  },
+  {
+    "category": "The Awesome Meta-Index",
+    "items": [
+      {
+        "name": "Awesome Python",
+        "focus": "Curated list of Python frameworks, libraries, software and resources"
+      },
+      {
+        "name": "Awesome Machine Learning",
+        "focus": "Curated list of machine learning frameworks, libraries and software by language"
+      },
+      {
+        "name": "Awesome Self-Hosted",
+        "focus": "List of Free Software network services and web applications which can be hosted locally"
+      },
+      {
+        "name": "Awesome System Design",
+        "focus": "Curated list of resources for learning how to design large-scale systems"
+      }
+    ]
+  }
+]

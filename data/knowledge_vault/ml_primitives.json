@@ -1,0 +1,12 @@
+[
+  {
+    "name": "Linear Regression (Pure NumPy)",
+    "category": "Supervised Learning",
+    "snippet": "import numpy as np\n\nclass LinearRegression:\n    def __init__(self, lr=0.01, n_iters=1000):\n        self.lr = lr\n        self.n_iters = n_iters\n        self.weights = None\n        self.bias = None\n    def fit(self, X, y):\n        n_samples, n_features = X.shape\n        self.weights = np.zeros(n_features)\n        self.bias = 0\n        for _ in range(self.n_iters):\n            y_pred = np.dot(X, self.weights) + self.bias\n            dw = (1 / n_samples) * np.dot(X.T, (y_pred - y))\n            db = (1 / n_samples) * np.sum(y_pred - y)\n            self.weights -= self.lr * dw\n            self.bias -= self.lr * db\n    def predict(self, X):\n        return np.dot(X, self.weights) + self.bias"
+  },
+  {
+    "name": "Logistic Regression (Pure NumPy)",
+    "category": "Supervised Learning",
+    "snippet": "import numpy as np\n\nclass LogisticRegression:\n    def __init__(self, lr=0.01, n_iters=1000):\n        self.lr = lr\n        self.n_iters = n_iters\n        self.weights = None\n        self.bias = None\n    def _sigmoid(self, z):\n        return 1 / (1 + np.exp(-np.clip(z, -250, 250)))\n    def fit(self, X, y):\n        n_samples, n_features = X.shape\n        self.weights = np.zeros(n_features)\n        self.bias = 0\n        for _ in range(self.n_iters):\n            linear = np.dot(X, self.weights) + self.bias\n            y_pred = self._sigmoid(linear)\n            dw = (1 / n_samples) * np.dot(X.T, (y_pred - y))\n            db = (1 / n_samples) * np.sum(y_pred - y)\n            self.weights -= self.lr * dw\n            self.bias -= self.lr * db\n    def predict(self, X):\n        return (self._sigmoid(np.dot(X, self.weights) + self.bias) >= 0.5).astype(int)"
+  }
+]

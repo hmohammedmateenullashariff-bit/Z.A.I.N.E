@@ -1,0 +1,23 @@
+[
+  {
+    "title": "Attention Is All You Need",
+    "authors": "Vaswani et al. (Google Brain / Google Research, 2017)",
+    "field": "Natural Language Processing / Transformers",
+    "key_contribution": "Introduced the Transformer architecture based entirely on multi-head self-attention mechanisms, dispensing with recurrence (RNNs) and convolutions entirely, establishing the foundation of modern LLMs.",
+    "legacy": "Underpins GPT, Claude, Llama, BERT, Gemini, and modern generative AI."
+  },
+  {
+    "title": "In Search of an Understandable Consensus Algorithm (Raft)",
+    "authors": "Diego Ongaro and John Ousterhout (Stanford University, 2014)",
+    "field": "Distributed Systems / Consensus",
+    "key_contribution": "Designed a distributed consensus algorithm equivalent to Paxos in fault tolerance and performance, but decomposed into independent subproblems (leader election, log replication, safety) to be fundamentally understandable.",
+    "legacy": "Powers etcd (Kubernetes state store), CockroachDB, Consul, and modern cloud clustering."
+  },
+  {
+    "title": "Dynamo: Amazon's Highly Available Key-value Store",
+    "authors": "DeCandia et al. (Amazon, 2007)",
+    "field": "Distributed Storage",
+    "key_contribution": "Synthesized consistent hashing, vector clocks, sloppy quorums, and anti-entropy Merkle trees to build an always-writable, eventually consistent distributed storage engine.",
+    "legacy": "Sparked the NoSQL movement, directly inspiring Apache Cassandra and AWS DynamoDB."
+  }
+]

@@ -1,0 +1,56 @@
+[
+  {
+    "id": "algo_dijkstra",
+    "name": "Dijkstra's Shortest Path Algorithm",
+    "category": "Graphs",
+    "complexity": "O((V + E) log V)",
+    "summary": "Finds the shortest paths between nodes in a weighted graph with non-negative edge weights using a priority queue (min-heap).",
+    "snippet": "import heapq\n\ndef dijkstra(graph, start):\n    distances = {node: float('inf') for node in graph}\n    distances[start] = 0\n    pq = [(0, start)]\n    while pq:\n        cur_d, u = heapq.heappop(pq)\n        if cur_d > distances[u]: continue\n        for v, weight in graph[u].items():\n            dist = cur_d + weight\n            if dist < distances[v]:\n                distances[v] = dist\n                heapq.heappush(pq, (dist, v))\n    return distances",
+    "best_for": "Network routing, GPS navigation, pathfinding on non-negative graphs."
+  },
+  {
+    "id": "algo_astar",
+    "name": "A* Pathfinding Algorithm",
+    "category": "Graphs",
+    "complexity": "O(E)",
+    "summary": "Informed graph search algorithm that finds the shortest path by combining actual cost g(n) with heuristic estimated distance h(n): f(n) = g(n) + h(n).",
+    "snippet": "import heapq\n\ndef a_star(graph, start, goal, heuristic):\n    pq = [(heuristic(start, goal), 0, start, [start])]\n    visited = set()\n    while pq:\n        f, g, cur, path = heapq.heappop(pq)\n        if cur == goal: return path, g\n        if cur in visited: continue\n        visited.add(cur)\n        for neighbor, cost in graph[cur]:\n            if neighbor not in visited:\n                new_g = g + cost\n                heapq.heappush(pq, (new_g + heuristic(neighbor, goal), new_g, neighbor, path + [neighbor]))\n    return None, float('inf')",
+    "best_for": "Game AI, robotics spatial navigation, 2D grid pathing."
+  },
+  {
+    "id": "algo_lru_cache",
+    "name": "LRU Cache (Least Recently Used)",
+    "category": "Data Structures",
+    "complexity": "Get: O(1), Put: O(1)",
+    "summary": "Combines a doubly-linked list with a hash map to evict the least recently used element when capacity is reached in constant time.",
+    "snippet": "from collections import OrderedDict\n\nclass LRUCache:\n    def __init__(self, capacity: int):\n        self.cap = capacity\n        self.cache = OrderedDict()\n    def get(self, key):\n        if key not in self.cache: return -1\n        self.cache.move_to_end(key)\n        return self.cache[key]\n    def put(self, key, value):\n        if key in self.cache: self.cache.move_to_end(key)\n        self.cache[key] = value\n        if len(self.cache) > self.cap:\n            self.cache.popitem(last=False)",
+    "best_for": "In-memory database buffers, web page caches, OS virtual memory paging."
+  },
+  {
+    "id": "algo_topological_sort",
+    "name": "Topological Sort (Kahn's Algorithm)",
+    "category": "Graphs",
+    "complexity": "O(V + E)",
+    "summary": "Produces a linear ordering of vertices in a Directed Acyclic Graph (DAG) such that for every directed edge u -> v, u comes before v.",
+    "snippet": "from collections import deque\n\ndef topological_sort(num_nodes, edges):\n    in_degree = {i: 0 for i in range(num_nodes)}\n    adj = {i: [] for i in range(num_nodes)}\n    for u, v in edges:\n        adj[u].append(v)\n        in_degree[v] += 1\n    q = deque([n for n in in_degree if in_degree[n] == 0])\n    order = []\n    while q:\n        node = q.popleft()\n        order.append(node)\n        for neighbor in adj[node]:\n            in_degree[neighbor] -= 1\n            if in_degree[neighbor] == 0:\n                q.append(neighbor)\n    return order if len(order) == num_nodes else None",
+    "best_for": "Build systems (Make/Gradle task dependencies), course prerequisite planning, package managers."
+  },
+  {
+    "id": "algo_levenshtein",
+    "name": "Levenshtein Edit Distance",
+    "category": "Dynamic Programming",
+    "complexity": "O(M * N) space O(min(M,N))",
+    "summary": "Measures minimum single-character edits (insertions, deletions, substitutions) required to transform string A into string B.",
+    "snippet": "def levenshtein_distance(s1: str, s2: str) -> int:\n    if len(s1) < len(s2): s1, s2 = s2, s1\n    prev = list(range(len(s2) + 1))\n    for i, c1 in enumerate(s1):\n        curr = [i + 1] * (len(s2) + 1)\n        for j, c2 in enumerate(s2):\n            curr[j + 1] = prev[j] if c1 == c2 else 1 + min(prev[j + 1], curr[j], prev[j])\n        prev = curr\n    return prev[-1]",
+    "best_for": "Fuzzy string matching, spell checking, DNA sequence alignment, search autocorrect."
+  },
+  {
+    "id": "algo_consistent_hashing",
+    "name": "Consistent Hashing with Virtual Nodes",
+    "category": "Distributed Systems / Hashing",
+    "complexity": "Lookup: O(log N)",
+    "summary": "Maps both nodes and data keys to a hash ring, minimizing key remapping during server additions or removals to 1/N of keys.",
+    "snippet": "import hashlib, bisect\n\nclass ConsistentHashRing:\n    def __init__(self, replicas=100):\n        self.replicas = replicas\n        self.ring = []\n        self.node_map = {}\n    def _hash(self, key):\n        return int(hashlib.md5(key.encode('utf-8')).hexdigest(), 16)\n    def add_node(self, node):\n        for i in range(self.replicas):\n            h = self._hash(f'{node}:{i}')\n            bisect.insort(self.ring, h)\n            self.node_map[h] = node\n    def get_node(self, key):\n        if not self.ring: return None\n        h = self._hash(key)\n        idx = bisect.bisect_right(self.ring, h)\n        if idx == len(self.ring): idx = 0\n        return self.node_map[self.ring[idx]]",
+    "best_for": "Distributed caching (Memcached), load balancing, Cassandra/DynamoDB partition routing."
+  }
+]

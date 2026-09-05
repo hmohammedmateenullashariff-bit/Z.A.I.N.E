@@ -118,6 +118,16 @@ class HiveMindOrchestrator:
             context = self.blackboard.get("latest_research", "")
             code_report = self.coder.execute(goal, context=context)
             results.append(f"**Coder Agent Synthesis:**\n{code_report}\n")
+            
+            # Autonomous Code Rabbit Audit Phase
+            try:
+                import code_reviewer
+                self.blackboard.log("GuardianAgent", "Auditing synthesized code via Code Rabbit...")
+                audit_result = code_reviewer.review_code(code_report)
+                self.blackboard.set("latest_code_review", audit_result)
+                results.append(f"**Guardian Code Rabbit Audit:**\n{audit_result}\n")
+            except Exception as e:
+                self.blackboard.log("GuardianAgent", f"Code Rabbit audit bypassed: {e}")
 
         # 4. If general open-ended task, delegate to Coder/Reasoning
         if not results:

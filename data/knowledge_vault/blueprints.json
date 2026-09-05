@@ -1,0 +1,81 @@
+[
+  {
+    "id": "byox_git",
+    "system": "Build Your Own Git",
+    "category": "Version Control Systems",
+    "core_components": [
+      "Object Storage (.git/objects)",
+      "Blobs",
+      "Trees",
+      "Commits",
+      "Refs & HEAD",
+      "Index / Staging"
+    ],
+    "architecture_steps": [
+      "1. SHA-1 Content-Addressable Storage: Compute zlib-compressed hash of header + data.",
+      "2. Blob Object: Store file content without filename or permissions.",
+      "3. Tree Object: Directory listing containing mode, type (blob/tree), SHA-1, and basename.",
+      "4. Commit Object: Tree SHA-1, parent commit SHA-1, author, committer, and commit message.",
+      "5. Index File: Binary ledger tracking working directory files, modification timestamps, and object hashes.",
+      "6. Reference Management: Branch pointers (.git/refs/heads/master) and HEAD symbolic ref."
+    ],
+    "key_insight": "Git is an append-only, content-addressable directed acyclic graph (DAG) of snapshot trees."
+  },
+  {
+    "id": "byox_redis",
+    "system": "Build Your Own Redis",
+    "category": "In-Memory Key-Value Stores",
+    "core_components": [
+      "Single-Threaded Event Loop",
+      "RESP Protocol Parser",
+      "In-Memory Hash Map",
+      "TTL Key Expiration",
+      "AOF Persistence"
+    ],
+    "architecture_steps": [
+      "1. Event-Driven Socket Server: Non-blocking I/O multiplexing with epoll/select/kqueue.",
+      "2. RESP (Redis Serialization Protocol) Parser: Handle Simple Strings (+), Errors (-), Integers (:), Bulk Strings ($), Arrays (*).",
+      "3. Core Command Engine: GET, SET, DEL, EXPIRE, INCR.",
+      "4. Passive & Active TTL Eviction: Check expiry on access + background randomized sample sweep.",
+      "5. Append-Only File (AOF): Log mutating commands sequentially to disk with fsync policies."
+    ],
+    "key_insight": "Single-threaded execution eliminates lock contention and simplifies atomic operations."
+  },
+  {
+    "id": "byox_docker",
+    "system": "Build Your Own Container / Docker",
+    "category": "Operating Systems & Virtualization",
+    "core_components": [
+      "Linux Namespaces",
+      "Control Groups (cgroups)",
+      "Chroot / Pivot Root",
+      "OverlayFS (Copy-on-Write Layering)"
+    ],
+    "architecture_steps": [
+      "1. Clone with Namespaces: CLONE_NEWPID (process isolation), CLONE_NEWNET (network isolation), CLONE_NEWNS (mount isolation).",
+      "2. Root Filesystem Isolation: pivot_root into isolated rootfs (Alpine Linux tarball).",
+      "3. Cgroups Resource Limits: Write limits into /sys/fs/cgroup (memory.max, cpu.max) to prevent runaway resource consumption.",
+      "4. Veth Network Pairs: Attach virtual ethernet pair between host bridge and container namespace."
+    ],
+    "key_insight": "Containers are simply ordinary Linux processes running under kernel namespaces and cgroup constraints."
+  },
+  {
+    "id": "byox_compiler",
+    "system": "Build Your Own Compiler / Interpreter",
+    "category": "Programming Languages & Runtimes",
+    "core_components": [
+      "Lexer (Tokenizer)",
+      "Parser (Recursive Descent / Pratt)",
+      "Abstract Syntax Tree (AST)",
+      "Type Checker",
+      "Bytecode VM / Code Generator"
+    ],
+    "architecture_steps": [
+      "1. Lexical Analysis: Convert source string into token stream (IDENTIFIER, NUMBER, OPERATOR, KEYWORD).",
+      "2. Syntactic Analysis (Parser): Build nested AST nodes matching formal language grammar.",
+      "3. Semantic Analysis: Scope resolution, symbol table population, type checking.",
+      "4. Bytecode Generation / Evaluation: Stack-based virtual machine (PUSH, ADD, JUMP_IF_FALSE) or direct tree-walk interpreter."
+    ],
+    "key_insight": "Pratt Parsing elegantly solves operator precedence with single-pass binding power."
+  }
+]

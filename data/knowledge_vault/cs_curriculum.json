@@ -1,0 +1,42 @@
+[
+  {
+    "area": "Core Computer Science",
+    "courses": [
+      {
+        "name": "Introduction to Computer Science",
+        "school": "MIT (6.00.1x)",
+        "topics": [
+          "Computation, Python, Algorithms, Complexity"
+        ]
+      },
+      {
+        "name": "Core Programming",
+        "school": "UBC (How to Code)",
+        "topics": [
+          "Systematic program design, abstraction, data-driven design"
+        ]
+      },
+      {
+        "name": "Core Math (Discrete Mathematics)",
+        "school": "MIT (6.042J)",
+        "topics": [
+          "Proof techniques, graph theory, combinatorics, probability"
+        ]
+      },
+      {
+        "name": "Core Systems (NAND to Tetris)",
+        "school": "Hebrew University of Jerusalem",
+        "topics": [
+          "Build a modern computer from first principles: Logic gates -> CPU -> Assembler -> VM -> Compiler -> Mini-OS"
+        ]
+      },
+      {
+        "name": "Core Theory (Data Structures & Algorithms)",
+        "school": "Princeton / UC Berkeley",
+        "topics": [
+          "Asymptotic analysis, divide & conquer, greedy algorithms, dynamic programming, NP-completeness"
+        ]
+      }
+    ]
+  }
+]

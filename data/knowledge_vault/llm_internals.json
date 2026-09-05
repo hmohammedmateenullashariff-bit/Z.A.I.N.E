@@ -1,0 +1,16 @@
+[
+  {
+    "id": "llm_multihead_attention",
+    "topic": "Multi-Head Causal Self-Attention",
+    "summary": "Computes attention scores over queries, keys, and values across multiple representation subspaces with a triangular causal mask preventing future token peeking.",
+    "math": "Attention(Q, K, V) = softmax((Q @ K.T) / sqrt(d_k) + M) @ V",
+    "pytorch_snippet": "import torch\nimport torch.nn as nn\n\nclass CausalSelfAttention(nn.Module):\n    def __init__(self, d_in, d_out, num_heads, context_len):\n        super().__init__()\n        self.num_heads = num_heads\n        self.head_dim = d_out // num_heads\n        self.W_q = nn.Linear(d_in, d_out, bias=False)\n        self.W_k = nn.Linear(d_in, d_out, bias=False)\n        self.W_v = nn.Linear(d_in, d_out, bias=False)\n        self.out_proj = nn.Linear(d_out, d_out)\n        self.register_buffer('mask', torch.triu(torch.ones(context_len, context_len), diagonal=1).bool())\n    def forward(self, x):\n        B, T, C = x.shape\n        q = self.W_q(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)\n        k = self.W_k(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)\n        v = self.W_v(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)\n        scores = (q @ k.transpose(-2, -1)) * (self.head_dim ** -0.5)\n        scores = scores.masked_fill(self.mask[:T, :T], float('-inf'))\n        weights = torch.softmax(scores, dim=-1)\n        out = (weights @ v).transpose(1, 2).contiguous().view(B, T, C)\n        return self.out_proj(out)"
+  },
+  {
+    "id": "llm_lora_fine_tuning",
+    "topic": "LoRA (Low-Rank Adaptation)",
+    "summary": "Freezes pre-trained model weights W and injects trainable rank decomposition matrices A and B into transformer layers: W' = W + (alpha / r) * (B @ A). Drastically reduces GPU VRAM.",
+    "math": "h = W_0 * x + (alpha / r) * B * A * x, where A ~ N(0, sigma^2), B = 0 initially.",
+    "benefits": "Reduces trainable parameters by >99%, allows fast swapping of task-specific adapters without re-allocating base model memory."
+  }
+]

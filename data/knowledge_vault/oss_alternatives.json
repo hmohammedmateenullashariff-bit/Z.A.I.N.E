@@ -1,0 +1,44 @@
+[
+  {
+    "proprietary": "Firebase",
+    "oss_alternative": "Supabase / Appwrite / PocketBase",
+    "category": "Backend as a Service (BaaS)",
+    "tech_stack": "PostgreSQL, Go, Rust, Elixir",
+    "benefits": "Self-hostable with Docker, full SQL power without proprietary NoSQL lock-in, real-time websockets, integrated Auth and Storage."
+  },
+  {
+    "proprietary": "Figma",
+    "oss_alternative": "Penpot",
+    "category": "Design & Prototyping",
+    "tech_stack": "ClojureScript, SVG, Web Standards",
+    "benefits": "Open web standards native (SVG and CSS Grid), 100% self-hostable, zero vendor lock-in."
+  },
+  {
+    "proprietary": "Mixpanel / Google Analytics",
+    "oss_alternative": "PostHog / Plausible / Umami",
+    "category": "Product Analytics & Session Replay",
+    "tech_stack": "ClickHouse, Python, TypeScript",
+    "benefits": "GDPR-compliant, no cookie banners needed (Plausible/Umami), full feature flag & session recording suite (PostHog)."
+  },
+  {
+    "proprietary": "Algolia",
+    "oss_alternative": "Meilisearch / Typesense",
+    "category": "Instant Search & Autocomplete",
+    "tech_stack": "Rust (Meilisearch), C++ (Typesense)",
+    "benefits": "Sub-50ms typo-tolerant search, instant indexing, runs effortlessly on a tiny $5 VPS with low RAM footprint."
+  },
+  {
+    "proprietary": "Datadog",
+    "oss_alternative": "SigNoz / Grafana LGTM Stack",
+    "category": "APM, Metrics & Distributed Tracing",
+    "tech_stack": "OpenTelemetry, ClickHouse, Prometheus",
+    "benefits": "Unified observability platform combining traces, metrics, and logs with OpenTelemetry standards without per-host cloud billing."
+  },
+  {
+    "proprietary": "Vercel",
+    "oss_alternative": "Coolify / Dokku",
+    "category": "Self-Hosted PaaS",
+    "tech_stack": "PHP/Laravel + Docker (Coolify), Bash + Docker (Dokku)",
+    "benefits": "Deploy full-stack applications, databases, and services to your own server/VPS with zero monthly platform markups."
+  }
+]

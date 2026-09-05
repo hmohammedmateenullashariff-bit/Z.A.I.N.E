@@ -1,0 +1,96 @@
+[
+  {
+    "role": "AI Engineer / LLM Practitioner",
+    "stages": [
+      {
+        "stage": "1. Python & Linear Algebra",
+        "topics": [
+          "NumPy, Pandas, Matrix Ops, Vectors, SVD, Eigenvalues"
+        ]
+      },
+      {
+        "stage": "2. Classical Machine Learning",
+        "topics": [
+          "Scikit-learn, Regression, Decision Trees, Ensembles, Evaluation Metrics (F1, ROC-AUC)"
+        ]
+      },
+      {
+        "stage": "3. Deep Learning Fundamentals",
+        "topics": [
+          "PyTorch, Backprop, Optimizers (AdamW), Activation functions, CNNs, RNNs"
+        ]
+      },
+      {
+        "stage": "4. Transformer Architecture",
+        "topics": [
+          "Self-Attention, Multi-Head Attention, RoPE, Positional Encodings, Decoder-Only Models"
+        ]
+      },
+      {
+        "stage": "5. LLM Engineering & RAG",
+        "topics": [
+          "Chunking strategies, Embeddings, Vector DBs (Chroma, Qdrant, Milvus), Hybrid Search, Re-ranking"
+        ]
+      },
+      {
+        "stage": "6. Fine-Tuning & Quantization",
+        "topics": [
+          "LoRA, QLoRA, PEFT, GGUF/AWQ/GPTQ, Axolotl, Unsloth, SFT & DPO"
+        ]
+      },
+      {
+        "stage": "7. Production Deployment & Agents",
+        "topics": [
+          "Ollama, vLLM, TensorRT-LLM, LangGraph, Tool Calling, Evaluation Frameworks (Ragas)"
+        ]
+      }
+    ]
+  },
+  {
+    "role": "Backend Engineer",
+    "stages": [
+      {
+        "stage": "1. Internet & Networking",
+        "topics": [
+          "HTTP/HTTPS, TCP/IP, DNS, WebSockets, gRPC, CORS, RESTful API design"
+        ]
+      },
+      {
+        "stage": "2. Language Mastery",
+        "topics": [
+          "Python / Go / Rust, Concurrency models (asyncio, goroutines, threads), Memory management"
+        ]
+      },
+      {
+        "stage": "3. Relational Databases",
+        "topics": [
+          "PostgreSQL, ACID transactions, Indexing (B-Tree, GIN), Query optimization (EXPLAIN ANALYZE)"
+        ]
+      },
+      {
+        "stage": "4. Caching & In-Memory Storage",
+        "topics": [
+          "Redis, Cache-Aside pattern, TTLs, Invalidation, Pub/Sub"
+        ]
+      },
+      {
+        "stage": "5. Asynchronous Messaging",
+        "topics": [
+          "RabbitMQ, Apache Kafka, Event-driven architecture, Idempotent consumers"
+        ]
+      },
+      {
+        "stage": "6. Containerization & CI/CD",
+        "topics": [
+          "Docker multi-stage builds, Docker Compose, GitHub Actions, Linux administration"
+        ]
+      },
+      {
+        "stage": "7. System Design & Microservices",
+        "topics": [
+          "Load balancing, Horizontal scaling, Circuit breakers, Distributed tracing (OpenTelemetry)"
+        ]
+      }
+    ]
+  }
+]

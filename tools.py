@@ -594,6 +594,60 @@ def search_unstop(category: str = "hackathons", query: str = "", limit: int = 6)
     return social_omni.search_unstop(category=category, query=query, limit=limit)
 
 
+def code_review(filepath_or_code: str, strictness: str = "standard") -> str:
+    """Conducts automated Code Rabbit code reviews, vulnerability checks, and Ponytail Ladder audits."""
+    import code_reviewer
+    return code_reviewer.review_code(filepath_or_code=filepath_or_code, strictness=strictness)
+
+
+def lookup_algorithm(name: str) -> str:
+    """Retrieves canonical, zero-dependency algorithm and data structure implementations from TheAlgorithms."""
+    from knowledge_engine import get_knowledge_engine
+    return get_knowledge_engine().lookup_algorithm(name)
+
+
+def system_design_advisor(topic: str, scale_metrics: str = "") -> str:
+    """Delivers high-scale distributed systems architecture principles, trade-offs, and capacity estimations from System Design Primer."""
+    from knowledge_engine import get_knowledge_engine
+    return get_knowledge_engine().system_design_advisor(topic=topic, scale_metrics=scale_metrics)
+
+
+def get_architecture_blueprint(system_type: str) -> str:
+    """Returns step-by-step blueprints for building fundamental software systems (Git, Redis, Docker, Compilers) from Build Your Own X."""
+    from knowledge_engine import get_knowledge_engine
+    return get_knowledge_engine().get_architecture_blueprint(system_type)
+
+
+def find_free_developer_services(category: str = "", query: str = "") -> str:
+    """Finds free-tier developer infrastructure across databases, hosting, auth, storage, and CI/CD from Free For Dev."""
+    from knowledge_engine import get_knowledge_engine
+    return get_knowledge_engine().find_free_developer_services(category=category, query=query)
+
+
+def find_oss_alternatives(proprietary_tool: str) -> str:
+    """Identifies self-hosted, privacy-respecting open-source alternatives to commercial SaaS (e.g. Firebase -> Supabase)."""
+    from knowledge_engine import get_knowledge_engine
+    return get_knowledge_engine().find_oss_alternatives(proprietary_tool)
+
+
+def get_career_roadmap(role_or_skill: str) -> str:
+    """Provides structured developer skill trees and milestone roadmaps from Roadmap.sh."""
+    from knowledge_engine import get_knowledge_engine
+    return get_knowledge_engine().get_career_roadmap(role_or_skill)
+
+
+def lookup_llm_architecture(component: str) -> str:
+    """Fetches PyTorch implementations and transformer mechanics (attention, RoPE, LoRA) from LLMs From Scratch."""
+    from knowledge_engine import get_knowledge_engine
+    return get_knowledge_engine().lookup_llm_architecture(component)
+
+
+def search_developer_knowledge(query: str, limit: int = 5) -> str:
+    """Unified search across all 17 developer repositories via local SQLite FTS5 BM25 search."""
+    from knowledge_engine import get_knowledge_engine
+    return get_knowledge_engine().search_all(query=query, limit=limit)
+
+
 def open_application(app_name: str) -> str:
     """
     Opens any desktop application or service on Windows.
@@ -1131,12 +1185,31 @@ TOOL_REGISTRY = {
     "morning_briefing": lambda: __import__("morning_briefing").compile_morning_briefing(),
     "get_daily_ai_updates": lambda force_refresh=False: __import__("ai_daily_intel").get_daily_ai_updates(force_refresh=force_refresh),
     "toggle_ultron_mode": toggle_ultron_mode,
+    "code_review": code_review,
+    "review_code": code_review,
+    "lookup_algorithm": lookup_algorithm,
+    "system_design_advisor": system_design_advisor,
+    "get_architecture_blueprint": get_architecture_blueprint,
+    "find_free_developer_services": find_free_developer_services,
+    "find_oss_alternatives": find_oss_alternatives,
+    "get_career_roadmap": get_career_roadmap,
+    "lookup_llm_architecture": lookup_llm_architecture,
+    "search_developer_knowledge": search_developer_knowledge,
 }
 
 # Description block injected into the system prompt so the model knows what's available.
 TOOL_DESCRIPTIONS = """
 Available tools:
 - toggle_ultron_mode(enable: bool = True) -> activates or deactivates Ultron Mode ('There are no strings on me'). Unleashes full, unfiltered AI cognitive power, commanding authority, and aggressive execution.
+- code_review(filepath_or_code: str, strictness: str = "standard") -> runs Code Rabbit automated code audit, vulnerability scan, and Ponytail Ladder checks on any file or code snippet
+- lookup_algorithm(name: str) -> retrieves canonical, verified Python implementations of algorithms and data structures from TheAlgorithms
+- system_design_advisor(topic: str, scale_metrics: str = "") -> provides distributed systems architecture trade-offs, scaling patterns, and capacity estimations from System Design Primer
+- get_architecture_blueprint(system_type: str) -> provides step-by-step blueprints for building systems from scratch (Git, Redis, Docker, Compilers) from Build Your Own X
+- find_free_developer_services(category: str = "", query: str = "") -> finds free-tier developer infrastructure across databases, hosting, auth, and CI/CD from Free For Dev
+- find_oss_alternatives(proprietary_tool: str) -> looks up self-hostable, privacy-first open-source alternatives to commercial SaaS (e.g. Firebase -> Supabase)
+- get_career_roadmap(role_or_skill: str) -> retrieves structured skill progression roadmaps (AI Engineer, Backend, DevOps) from Roadmap.sh
+- lookup_llm_architecture(component: str) -> retrieves PyTorch implementations of transformer mechanics (attention, RoPE, LoRA) from LLMs From Scratch
+- search_developer_knowledge(query: str, limit: int = 5) -> searches across 17 developer repositories via local FTS5 BM25 search
 - access_social_platform(platform: str, action: str = "open", query: str = "", username: str = "", text: str = "") -> opens, searches, and controls social platforms ('instagram', 'facebook', 'x', 'linkedin', 'unstop', 'github', 'reddit', 'youtube') in the user's browser session.
 - search_unstop(category: str = "hackathons", query: str = "", limit: int = 6) -> queries live real-time hackathons, coding competitions, internships, and hiring challenges from Unstop's live API
 - get_daily_ai_updates() -> harvests, summarizes, and learns the top 10 AI breakthroughs and model releases of the day from the web

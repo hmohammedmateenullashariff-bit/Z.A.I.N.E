@@ -1,0 +1,64 @@
+[
+  {
+    "id": "ffd_cloud_hosting",
+    "category": "PaaS / Web Hosting",
+    "providers": [
+      {
+        "name": "Render",
+        "free_tier": "Free Web Services with automatic Git deploys, 512MB RAM, free SSL, spins down after 15m idle."
+      },
+      {
+        "name": "Fly.io",
+        "free_tier": "Up to 3 shared-cpu-1x VMs (256MB RAM), 3GB persistent volume storage, any Dockerfile."
+      },
+      {
+        "name": "Vercel",
+        "free_tier": "Unlimited preview deployments, 100GB bandwidth, serverless edge functions for Next.js/frontend."
+      },
+      {
+        "name": "Netlify",
+        "free_tier": "100GB bandwidth/month, 300 build minutes/month, automated continuous deployment."
+      }
+    ]
+  },
+  {
+    "id": "ffd_databases",
+    "category": "Managed Databases",
+    "providers": [
+      {
+        "name": "Neon",
+        "free_tier": "Serverless PostgreSQL with instant branching, 0.5GB storage, scales to zero when idle."
+      },
+      {
+        "name": "Supabase",
+        "free_tier": "2 free PostgreSQL projects, 500MB database space, 1GB file storage, 50,000 monthly active users (Auth)."
+      },
+      {
+        "name": "Turso",
+        "free_tier": "SQLite at the edge (LibSQL), 9GB storage, 500 databases, 1 billion row reads/month."
+      },
+      {
+        "name": "MongoDB Atlas",
+        "free_tier": "Shared M0 sandbox cluster, 512MB storage, replica set, zero expiration."
+      }
+    ]
+  },
+  {
+    "id": "ffd_storage_cdn",
+    "category": "Object Storage & CDNs",
+    "providers": [
+      {
+        "name": "Cloudflare R2",
+        "free_tier": "S3-compatible object storage with ZERO egress bandwidth fees. 10GB/month free storage."
+      },
+      {
+        "name": "Cloudflare Workers & CDN",
+        "free_tier": "100,000 requests/day free edge compute, global CDN, DDoS protection, free SSL."
+      },
+      {
+        "name": "Backblaze B2",
+        "free_tier": "10GB free cloud storage, free ingress, integrated S3 API."
+      }
+    ]
+  }
+]

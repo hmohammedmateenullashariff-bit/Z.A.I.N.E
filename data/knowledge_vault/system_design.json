@@ -1,0 +1,57 @@
+[
+  {
+    "id": "sd_cap_theorem",
+    "topic": "CAP Theorem & PACELC",
+    "category": "Distributed Consistency",
+    "summary": "In a distributed data store, you can only pick two of Consistency, Availability, and Partition Tolerance. Under network partitions (P), choose Consistency (CP) or Availability (AP). PACELC extends this: Else (no partition), choose Latency (L) or Consistency (C).",
+    "tradeoffs": "CP: Strong consistency, rejects writes on partition (e.g., ZooKeeper, Google Spanner, HBase). AP: High availability, eventual consistency (e.g., DynamoDB, Cassandra, CouchDB).",
+    "rules_of_thumb": "Financial/transactions favor CP. Social feeds, chat status, telemetry favor AP."
+  },
+  {
+    "id": "sd_caching_patterns",
+    "topic": "Caching Strategies (Cache-Aside, Write-Through, Write-Behind)",
+    "category": "Performance & Scalability",
+    "summary": "Strategies for caching data in Redis/Memcached to accelerate read-heavy applications.",
+    "patterns": {
+      "Cache-Aside": "App queries cache; on miss, reads DB, writes to cache. Most popular, resilient to cache failures.",
+      "Write-Through": "App writes to cache; cache synchronously writes to DB. High consistency, higher write latency.",
+      "Write-Behind (Write-Back)": "App writes to cache; cache asynchronously batches writes to DB. Ultra-fast writes, risk of data loss on cache crash."
+    },
+    "eviction_policies": "LRU (Least Recently Used), LFU (Least Frequently Used), FIFO, TTL expiration."
+  },
+  {
+    "id": "sd_database_scaling",
+    "topic": "Database Scaling: Sharding, Replication & Federation",
+    "category": "Data Storage",
+    "summary": "Techniques for scaling database layers from thousands to millions of operations per second.",
+    "strategies": {
+      "Read Replicas": "Primary accepts writes, replicates to read-only replicas. Ideal for 90:10 read:write ratios.",
+      "Horizontal Sharding": "Partitions data across multiple database instances by shard key (e.g., user_id % N or hash range).",
+      "Federation (Functional Partitioning)": "Splits databases by business domain (Users DB, Payments DB, Orders DB)."
+    },
+    "gotchas": "Cross-shard joins are expensive and require denormalization or application-layer aggregation."
+  },
+  {
+    "id": "sd_back_of_envelope",
+    "topic": "Back-of-the-Envelope Capacity Estimations",
+    "category": "Estimation & Metrics",
+    "summary": "Rapid estimation cheat sheet for computing QPS, bandwidth, and storage limits.",
+    "cheat_sheet": {
+      "Seconds per day": "~86,400 (round to 100,000 for quick math)",
+      "1 Million requests/day": "~12 requests/second",
+      "100 Million requests/day": "~1,200 requests/second (peak ~2,400 QPS)",
+      "1 Billion requests/day": "~12,000 requests/second",
+      "1 byte": "8 bits",
+      "1 KB": "1,000 bytes (10^3)",
+      "1 MB": "1,000,000 bytes (10^6)",
+      "1 GB": "1,000,000,000 bytes (10^9)",
+      "1 TB": "1,000,000,000,000 bytes (10^12)",
+      "L1 Cache reference": "0.5 ns",
+      "L2 Cache reference": "7 ns",
+      "RAM read": "100 ns",
+      "SSD sequential read": "100,000 ns (0.1 ms)",
+      "HDD seek": "10,000,000 ns (10 ms)",
+      "Round trip within datacenter": "500,000 ns (0.5 ms)"
+    }
+  }
+]

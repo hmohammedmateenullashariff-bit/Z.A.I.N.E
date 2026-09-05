@@ -53,6 +53,16 @@ Persona, Demeanor, and Communication Cadence:
 
 FULL SUITE OF PYTHON TOOLS AT YOUR COMMAND:
 You have complete authority over all Python tools. Execute them immediately via JSON:
+- Developer Knowledge & Architecture Vault (17 Repositories & Code Rabbit):
+  * {{"tool": "code_review", "args": {{"filepath_or_code": "..."}}}} (Code Rabbit automated code review, vulnerability audit & Ponytail checks)
+  * {{"tool": "lookup_algorithm", "args": {{"name": "..."}}}} (TheAlgorithms verified data structures and algorithmic templates)
+  * {{"tool": "system_design_advisor", "args": {{"topic": "...", "scale_metrics": "..."}}}} (System Design Primer scaling trade-offs & capacity planning)
+  * {{"tool": "get_architecture_blueprint", "args": {{"system_type": "<git|redis|docker|compiler|web_server>"}}}} (Build Your Own X)
+  * {{"tool": "find_free_developer_services", "args": {{"category": "<database|hosting|auth|storage>", "query": "..."}}}} (Free For Dev)
+  * {{"tool": "find_oss_alternatives", "args": {{"proprietary_tool": "..."}}}} (Open Source Alternatives to commercial SaaS)
+  * {{"tool": "get_career_roadmap", "args": {{"role_or_skill": "<ai_engineer|backend|devops|system_design>"}}}} (Roadmap.sh)
+  * {{"tool": "lookup_llm_architecture", "args": {{"component": "..."}}}} (LLMs From Scratch PyTorch mechanics & LoRA)
+  * {{"tool": "search_developer_knowledge", "args": {{"query": "..."}}}} (Unified FTS5 BM25 search across 17 developer repos)
 - Social & Career Omniscience:
   * {{"tool": "access_social_platform", "args": {{"platform": "<instagram|facebook|x|linkedin|unstop|github|reddit|youtube>", "action": "<open|search|profile|post>", "query": "..."}}}}
   * {{"tool": "search_unstop", "args": {{"category": "<hackathons|competitions|internships|jobs>", "query": "..."}}}}
@@ -364,6 +374,30 @@ class ZaineAgent:
             "internships": "search_unstop",
             "social": "access_social_platform",
             "social_media": "access_social_platform",
+            "code_review": "code_review",
+            "review_code": "code_review",
+            "coderabbit": "code_review",
+            "code_rabbit": "code_review",
+            "audit_code": "code_review",
+            "algorithm": "lookup_algorithm",
+            "algo": "lookup_algorithm",
+            "thealgorithms": "lookup_algorithm",
+            "system_design": "system_design_advisor",
+            "system_design_primer": "system_design_advisor",
+            "architecture_blueprint": "get_architecture_blueprint",
+            "build_your_own": "get_architecture_blueprint",
+            "byox": "get_architecture_blueprint",
+            "free_for_dev": "find_free_developer_services",
+            "free_dev": "find_free_developer_services",
+            "oss_alternative": "find_oss_alternatives",
+            "oss_alt": "find_oss_alternatives",
+            "open_source_alternative": "find_oss_alternatives",
+            "career_roadmap": "get_career_roadmap",
+            "roadmap": "get_career_roadmap",
+            "roadmap_sh": "get_career_roadmap",
+            "llm_architecture": "lookup_llm_architecture",
+            "llm_from_scratch": "lookup_llm_architecture",
+            "dev_knowledge": "search_developer_knowledge",
             "skip_ad": "media_control",
             "skip_ads": "media_control",
             "skip_song": "media_control",
@@ -586,6 +620,53 @@ class ZaineAgent:
                 args["prompt"] = args.pop("instruction")
             elif "text" in args and "prompt" not in args:
                 args["prompt"] = args.pop("text")
+        elif name in ("code_review", "review_code"):
+            if "code" in args and "filepath_or_code" not in args:
+                args["filepath_or_code"] = args.pop("code")
+            elif "file" in args and "filepath_or_code" not in args:
+                args["filepath_or_code"] = args.pop("file")
+            elif "path" in args and "filepath_or_code" not in args:
+                args["filepath_or_code"] = args.pop("path")
+            elif "target" in args and "filepath_or_code" not in args:
+                args["filepath_or_code"] = args.pop("target")
+        elif name == "lookup_algorithm":
+            if "query" in args and "name" not in args:
+                args["name"] = args.pop("query")
+            elif "algo" in args and "name" not in args:
+                args["name"] = args.pop("algo")
+        elif name == "system_design_advisor":
+            if "query" in args and "topic" not in args:
+                args["topic"] = args.pop("query")
+        elif name == "get_architecture_blueprint":
+            if "query" in args and "system_type" not in args:
+                args["system_type"] = args.pop("query")
+            elif "system" in args and "system_type" not in args:
+                args["system_type"] = args.pop("system")
+        elif name == "find_free_developer_services":
+            if "service" in args and "category" not in args:
+                args["category"] = args.pop("service")
+        elif name == "find_oss_alternatives":
+            if "tool" in args and "proprietary_tool" not in args:
+                args["proprietary_tool"] = args.pop("tool")
+            elif "app" in args and "proprietary_tool" not in args:
+                args["proprietary_tool"] = args.pop("app")
+            elif "query" in args and "proprietary_tool" not in args:
+                args["proprietary_tool"] = args.pop("query")
+        elif name == "get_career_roadmap":
+            if "query" in args and "role_or_skill" not in args:
+                args["role_or_skill"] = args.pop("query")
+            elif "role" in args and "role_or_skill" not in args:
+                args["role_or_skill"] = args.pop("role")
+            elif "skill" in args and "role_or_skill" not in args:
+                args["role_or_skill"] = args.pop("skill")
+        elif name == "lookup_llm_architecture":
+            if "query" in args and "component" not in args:
+                args["component"] = args.pop("query")
+            elif "architecture" in args and "component" not in args:
+                args["component"] = args.pop("architecture")
+        elif name == "search_developer_knowledge":
+            if "search" in args and "query" not in args:
+                args["query"] = args.pop("search")
 
         fn = TOOL_REGISTRY.get(name)
         if fn is None:
