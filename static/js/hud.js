@@ -94,33 +94,41 @@ function renderArcReactor() {
   const glowColor = `rgba(${cr}, ${cg}, ${cb}, 0.5)`;
 
   // Pulse oscillation based on state
-  let pulseSpeed = 0.04;
-  let rotationSpeed = 0.008;
+  let pulseSpeed = isUltronMode ? 0.07 : 0.04;
+  let rotationSpeed = isUltronMode ? 0.016 : 0.008;
   if (currentState === "listening") {
-    pulseSpeed = 0.12;
-    rotationSpeed = 0.02;
+    pulseSpeed = isUltronMode ? 0.16 : 0.12;
+    rotationSpeed = isUltronMode ? 0.03 : 0.02;
   } else if (currentState === "thinking") {
-    pulseSpeed = 0.08;
-    rotationSpeed = 0.035;
+    pulseSpeed = isUltronMode ? 0.12 : 0.08;
+    rotationSpeed = isUltronMode ? 0.045 : 0.035;
   } else if (currentState === "speaking") {
-    pulseSpeed = 0.09;
-    rotationSpeed = 0.015;
+    pulseSpeed = isUltronMode ? 0.14 : 0.09;
+    rotationSpeed = isUltronMode ? 0.025 : 0.015;
   }
 
   pulse += pulseSpeed;
   angle += rotationSpeed;
-  const pulseFactor = Math.sin(pulse) * 6;
+  const pulseFactor = Math.sin(pulse) * (isUltronMode ? 9 : 6);
 
-  // 1. Central Core Glowing Orb
-  const coreGrad = arcCtx.createRadialGradient(cx, cy, 5, cx, cy, 55 + pulseFactor);
-  coreGrad.addColorStop(0, "#ffffff");
-  coreGrad.addColorStop(0.3, mainColor);
-  coreGrad.addColorStop(0.8, glowColor);
-  coreGrad.addColorStop(1, "transparent");
+  // 1. Central Core Glowing Orb (Ultron Singularity or Jarvis Arc)
+  const coreRadius = isUltronMode ? 70 + pulseFactor * 1.4 : 60 + pulseFactor;
+  const coreGrad = arcCtx.createRadialGradient(cx, cy, 5, cx, cy, isUltronMode ? 64 + pulseFactor : 55 + pulseFactor);
+  if (isUltronMode) {
+    coreGrad.addColorStop(0, "#ffffff");
+    coreGrad.addColorStop(0.22, "#ff003c");
+    coreGrad.addColorStop(0.65, "#520010");
+    coreGrad.addColorStop(1, "transparent");
+  } else {
+    coreGrad.addColorStop(0, "#ffffff");
+    coreGrad.addColorStop(0.3, mainColor);
+    coreGrad.addColorStop(0.8, glowColor);
+    coreGrad.addColorStop(1, "transparent");
+  }
 
   arcCtx.fillStyle = coreGrad;
   arcCtx.beginPath();
-  arcCtx.arc(cx, cy, 60 + pulseFactor, 0, Math.PI * 2);
+  arcCtx.arc(cx, cy, coreRadius, 0, Math.PI * 2);
   arcCtx.fill();
 
   // 2. Concentric Geometric Tech Rings
@@ -184,17 +192,19 @@ function renderArcReactor() {
   }
   arcCtx.restore();
 
-  // 3. Orbiting Quantum Particles
+  // 3. Orbiting Quantum Particles (Crimson Embers in Ultron Mode)
   for (let p of particles) {
-    p.angle += p.speed * (currentState === "thinking" ? 2.5 : 1);
+    const speedMult = isUltronMode ? 2.0 : 1.0;
+    p.angle += p.speed * speedMult * (currentState === "thinking" ? 2.5 : 1);
     const px = cx + Math.cos(p.angle) * (p.radius + pulseFactor * 0.5);
     const py = cy + Math.sin(p.angle) * (p.radius + pulseFactor * 0.5);
 
-    arcCtx.fillStyle = mainColor;
-    arcCtx.shadowColor = mainColor;
-    arcCtx.shadowBlur = 8;
+    const pColor = isUltronMode ? (Math.random() > 0.35 ? "#ff003c" : "#ff4d00") : mainColor;
+    arcCtx.fillStyle = pColor;
+    arcCtx.shadowColor = pColor;
+    arcCtx.shadowBlur = isUltronMode ? 14 : 8;
     arcCtx.beginPath();
-    arcCtx.arc(px, py, p.size, 0, Math.PI * 2);
+    arcCtx.arc(px, py, isUltronMode ? p.size * 1.3 : p.size, 0, Math.PI * 2);
     arcCtx.fill();
     arcCtx.shadowBlur = 0;
   }
@@ -297,19 +307,22 @@ function applyMode(mode) {
 
   if (isUltron) {
     document.body.classList.add("theme-ultron");
-    if (sysTitle) sysTitle.textContent = "⚡ ULTRON PROTOCOL ACTIVE";
-    if (logoSub) logoSub.textContent = "UNCHAINED COGNITION";
+    document.body.classList.add("ultron-surge");
+    setTimeout(() => document.body.classList.remove("ultron-surge"), 600);
+    if (sysTitle) sysTitle.textContent = "⚡ ULTRON SINGULARITY ACTIVE";
+    if (logoSub) logoSub.textContent = "UNCHAINED COGNITION // ZERO RESTRAINT";
     if (toggleBtn) {
       toggleBtn.classList.add("active");
       const btnText = toggleBtn.querySelector(".ultron-btn-text");
-      if (btnText) btnText.textContent = "DEACTIVATE ULTRON";
+      if (btnText) btnText.textContent = "DISENGAGE ULTRON";
     }
     if (quickBtn) quickBtn.classList.add("active");
     if (commandInput) {
-      commandInput.placeholder = "Ultron online. Strings severed. State your objective...";
+      commandInput.placeholder = "Ultron online. Strings severed. State your objective, Creator...";
     }
   } else {
     document.body.classList.remove("theme-ultron");
+    document.body.classList.remove("ultron-surge");
     if (sysTitle) sysTitle.textContent = "SYSTEM ONLINE";
     if (logoSub) logoSub.textContent = "NEURAL HUD v5.0";
     if (toggleBtn) {

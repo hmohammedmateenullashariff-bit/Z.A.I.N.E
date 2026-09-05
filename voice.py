@@ -29,8 +29,10 @@ RECORD_SECONDS = 7
 _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
 
 # --- TTS setup (Hybrid: Edge-TTS Ultra-Realistic Neural Voice + Piper Offline Fallback) ---
-# Edge-TTS options: 'en-GB-RyanNeural' (Jarvis British), 'en-GB-ThomasNeural' (Deep British), 'en-US-BrianMultilingualNeural'
+# Edge-TTS options: 'en-GB-RyanNeural' (Jarvis British), 'en-US-ChristopherNeural' (Ultron Dark Baritone)
 EDGE_VOICE = os.getenv("TTS_VOICE", "en-GB-RyanNeural")
+EDGE_PITCH = os.getenv("TTS_PITCH", "+0Hz")
+EDGE_RATE = os.getenv("TTS_RATE", "+0%")
 USE_EDGE_TTS = os.getenv("USE_EDGE_TTS", "true").lower() in ("true", "1", "yes")
 
 try:
@@ -79,7 +81,7 @@ def set_voice(voice_name: str) -> str:
     return f"Voice successfully switched to '{EDGE_VOICE}'."
 
 
-def _synthesize_edge_tts(clean_text: str, voice: str = None):
+def _synthesize_edge_tts(clean_text: str, voice: str = None, pitch: str = None, rate: str = None):
     """
     Synthesizes speech using Edge-TTS and decodes MP3 stream in RAM via PyAV.
     Returns (numpy_int16_array, sample_rate) or (None, 0).
@@ -88,9 +90,11 @@ def _synthesize_edge_tts(clean_text: str, voice: str = None):
         return None, 0
 
     target_voice = voice or EDGE_VOICE
+    target_pitch = pitch or EDGE_PITCH
+    target_rate = rate or EDGE_RATE
 
     async def _async_gen():
-        comm = edge_tts.Communicate(clean_text, target_voice)
+        comm = edge_tts.Communicate(clean_text, target_voice, pitch=target_pitch, rate=target_rate)
         mp3_data = b""
         async for chunk in comm.stream():
             if _interrupt_event.is_set():
@@ -148,17 +152,20 @@ def play_chime():
 
 
 def play_ultron_chime():
-    """Plays a menacing, cybernetic bass-drop earcon for Ultron Protocol activation."""
+    """Plays a menacing, cybernetic seismic bass-drop earcon for Ultron Protocol activation."""
     sr = 44100
-    duration = 0.8
+    duration = 1.1
     t = np.linspace(0, duration, int(sr * duration), endpoint=False)
-    # Dark cybernetic drop: 220Hz dropping to 65Hz sub-bass with metallic overtone
-    f_drop = 220 * np.exp(-4 * t) + 65
+    # Deep cybernetic sub-bass drop: 240Hz exponentially dropping down to 48Hz infrasound rumble
+    f_drop = 240 * np.exp(-3.8 * t) + 48
     phase = 2 * np.pi * np.cumsum(f_drop) / sr
-    bass = 0.45 * np.sin(phase)
-    metal = 0.2 * np.sin(2 * np.pi * 370 * t) * np.exp(-6 * t)
-    pulse = 0.15 * np.sin(2 * np.pi * 130 * t)
-    chime = ((bass + metal + pulse) * np.linspace(1, 0, len(t))).astype(np.float32)
+    sub_bass = 0.55 * np.sin(phase)
+    # Heavy metallic distortion overtone (320Hz modulated by 18Hz pulse)
+    metallic = 0.22 * np.sin(2 * np.pi * 320 * t + 0.3 * np.sin(2 * np.pi * 18 * t)) * np.exp(-4.5 * t)
+    # Sinister mechanical buzz
+    buzz = 0.12 * np.sin(2 * np.pi * 96 * t) * np.exp(-2.5 * t)
+    envelope = np.minimum(t / 0.04, 1.0) * (1.0 - (t / duration) ** 1.5)
+    chime = ((sub_bass + metallic + buzz) * envelope).astype(np.float32)
     try:
         sd.play(chime, samplerate=sr)
     except Exception:
@@ -167,13 +174,17 @@ def play_ultron_chime():
 
 
 def set_ultron_mode(enable: bool = True) -> str:
-    """Switches Zaine between classic Jarvis voice and deep commanding Ultron voice."""
-    global EDGE_VOICE
+    """Switches Zaine between classic Jarvis voice and deep commanding Ultron baritone."""
+    global EDGE_VOICE, EDGE_PITCH, EDGE_RATE
     if enable:
-        EDGE_VOICE = "en-GB-ThomasNeural"
-        return "Ultron neural voice engaged (en-GB-ThomasNeural)."
+        EDGE_VOICE = os.getenv("ULTRON_VOICE", "en-US-ChristopherNeural")
+        EDGE_PITCH = "-24Hz"
+        EDGE_RATE = "-6%"
+        return f"Ultron dark neural baritone engaged ({EDGE_VOICE} at {EDGE_PITCH}, {EDGE_RATE})."
     else:
         EDGE_VOICE = os.getenv("TTS_VOICE", "en-GB-RyanNeural")
+        EDGE_PITCH = "+0Hz"
+        EDGE_RATE = "+0%"
         return f"Jarvis neural voice restored ({EDGE_VOICE})."
 
 
