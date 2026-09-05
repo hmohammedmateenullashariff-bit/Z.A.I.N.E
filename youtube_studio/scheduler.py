@@ -39,12 +39,23 @@ def save_schedule_state(state: Dict[str, Any]):
         json.dump(state, f, indent=2)
 
 
-def check_and_run_daily_youtube_schedule(force: bool = False, topic: str = "") -> Dict[str, Any]:
+DAY_GENRES = {
+    0: "tech",       # Monday: Tech Intelligence
+    1: "cat",        # Tuesday: Funny Cat Memes & Chaos
+    2: "kids",       # Wednesday: Funny Toddler & Kids Humor
+    3: "animated",   # Thursday: Whimsical Animated Stories
+    4: "tech",       # Friday: High-Impact Tech Breakthroughs
+    5: "cat",        # Saturday: Weekend Feline Laughs
+    6: "animated",   # Sunday: Animated Tales & Cartoons
+}
+
+
+def check_and_run_daily_youtube_schedule(force: bool = False, topic: str = "", genre: str = "auto") -> Dict[str, Any]:
     """
     Called periodically by heartbeat.py daemon or on-demand by user.
     Checks if current local time is within the 14:00 - 17:00 (2-5 PM) window
-    (or force=True) and triggers daily studio milestones:
-    1. Content Generation (Short video)
+    (or force=True) and triggers daily studio milestones across rotating genres:
+    1. Content Generation (Short video: Tech / Cat / Kids / Animated)
     2. YouTube Upload / Queueing
     3. Channel Analytics Dossier
     """
@@ -59,21 +70,24 @@ def check_and_run_daily_youtube_schedule(force: bool = False, topic: str = "") -
 
     in_window = (14 <= current_hour <= 17)
 
+    # Determine genre
+    selected_genre = genre if genre and genre != "auto" else DAY_GENRES.get(now.weekday(), "cat")
+
     if in_window or force:
         # 1. Milestone 1: Content Generation
         if force or (current_hour >= 14 and state.get("last_generation_date") != today_str):
-            print("\n[YouTube Studio Scheduler] Milestone 1 Triggered: Initiating AI Short generation...")
+            print(f"\n[YouTube Studio Scheduler] Milestone 1 Triggered: Initiating AI Short generation ({selected_genre.upper()})...")
             try:
                 import thermal_guard
                 thermal_guard.wait_for_thermal_cooldown()
 
                 from .content_generator import generate_youtube_short
-                short_result = generate_youtube_short(topic=topic)
+                short_result = generate_youtube_short(topic=topic, genre=selected_genre)
 
                 state["last_generation_date"] = today_str
                 state["latest_video_path"] = short_result.get("video_path", "")
                 save_schedule_state(state)
-                actions_taken.append(f"Rendered Short: '{short_result.get('title')}' ({short_result.get('duration_sec')}s, {short_result.get('file_size_mb')} MB)")
+                actions_taken.append(f"Rendered Short [{short_result.get('genre', selected_genre).upper()}]: '{short_result.get('title')}' ({short_result.get('duration_sec')}s, {short_result.get('file_size_mb')} MB)")
             except Exception as e:
                 actions_taken.append(f"Generation error: {e}")
 

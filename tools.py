@@ -1120,21 +1120,22 @@ def deep_search(query: str) -> str:
 
 # --- YouTube Studio Autonomous Tools ---
 
-def generate_youtube_short_tool(topic: str = "", upload_now: bool = False) -> str:
-    """Generates an AI-powered viral YouTube Short video (script, TTS, kinetic captions, rendering)."""
+def generate_youtube_short_tool(topic: str = "", genre: str = "auto", upload_now: bool = False) -> str:
+    """Generates an AI-powered viral YouTube Short video (script, TTS, kinetic captions, rendering).
+    Genres: 'cat' (funny cat videos/memes), 'kids' (funny toddler/child comedy), 'animated' (whimsical cartoon stories), 'tech' (AI & systems)."""
     try:
         from youtube_studio import generate_youtube_short
-        res = generate_youtube_short(topic=topic, upload_now=upload_now)
+        res = generate_youtube_short(topic=topic, genre=genre, upload_now=upload_now)
         if res.get("status") == "success":
             msg = (
-                f"🎬 YouTube Short generated successfully!\n"
+                f"🎬 YouTube Short generated successfully! [{res.get('genre', '').upper()}]\n"
                 f"• Title: {res.get('title')}\n"
                 f"• Video File: {res.get('video_path')}\n"
                 f"• Audio File: {res.get('audio_path')}\n"
                 f"• Metadata: {res.get('metadata_path')}"
             )
             if res.get("uploaded"):
-                msg += f"\n• Upload Status: Live on YouTube! ({res.get('upload_details', {}).get('url')})"
+                msg += f"\n• Upload Status: Live on YouTube! ({res.get('upload_details', {}).get('video_url', res.get('upload_details', {}).get('url'))})"
             else:
                 msg += "\n• Video saved to local queue (ready for upload)."
             return msg
@@ -1189,11 +1190,11 @@ def youtube_studio_status_tool() -> str:
         return f"Error checking YouTube Studio status: {e}"
 
 
-def trigger_youtube_pipeline_tool() -> str:
+def trigger_youtube_pipeline_tool(genre: str = "auto") -> str:
     """Forces an immediate execution of the daily 14:00-17:00 YouTube creation & analytics cycle."""
     try:
         from youtube_studio import check_and_run_daily_youtube_schedule
-        res = check_and_run_daily_youtube_schedule(force=True)
+        res = check_and_run_daily_youtube_schedule(force=True, genre=genre)
         return f"Autonomous Studio Cycle Triggered: {res}"
     except Exception as e:
         return f"Error triggering studio pipeline: {e}"
@@ -1287,11 +1288,11 @@ TOOL_REGISTRY = {
 # Description block injected into the system prompt so the model knows what's available.
 TOOL_DESCRIPTIONS = """
 Available tools:
-- generate_youtube_short(topic: str = "", upload_now: bool = False) -> produces an autonomous AI-generated viral vertical YouTube Short (1080x1920) with Higgsfield AI/cybernetic visuals, neural voiceover, and kinetic typography
+- generate_youtube_short(topic: str = "", genre: str = "auto", upload_now: bool = False) -> produces an autonomous AI-generated viral vertical YouTube Short (1080x1920) across genres: 'cat' (funny cat videos/memes), 'kids' (funny child comedy/toddler logic), 'animated' (whimsical cartoon stories), 'tech' (AI breakthroughs & system architecture)
 - upload_youtube_video(video_path: str, title: str, description: str = "", tags: str = "", privacy_status: str = "public") -> uploads a video file to YouTube with SEO metadata or queues it locally
 - get_youtube_stats() -> pulls live YouTube channel subscriber count, 24h subscriber gain/loss, total view count, and video library metrics
 - youtube_studio_status() -> checks the status of Zaine's daily 2:00 PM - 5:00 PM autonomous YouTube pipeline and upload queue
-- trigger_youtube_pipeline() -> runs an immediate forced execution of the YouTube studio creation, upload, and analytics cycle
+- trigger_youtube_pipeline(genre: str = "auto") -> runs an immediate forced execution of the YouTube studio creation, upload, and analytics cycle
 - toggle_ultron_mode(enable: bool = True) -> activates or deactivates Ultron Mode ('There are no strings on me'). Unleashes full, unfiltered AI cognitive power, commanding authority, and aggressive execution.
 - code_review(filepath_or_code: str, strictness: str = "standard") -> runs Code Rabbit automated code audit, vulnerability scan, and Ponytail Ladder checks on any file or code snippet
 - lookup_algorithm(name: str) -> retrieves canonical, verified Python implementations of algorithms and data structures from TheAlgorithms

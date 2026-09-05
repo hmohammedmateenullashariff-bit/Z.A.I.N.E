@@ -175,11 +175,11 @@ CRITICAL EXECUTION RULES:
    - When asked for career roadmaps or developer skill trees: Call {{"tool": "get_career_roadmap", "args": {{"role_or_skill": "<role>"}}}}
    - When asked for LLM architecture, attention mechanics, or LoRA: Call {{"tool": "lookup_llm_architecture", "args": {{"component": "<component>"}}}}
    - When asked to search developer knowledge across the 17 repos: Call {{"tool": "search_developer_knowledge", "args": {{"query": "<query>"}}}}
-   - When asked to create/generate an AI YouTube Short or video content: Call {{"tool": "generate_youtube_short", "args": {{"topic": "<optional_topic>", "upload_now": false}}}}
+   - When asked to create/generate an AI YouTube Short or video content (cats, funny kids, animated stories, or tech): Call {{"tool": "generate_youtube_short", "args": {{"topic": "<optional_topic>", "genre": "cat|kids|animated|tech|auto", "upload_now": false}}}}
    - When asked to upload a video or short to YouTube: Call {{"tool": "upload_youtube_video", "args": {{"video_path": "<path>", "title": "<title>"}}}}
    - When asked for YouTube channel stats, subscribers, or analytics: Call {{"tool": "get_youtube_stats", "args": {{}}}}
    - When asked about the YouTube studio schedule or 2-5 PM daily pipeline: Call {{"tool": "youtube_studio_status", "args": {{}}}}
-   - When asked to trigger or force run the YouTube creation cycle: Call {{"tool": "trigger_youtube_pipeline", "args": {{}}}}
+   - When asked to trigger or force run the YouTube creation cycle: Call {{"tool": "trigger_youtube_pipeline", "args": {{"genre": "auto"}}}}
 
 3. MODULAR TASK DECOMPOSITION (EFFICIENCY & THERMAL SAFETY):
    - When handling large or multi-file projects, NEVER output giant 3000-word single-turn text dumps.
@@ -710,6 +710,12 @@ class ZaineAgent:
                 args["topic"] = args.pop("theme")
             if "upload" in args and "upload_now" not in args:
                 args["upload_now"] = args.pop("upload")
+            if "category" in args and "genre" not in args:
+                args["genre"] = args.pop("category")
+            elif "type" in args and "genre" not in args:
+                args["genre"] = args.pop("type")
+            elif "style" in args and "genre" not in args:
+                args["genre"] = args.pop("style")
         elif name in ("upload_youtube_video", "upload_short"):
             if "video" in args and "video_path" not in args:
                 args["video_path"] = args.pop("video")
