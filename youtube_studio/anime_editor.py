@@ -182,7 +182,7 @@ def render_dark_edit_parallel(
     bottom_clip_path: str,
     audio_path: str,
     output_path: str,
-    duration: float = 24.0,
+    duration: float = 45.0,
     top_label: str = "VALLEY OF THE END (GENIN)",
     bottom_label: str = "FINAL BATTLE (SHIPPUDEN)",
     crf: int = 16,
@@ -294,6 +294,8 @@ def apply_dark_editz_master_grade(
 def generate_anime_amv(
     topic: str = "Naruto vs Sasuke",
     output_filename: Optional[str] = None,
+    duration: float = 45.0,
+    aspect_ratio: str = "9:16",
     crf: int = 16,
 ) -> Dict[str, Any]:
     """
@@ -301,10 +303,14 @@ def generate_anime_amv(
     1. Selects authentic soundtrack (e.g. 'Raga of Revenge' or intense battle track).
     2. Identifies or harvests HD clips for the matchup.
     3. Renders the Master Dark Edit with crisp grading, beat sync, and sleek branding.
-    4. Returns rich YouTube metadata ready for publication.
+    4. Target duration: 30s to 60s for Shorts, up to 90s for full AMVs.
+    5. Returns rich YouTube metadata ready for publication.
     """
     topic_lower = topic.lower()
     ts = int(os.times().system + os.times().user * 1000)
+
+    # Clamp duration to professional AMV standards (30s minimum for Shorts, up to 90s for full AMVs)
+    clamped_duration = max(30.0, min(duration, 90.0))
 
     if not output_filename:
         safe_name = "".join(c if c.isalnum() else "_" for c in topic.lower()).strip("_")
@@ -349,6 +355,7 @@ def generate_anime_amv(
             bottom_clip_path=str(raw_clip_bottom),
             audio_path=str(bgm_raga) if bgm_raga.exists() else "",
             output_path=output_path,
+            duration=clamped_duration,
             crf=crf,
         )
     elif raw_clip_top.exists():
