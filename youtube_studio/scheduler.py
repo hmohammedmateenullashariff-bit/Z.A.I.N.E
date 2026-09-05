@@ -40,14 +40,15 @@ def save_schedule_state(state: Dict[str, Any]):
 
 
 DAILY_SLOTS = [
-    {"id": "slot_1", "hour": 9, "minute": 0, "genre": "facts", "label": "Morning Curiosity (Facts)"},
-    {"id": "slot_2", "hour": 12, "minute": 30, "genre": "cat", "label": "Lunchtime Laughs (Cat Memes)"},
-    {"id": "slot_3", "hour": 15, "minute": 30, "genre": "gaming", "label": "Afternoon Lore (Gaming)"},
-    {"id": "slot_4", "hour": 18, "minute": 30, "genre": "anime", "label": "Prime Battles (Anime)"},
-    {"id": "slot_5", "hour": 21, "minute": 30, "genre": "tech", "label": "Late-Night Peak (Tech/Toon)"},
+    {"id": "slot_night_1", "hour": 1, "minute": 30, "genre": "anime", "label": "Midnight Dark Editz (Anime Battles)"},
+    {"id": "slot_night_2", "hour": 4, "minute": 0, "genre": "anime", "label": "Late-Night Power Clash (Anime)"},
+    {"id": "slot_morning", "hour": 9, "minute": 30, "genre": "anime", "label": "Morning Character Hype (Anime)"},
+    {"id": "slot_afternoon", "hour": 14, "minute": 30, "genre": "anime", "label": "Afternoon Combat Parallels (Anime)"},
+    {"id": "slot_prime", "hour": 18, "minute": 30, "genre": "anime", "label": "Prime Battle Arena (Anime AMV)"},
+    {"id": "slot_peak", "hour": 22, "minute": 30, "genre": "anime", "label": "Late-Night Peak Frenzy (Anime)"},
 ]
 
-MIN_UPLOAD_GAP_SECONDS = 2.5 * 3600  # 2.5 hours anti-spam cooldown between uploads
+MIN_UPLOAD_GAP_SECONDS = 2.0 * 3600  # 2.0 hours anti-spam cooldown between uploads
 
 
 def check_and_run_daily_youtube_schedule(force: bool = False, topic: str = "", genre: str = "auto") -> Dict[str, Any]:
