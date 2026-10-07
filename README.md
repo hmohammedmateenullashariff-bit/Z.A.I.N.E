@@ -1,104 +1,177 @@
-# Z.A.I.N.E — Autonomous Local AI Assistant & System Engineer
+# ⚡ Z.A.I.N.E (Zero-latency Autonomous Intelligent Neural Entity)
 
-**Z.A.I.N.E** (*Zero-latency Autonomous Intelligent Neural Entity*) is a fully local, privacy-first, embodied AI assistant designed for Mateen. Running 100% offline via Ollama, Piper, Faster-Whisper, and DirectShow, Zaine bridges voice conversation, system control, multimodal vision, and remote mobile execution via Telegram.
+<p align="center">
+  <img src="https://img.shields.io/badge/Status-Active_Development-00f2fe?style=for-the-badge&logo=statuspage" alt="Status">
+  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/AI_Inference-Ollama_Local-FF6F00?style=for-the-badge&logo=ollama&logoColor=white" alt="Ollama">
+  <img src="https://img.shields.io/badge/Vision-OpenCV_&_MediaPipe-blue?style=for-the-badge&logo=opencv" alt="Computer Vision">
+  <img src="https://img.shields.io/badge/Privacy-100%25_Offline-success?style=for-the-badge&logo=shield" alt="Privacy">
+  <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License">
+</p>
+
+<p align="center">
+  <b>A 100% offline, privacy-first embodied AI desktop assistant & digital sentinel.</b><br>
+  Engineered with zero mandatory cloud dependencies, local neural model orchestration, real-time voice barge-in, spatial vision, and bidirectional mobile execution.
+</p>
 
 ---
 
-## Architecture & Neural Models
+## 🌟 Overview
 
-| Engine | Model / Tool | Hardware / VRAM | Role |
+**Z.A.I.N.E** (*Zero-latency Autonomous Intelligent Neural Entity*) is a fully local, privacy-first AI desktop assistant. Running locally via **Ollama**, **Faster-Whisper**, **Piper-TTS**, and **DirectShow**, Zaine bridges conversational intelligence, desktop system telemetry, air-gesture computer interaction, and remote mobile execution via Telegram without streaming your data to third-party cloud servers.
+
+---
+
+## 🏛️ System Architecture
+
+```mermaid
+graph TD
+    subgraph "Perception Layer"
+        MIC[🎤 Microphone / Wake Word] --> STT[Faster-Whisper STT]
+        CAM[📷 DirectShow / Webcam] --> CV[OpenCV & MediaPipe]
+        SCREEN[🖥️ Screen In-Memory Grab] --> VLM[Moondream 1.8B VLM]
+    end
+
+    subgraph "Neural Intelligence Core"
+        STT --> ROUTER[Core Intent Router]
+        ROUTER --> REASON[Qwen 2.5 3B / DeepSeek]
+        ROUTER --> CODER[Qwen 2.5 Coder 3B]
+        ROUTER --> TOOLS[Tool Clusters Registry]
+        MEM[(SQLite FTS5 + BM25 Memory)] <--> REASON
+    end
+
+    subgraph "Execution & Interface Layer"
+        REASON --> TTS[Piper Neural TTS - 0ms Barge-In]
+        REASON --> HUD[Cybernetic Glass HUD / Flask UI]
+        REASON --> TELEGRAM[Pocket Zaine / Telegram Bridge]
+        TOOLS --> AUTOMATION[OS & Media Automation]
+        TOOLS --> STUDIO[YouTube Studio Autonomous Hub]
+    end
+```
+
+---
+
+## 🧠 Neural Models & Subsystems
+
+| Subsystem | Model / Technology | Execution Tier | Purpose |
 | :--- | :--- | :--- | :--- |
-| **Primary Persona** | `zaine:latest` (Customized Qwen2.5 3B) | 100% GPU VRAM | Conversational reasoning, tool orchestration, Jarvis persona |
-| **Coder Engine** | `zaine-coder:latest` (Qwen2.5-Coder 3B) | 100% GPU VRAM | Local code generation, syntax repair, and terminal troubleshooting |
-| **Multimodal Vision** | `moondream:latest` (1.8B VLM) | 100% GPU VRAM | Screen perception, webcam inspection, desk presence, Telegram photo OCR |
-| **Speech-to-Text** | `Faster-Whisper` (base.en / tiny) | Local CPU/CUDA | Streaming wake word detection and voice command transcription |
-| **Neural TTS** | `Piper-TTS` (en_GB-alan-medium) | Local CPU | Natural British voice with 0ms barge-in interruption |
-| **Second Brain** | SQLite FTS5 + BM25 | Local Storage | Instant local retrieval across personal notes & knowledge |
+| **Primary Brain** | `zaine:latest` (Fine-tuned Qwen 2.5 3B) | GPU VRAM | Conversational reasoning, persona, tool orchestration |
+| **Code Engine** | `zaine-coder:latest` (Qwen 2.5 Coder 3B) | GPU VRAM | Local code synthesis, terminal troubleshooting, debugging |
+| **Vision Perception** | `moondream:latest` (1.8B VLM) | GPU VRAM | Screen diagnostics, webcam inspection, desk presence |
+| **Speech-to-Text** | `Faster-Whisper` (base.en / tiny) | CPU / CUDA | Low-latency streaming wake word detection & transcription |
+| **Neural TTS** | `Piper-TTS` (`en_GB-alan-medium`) | Local CPU | Natural conversational speech with **0.00ms barge-in** |
+| **Air Gestures** | MediaPipe Hands + OpenCV | Local CPU | Real-time skeletal gesture tracking & workspace hotkeys |
+| **Second Brain** | SQLite FTS5 + BM25 | Local Disk | Millisecond local full-text search across knowledge vaults |
 
 ---
 
-## Core Capabilities (Shipped Phases 1–5)
+## 🚀 Key Features
 
-### 1. Voice & Conversational Flow
-- **Wake Word Activation:** Say *"Zaine"* to wake. Automatic follow-up listening for 10 seconds without needing the wake word.
-- **Real-Time Barge-In:** Speak *"Zaine, stop"*, *"wait"*, or press any key to interrupt speech in **0.00ms**.
-- **Dual Language Protocol:** Defaults to crisp, articulate English (Jarvis style). Automatically transitions to Hindi/Urdu when addressed in Hindi/Urdu.
+### 🎙️ 1. Voice Interaction with Real-Time Barge-In
+- **Continuous Wake Word:** Say *"Zaine"* to awaken. Features an automatic 10-second follow-up window.
+- **Instant 0ms Barge-In:** Speak *"Stop"*, *"Wait"*, or hit any key to instantly interrupt synthetic speech playback with zero lag.
+- **Multilingual Support:** Crisp English by default, seamlessly adapting to conversational Hindi/Urdu when prompted.
 
-### 2. Desktop Automation & Tool Use
-- **App Launcher:** Launch any application, game, or tool (*"Open Discord"*, *"Open VS Code"*, *"Open YouTube"*).
-- **Task Management:** SQLite-backed task manager (`add_task`, `list_tasks`, `complete_task`, `delete_task`).
-- **Media Controls:** Skip ads, play/pause, volume mute, or auto-play music on YouTube.
-- **Workspace Engineering:** Inspect code files, write scripts, edit snippets, run terminal commands, and launch local web servers.
+### 👁️ 2. Spatial Vision & Gesture Controls
+- **Screen Perception (`see_screen`):** In-memory display buffer captures to diagnose errors, inspect layout designs, or analyze code.
+- **Micro-burst Webcam Inspection (`see_camera`):** Sub-500ms hardware grab for object and desk analysis with immediate sensor release.
+- **IronHands Air Gesture System:** Control windows, switch apps, or trigger system macros with real-time hand gestures.
+- **Desk Presence Sentinel:** Proactively recognizes when you return to your workspace.
 
-### 3. Jarvis Timers & Proactive Heartbeat Daemon
-- **Scheduled Alarms:** Relative (`"in 20 mins"`) and absolute (`"18:30"`) timer parser. Alarms ring aloud and dispatch alerts to your phone.
-- **Battery Sentinel:** Notifies you via voice and Telegram when battery drops below 20% on battery power.
-- **Daily Intelligence Briefings:** Morning summary of unread emails and tasks (08:00–11:30 AM); evening debrief and server sign-off (21:00–23:30 PM).
-- **Smart Night Mode:** Whisper-quiet operation between 00:00 and 07:00 AM (mutes TTS, silent Telegram pushes only).
-- **Ergonomics Sentinel:** Prompts for water and eye breaks after 90 minutes of continuous screen work.
+### 📱 3. Pocket Zaine (Remote Mobile Bridge)
+- **Telegram Bot Integration:** Secure bidirectional tunnel with user pairing and PIN verification.
+- **Command Palette:** Access `/status`, `/screen`, `/camera`, `/vault`, `/tasks`, and `/remind` right from your phone.
+- **Mobile Vision Dispatch:** Send images from your smartphone for immediate on-premise local visual analysis.
 
-### 4. Personal "Second Brain" (Vault)
-- Local markdown notes stored in `vault/` with SQLite FTS5 full-text indexing and BM25 ranking.
-- Search documents instantly via voice, console, or Telegram.
-
-### 5. Multimodal Vision ("Eyes")
-- **Screen Perception (`see_screen`):** In-memory display grab in RAM to diagnose error messages, analyze website layouts, or inspect code.
-- **Webcam Inspection (`see_camera`):** 1-shot DirectShow hardware grab with instant device release (< 500ms LED on) to read physical documents or check real-world items.
-- **Desk Presence Sentinel:** Local VLM recognizes when you return to your desk after being away (> 30 minutes) and welcomes you back.
-
-### 6. Pocket Zaine (Remote Mobile Telegram Bridge)
-- Connected to `@Zaine_mateen_bot` with strict user pairing and PIN authorization.
-- **Slash Commands Menu:** Native autocomplete menu on mobile for `/status`, `/screen`, `/camera`, `/vault`, `/remind`, `/notes`, `/tasks`, `/emails`, and `/help`.
-- **Bidirectional Multimodal Vision:** Send `/screen` or `/camera` to get snapshots from your laptop, OR send any photo from your phone for instant local Moondream visual analysis!
-- **Voice Notes:** Send audio notes directly from Telegram; transcribed on the fly via Faster-Whisper.
+### 🎬 4. Autonomous Content Studio & Tools
+- **YouTube Studio Engine:** Automated script drafting, asset generation, timeline orchestration, and scheduled publishing.
+- **System Automation:** App launcher, process watchdog, media controller, and battery power sentinel.
 
 ---
 
-## Quick Start Guide
+## 🛠️ Quick Start
 
-### 1. Install Dependencies
-Ensure [Ollama](https://ollama.com) is installed, then pull required models:
+### 1. Prerequisites
+- **Python 3.10+**
+- [Ollama](https://ollama.com) installed and running.
+
+Pull the local models:
 ```bash
 ollama pull qwen2.5:3b
 ollama pull qwen2.5-coder:3b
 ollama pull moondream
 ```
 
-Install Python requirements:
+### 2. Installation
+Clone the repository and install required packages:
 ```bash
+git clone https://github.com/hmohammedmateenullashariff-bit/Z.A.I.N.E.git
+cd Z.A.I.N.E
 pip install -r requirements.txt
 ```
 
-### 2. Environment Configuration
-Create a `.env` file in the project root:
+### 3. Environment Setup
+Copy the configuration template:
+```bash
+cp .env.example .env
+```
+Populate `.env` with your preferred settings:
 ```env
-TELEGRAM_BOT_TOKEN="your_telegram_bot_token"
-TELEGRAM_ALLOWED_USER_ID="1245854320"
-TELEGRAM_PAIR_PIN="7860"
-USER_PERSONAL_EMAIL="hmohammedmateenullahshariff@gmail.com"
-EMAIL_ACCOUNT_ADDRESS="zaine.assistant@gmail.com"
-EMAIL_APP_PASSWORD="your_gmail_app_password"
+TELEGRAM_BOT_TOKEN="your_bot_token"
+TELEGRAM_AUTHORIZED_USER_ID="your_telegram_id"
+TELEGRAM_PAIR_PIN="your_secure_pin"
+GMAIL_ADDRESS="your_assistant_email@gmail.com"
+GMAIL_APP_PASSWORD="your_app_password"
+USER_PERSONAL_EMAIL="your_email@gmail.com"
 ```
 
-### 3. Launching Zaine
+### 4. Running Zaine
 
-**Full Voice & GUI Assistant:**
-```bash
-python main.py
-```
+* **Launch Full Assistant & Cybernetic HUD:**
+  ```bash
+  python main.py
+  ```
 
-**Headless Remote Telegram & Proactive Daemon:**
-```bash
-python telegram_bridge.py
+* **Launch Headless Remote Bridge (Background Daemon):**
+  ```bash
+  python telegram_bridge.py
+  ```
+
+---
+
+## 📂 Project Structure
+
+```text
+├── agent.py               # Core conversational agent logic & tool router
+├── approval.py            # Safety & permission gating for OS actions
+├── camera_stream.py       # Camera feed mutex & hardware controller
+├── coordinator.py         # Subsystem task scheduler & lifecycle manager
+├── core_router.py         # Semantic intent classification
+├── face_id.py             # Local face recognition & verification
+├── gesture_control.py     # MediaPipe air gesture detection
+├── heartbeat.py           # Background health check & system sentinel
+├── main.py                # Primary system entrypoint
+├── memory.py              # Context window manager & SQLite persistence
+├── tools.py               # Desktop system automation tools
+├── vision.py              # Multimodal screen & camera perception
+├── voice.py               # Whisper STT & Piper TTS engine
+├── electron/              # Desktop client container
+├── static/                # HUD styles, assets, and frontend scripts
+├── templates/             # Glassmorphism cybernetic HUD templates
+└── youtube_studio/        # Autonomous content generation & scheduling
 ```
 
 ---
 
-## Roadmap
+## 🛡️ Privacy & Security
 
-- [x] **Phase 1:** Core Conversational Loop, Task Management & System Status
-- [x] **Phase 2:** Advanced Tool Calling, Web Research & Local Coding Engine
-- [x] **Phase 3:** Full Local Voice Loop, Wake Word & Neural TTS
-- [x] **Phase 4:** Proactive Heartbeat, Real-Time Barge-In & Mobile Telegram Bridge
-- [x] **Phase 5:** Vision & Multimodal Perception ("Eyes")
-- [ ] **Phase 6:** Hardware Embodiment & Ambient Computing (Raspberry Pi 5, Chassis Display & Voice Cloning)
+Z.A.I.N.E is designed with privacy as a foundational principle:
+- **No Cloud LLM Telemetry:** All inference runs on your own hardware via Ollama.
+- **Hardware Isolation:** Camera and audio inputs are released immediately after capture.
+- **Sandboxed Action Approvals:** High-impact system commands require explicit confirmation.
+
+---
+
+## 📜 License
+
+Distributed under the [MIT License](LICENSE). See `LICENSE` for more information.
