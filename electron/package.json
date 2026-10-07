@@ -1,0 +1,12 @@
+{
+  "name": "zaine-hud-electron",
+  "version": "1.0.0",
+  "description": "Native Windows 11 Acrylic Shell for Z.A.I.N.E Neural HUD",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^34.0.0"
+  }
+}

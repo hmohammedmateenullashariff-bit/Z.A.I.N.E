@@ -62,6 +62,7 @@ def load_and_format_dataset(tokenizer):
 
 
 def main():
+    print("[qlora_train] Writing to: LoRA adapter weights, source: final_dataset.jsonl (Gemini-validated Q&A set).")
     print(f"Loading tokenizer for {BASE_MODEL}...")
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
     if tokenizer.pad_token is None:

@@ -7,6 +7,13 @@ env/
 __pycache__/
 *.pyc
 *.pyo
+.ruff_cache/
+
+# Node Modules & Dependencies
+node_modules/
+dist/
+build/
+*.exe
 
 # Secret & Environment Variables (Phase 3 Security)
 .env
@@ -20,21 +27,31 @@ data/youtube_analytics_history.json
 # Database & Storage
 *.db
 *.sqlite3
+*.bak
 
 # Voice & Model Weights (Large binary files)
 voices/*.onnx
 voices/*.onnx.json
+*.onnx
+*.onnx.json
 finetune/zaine-3b-qlora/
+finetune/checkpoint-*/
+models/
 *.bin
 *.safetensors
 *.pth
 *.pt
+*.task
+*.blend
+custom_tools/IronHands/
+
+# Runtime Process State
+.zaine_core.json
 
 # Workspace Scratchpad
 workspace/
 
 # Large Model Tasks & Weights
-models/*.task
 data/youtube_playlists.json
 scratch/
 

@@ -59,34 +59,49 @@ def capture_screen_base64(max_dim: int = 1280, quality: int = 80) -> str:
 
 def capture_webcam_bytes(camera_index: int = 0, quality: int = 80) -> bytes:
     """
-    Captures a single 1-shot frame from the webcam and immediately releases the hardware.
-    Camera LED stays on for < 500ms for absolute user privacy.
+    Captures a frame from the shared CameraStream daemon (<1ms in-memory when active).
+    Maintains fallback to direct VideoCapture if stream is unavailable.
     """
     if cv2 is None:
         return b""
 
-    # DirectShow on Windows for instant camera wake-up without MSMF latency
-    cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
-    if not cap.isOpened():
-        cap = cv2.VideoCapture(camera_index)
+    try:
+        from camera_stream import get_camera_stream
+        stream = get_camera_stream(camera_index)
+        jpeg_bytes = stream.get_latest_frame_jpeg(quality=quality)
+        if jpeg_bytes:
+            return jpeg_bytes
+    except Exception as e:
+        print(f"[Vision CameraStream Notice]: Falling back to direct capture: {e}")
 
-    if not cap.isOpened():
-        return b""
+    # Fallback to direct DirectShow capture if CameraStream unavailable
+    try:
+        from camera_stream import CAMERA_HARDWARE_LOCK
+    except ImportError:
+        import threading
+        CAMERA_HARDWARE_LOCK = threading.Lock()
 
-    # Read single frame & immediately release hardware
-    ret, frame = cap.read()
-    cap.release()
+    with CAMERA_HARDWARE_LOCK:
+        cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(camera_index)
 
-    if not ret or frame is None:
-        return b""
+        if not cap.isOpened():
+            return b""
 
-    success, encoded_img = cv2.imencode(
-        ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), quality]
-    )
-    if not success:
-        return b""
+        ret, frame = cap.read()
+        cap.release()
 
-    return encoded_img.tobytes()
+        if not ret or frame is None:
+            return b""
+
+        success, encoded_img = cv2.imencode(
+            ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), quality]
+        )
+        if not success:
+            return b""
+
+        return encoded_img.tobytes()
 
 
 def capture_webcam_base64(camera_index: int = 0, quality: int = 80) -> str:

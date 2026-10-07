@@ -1,0 +1,126 @@
+{
+  "page": {
+    "size": "A4",
+    "margins": {
+      "top": 20,
+      "bottom": 20,
+      "left": 20,
+      "right": 20
+    }
+  },
+  "styles": {
+    "HeaderBlue": {
+      "font": "Calibri",
+      "size": 16,
+      "bold": true,
+      "color": "#1A5FB4"
+    },
+    "BodyText": {
+      "font": "Calibri",
+      "size": 11,
+      "color": "#000000"
+    },
+    "FixCode": {
+      "font": "Consolas",
+      "size": 10,
+      "color": "#C7254E"
+    }
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": "ZAINE: System Recovery & Evolution Blueprint"
+    },
+    {
+      "type": "paragraph",
+      "text": "This document details the technical debt, architectural failures, and a three-stage remediation plan to transition Zaine from a collection of scripts to a professional autonomous agent system."
+    },
+    {
+      "type": "page_break"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Phase 1: The 'Quick Wins' (Immediate Stabilization)"
+    },
+    {
+      "type": "paragraph",
+      "text": "Goal: Stop system instability and unlock existing capabilities without altering core architecture."
+    },
+    {
+      "type": "bullet_list",
+      "items": [
+        {
+          "text": "Fix the Split-Brain DB: Redirect home_ops.py and backup routines from the stale zaine_memory.db to the active zaine_tasks.db. This ensures the 'digital sentinel' is actually monitoring the brain, not a ghost."
+        },
+        {
+          "text": "Illuminate the Tool Library: Map the 50 unregistered tools in tools.py into the tool_clusters.py system. This instantly increases the agent's operational surface area by 42%."
+        },
+        {
+          "text": "Implement Camera Mutex: Introduce a thread-safe locking mechanism in camera_stream.py. This prevents hardware contention between Face-ID, Vision, and Gesture modules, ending random camera crashes."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Phase 2: The Architectural Shift (Core Redesign)"
+    },
+    {
+      "type": "paragraph",
+      "text": "Goal: Solve the 'One-Session' limitation and inefficient context usage."
+    },
+    {
+      "type": "bullet_list",
+      "items": [
+        {
+          "text": "Session-Based Persistence: Replace the volatile in-memory list with a SQLite-backed 'chat_sessions' and 'messages' table. This enables 'New Chat' functionality and permanent history."
+        },
+        {
+          "text": "Intelligent Context Window: Shift from 12-turn FIFO to a Weighted Context Manager. Utilize the full 32k token window by dynamically injecting: User Profile -> Current Thread -> Semantic Memories."
+        },
+        {
+          "text": "Vectorized Retrieval: Replace SQL LIKE %word% with a lightweight local embedding store (FAISS/Chroma). This allows Zaine to retrieve memories based on meaning rather than exact keywords."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Phase 3: Intelligence & VRAM Optimization"
+    },
+    {
+      "type": "paragraph",
+      "text": "Goal: Maximize the 4GB VRAM ceiling and improve reasoning accuracy."
+    },
+    {
+      "type": "bullet_list",
+      "items": [
+        {
+          "text": "Neural Intent Routing: Replace rigid substring checks in core_router.py with a fast 'Router Prompt' using qwen2.5:3b to classify the task tier dynamically."
+        },
+        {
+          "text": "VRAM Orchestrator: Implement a strict model-swapping manager. When deepseek-r1:7b is required, explicitly flush the Reflex Core to prevent OOM (Out of Memory) crashes and system RAM paging."
+        },
+        {
+          "text": "True IDE Integration: Transform zaine_cascade.py from a terminal wrapper into an LSP-capable agent that can parse ASTs and read project structures natively."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Hardware Constraints Reference"
+    },
+    {
+      "type": "table",
+      "header": ["Resource", "Limit", "Current Status"],
+      "rows": [
+        ["VRAM", "4.0 GB", "Critical Bottleneck (Saturated)"],
+        ["System RAM", "15.6 GB", "High Pressure (>90% during renders)"],
+        ["CPU", "i5-13420H", "Stable (Handles STT/TTS well)"]
+      ]
+    }
+  ]
+}

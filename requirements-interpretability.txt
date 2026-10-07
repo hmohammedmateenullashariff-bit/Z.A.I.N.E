@@ -1,0 +1,7 @@
+# Optional requirements for offline model interpretability and activation analysis
+# Not required for the core Zaine voice/chat runtime or daemons.
+torch>=2.0.0
+transformers>=4.40.0
+peft>=0.10.0
+pandas>=2.0.0
+matplotlib>=3.7.0

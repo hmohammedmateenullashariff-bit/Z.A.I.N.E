@@ -1,7 +1,7 @@
 """
 Z.A.I.N.E — YouTube Autonomous Content & Channel Studio
 Provides end-to-end automated YouTube Shorts generation, resumable uploading,
-real-time channel analytics, and daily 2:00 PM - 5:00 PM scheduled automation.
+real-time channel analytics, and daily scheduled automation.
 """
 
 from .content_generator import generate_youtube_short
@@ -11,7 +11,17 @@ from .scheduler import check_and_run_daily_youtube_schedule, get_studio_status
 from .anime_editor import generate_anime_amv, harvest_anime_assets_during_idle, detect_audio_beats, split_raw_into_scenes, score_scene_motion
 from .audio_separator import separate_audio_stems, isolate_anime_dialogue
 from .timeline_exporter import export_fcpxml_timeline, export_edl_timeline, export_beat_markers_csv
-from .fx_engine import build_impact_strobe_filter, build_screen_shake_filter, apply_fluid_60fps_interpolation, apply_smart_9_16_reframing
+from .fx_engine import (
+    build_impact_strobe_filter,
+    build_screen_shake_filter,
+    apply_fluid_60fps_interpolation,
+    apply_smart_9_16_reframing,
+    build_pulse_zoom_filter,
+    build_impact_invert_filter,
+    build_manga_ink_bleed_filter,
+    build_rgb_split_glitch_filter,
+    build_style_pipeline,
+)
 from .video_ai_hub import generate_action_scene, get_available_video_providers
 
 __all__ = [
@@ -36,8 +46,11 @@ __all__ = [
     "build_screen_shake_filter",
     "apply_fluid_60fps_interpolation",
     "apply_smart_9_16_reframing",
+    "build_pulse_zoom_filter",
+    "build_impact_invert_filter",
+    "build_manga_ink_bleed_filter",
+    "build_rgb_split_glitch_filter",
+    "build_style_pipeline",
     "generate_action_scene",
     "get_available_video_providers",
 ]
-
-

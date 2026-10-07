@@ -13,7 +13,9 @@ idle / listening / thinking / speaking.
 
 import os
 import sys
+import time
 import threading
+import requests
 from dotenv import load_dotenv
 
 if sys.platform == "win32":
@@ -121,7 +123,18 @@ def voice_loop():
         ui.set_status("idle")
         wait_for_wake_word("zaine")
 
-        # 2. Wake word heard -> listen for the actual command
+        # 2. Wake word heard -> check identity (cached if session is fresh < 5m)
+        try:
+            from face_id import check_and_greet
+            ident = check_and_greet()
+            if ident.get("status") == "recognized":
+                print(f"\n[Face-ID Verified]: {ident['name']} ({ident['role'].upper()})")
+            elif ident.get("status") == "unknown":
+                print(f"\n[Face-ID Alert]: Unrecognized visitor -> Operating in Guest Mode")
+        except Exception:
+            pass
+
+        # 3. Listen for the actual command
         ui.set_status("listening")
         user_text = listen()
 
@@ -150,26 +163,68 @@ def text_loop():
             print(f"{ZAINE_NAME}: Bye!")
             os._exit(0)
 
+        if user_text.startswith("/"):
+            try:
+                from terminal_ui import handle_slash_command
+                handle_slash_command(user_text)
+                continue
+            except Exception:
+                pass
+
         if user_text:
             handle_message(user_text, source="text")
             ui.set_status("idle")
 
 
 if __name__ == "__main__":
-    # Start Telegram Bridge in background if configured in .env
+    # 1. Start Core HTTP Service Server
+    print("[Z.A.I.N.E Core]: Starting multi-threaded HTTP server...")
+    ui.start_server()
+
+    # 2. Health-check Gate: Poll GET /api/health until confirmed listening (up to 15s bounded window)
+    health_url = f"http://127.0.0.1:{ui.port}/api/health"
+    healthy = False
+    max_attempts = 50
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = requests.get(health_url, timeout=1.0)
+            if resp.status_code == 200 and resp.json().get("ok"):
+                healthy = True
+                print(f"[Z.A.I.N.E Core]: HTTP server verified healthy and listening on port {ui.port} (attempt {attempt}).")
+                break
+        except Exception:
+            time.sleep(0.3)
+
+    if not healthy:
+        err_msg = f"[FATAL]: Core HTTP server failed to respond healthy on {health_url} after {max_attempts * 0.3:.1f}s. Halting startup to prevent split-brain state."
+        print(err_msg)
+        ui.stop()
+        raise RuntimeError(err_msg)
+
+    # 3. Start Telegram Bridge in background if configured in .env
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     if telegram_token:
         try:
             from telegram_bridge import TelegramBridge
-            bridge = TelegramBridge(agent=agent)
+            bridge = TelegramBridge()
             threading.Thread(target=bridge.run_polling, daemon=True).start()
             print("[Pocket Zaine]: Telegram background bridge activated.")
         except Exception as e:
             print(f"[Pocket Zaine]: Failed to start Telegram bridge: {e}")
 
-    # Start Proactive Heartbeat Daemon in background
+    # 4. Start Proactive Heartbeat Daemon in background
     heartbeat_daemon.start()
 
+    # 5. Start Voice and Text interaction loops
     threading.Thread(target=voice_loop, daemon=True).start()
     threading.Thread(target=text_loop, daemon=True).start()
-    ui.start()  # must run on the main thread
+
+    # 6. Launch Desktop Window / HUD interface
+    ui.launch_window()
+
+    # Keep main thread alive
+    try:
+        while not ui.stop_event.is_set():
+            time.sleep(0.5)
+    except (KeyboardInterrupt, SystemExit):
+        ui.stop()

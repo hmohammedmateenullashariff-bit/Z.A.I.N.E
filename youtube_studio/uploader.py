@@ -19,6 +19,7 @@ from typing import Dict, Any, List, Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 QUEUE_FILE = PROJECT_ROOT / "data" / "youtube_queue.json"
+ARCHIVE_FILE = PROJECT_ROOT / "data" / "youtube_queue_archive.json"
 TOKEN_FILE = PROJECT_ROOT / "data" / "youtube_token.json"
 CLIENT_SECRET_FILE = PROJECT_ROOT / "client_secret.json"
 
@@ -96,6 +97,36 @@ def save_upload_queue(queue: List[Dict[str, Any]]):
     QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(QUEUE_FILE, "w", encoding="utf-8") as f:
         json.dump(queue, f, indent=2)
+
+
+def archive_published_entries():
+    """Moves PUBLISHED entries from youtube_queue.json to youtube_queue_archive.json.
+
+    Keeps the active queue lean and prevents stale published videos from being
+    misinterpreted as pending items on restart.
+    """
+    queue = get_upload_queue()
+    active = [q for q in queue if q.get("status") != "PUBLISHED"]
+    published = [q for q in queue if q.get("status") == "PUBLISHED"]
+
+    if not published:
+        return  # Nothing to archive
+
+    # Append published entries to archive file
+    archive: List[Dict[str, Any]] = []
+    if ARCHIVE_FILE.exists():
+        try:
+            with open(ARCHIVE_FILE, "r", encoding="utf-8") as f:
+                archive = json.load(f)
+        except Exception:
+            archive = []
+    archive.extend(published)
+    ARCHIVE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(ARCHIVE_FILE, "w", encoding="utf-8") as f:
+        json.dump(archive, f, indent=2)
+
+    # Overwrite active queue without published entries
+    save_upload_queue(active)
 
 
 def queue_video_for_upload(video_path: str, title: str, description: str, tags: List[str]) -> Dict[str, Any]:
@@ -191,6 +222,32 @@ def upload_youtube_video(
 
     if not os.path.exists(video_path):
         return {"status": "ERROR", "message": f"File not found: {video_path}"}
+
+    # Idempotency check: refuse re-upload if this video_path is already PUBLISHED
+    queue = get_upload_queue()
+    for q in queue:
+        if q.get("video_path") == video_path and q.get("status") == "PUBLISHED":
+            return {
+                "status": "ALREADY_PUBLISHED",
+                "message": f"This video was already published on {q.get('published_at', 'unknown date')}, skipping re-upload.",
+                "video_id": q.get("video_id", ""),
+                "video_url": q.get("video_url", ""),
+            }
+    # Also check the archive file for historical uploads
+    if ARCHIVE_FILE.exists():
+        try:
+            with open(ARCHIVE_FILE, "r", encoding="utf-8") as f:
+                archive = json.load(f)
+            for a in archive:
+                if a.get("video_path") == video_path and a.get("status") == "PUBLISHED":
+                    return {
+                        "status": "ALREADY_PUBLISHED",
+                        "message": f"This video was already published on {a.get('published_at', 'unknown date')} (archived), skipping re-upload.",
+                        "video_id": a.get("video_id", ""),
+                        "video_url": a.get("video_url", ""),
+                    }
+        except Exception:
+            pass
 
     token_data = get_stored_token()
 
@@ -296,6 +353,9 @@ def upload_youtube_video(
                         q["genre"] = genre
             save_upload_queue(queue)
 
+            # Archive published entries to keep the active queue clean
+            archive_published_entries()
+
             success_msg = f"Successfully published to YouTube: {video_link}"
             if playlist_result and playlist_result.get("status") == "SUCCESS":
                 success_msg += f"\n📁 Added to Playlist: {genre.upper()}"
@@ -320,3 +380,66 @@ def upload_youtube_video(
 
     except Exception as e:
         return {"status": "ERROR", "error": str(e)}
+
+
+def publish_approved_video(proposal_id: str) -> Dict[str, Any]:
+    """
+    Mandatory Human-in-the-Loop Approval Action:
+    Takes an approved video from data/pending_review/{proposal_id}.json
+    and executes the resumable YouTube Data API v3 upload using the
+    already-rendered local file (zero re-render required).
+    """
+    from .scheduler import get_pending_review_item, mark_slot_completed, PENDING_REVIEW_DIR
+    from approval import ApprovalRegistry
+
+    item = get_pending_review_item(proposal_id)
+    if not item:
+        return {"status": "ERROR", "error": f"Proposal '{proposal_id}' not found in pending review queue."}
+
+    video_path = item.get("video_path", "")
+    title = item.get("title", "YouTube Short")
+    description = item.get("description", "")
+    tags = item.get("tags", ["Shorts", "Anime", "AMV"])
+    category_id = item.get("category_id", "1")
+    engagement_question = item.get("engagement_question", "")
+    genre = item.get("genre", "anime")
+    slot_id = item.get("slot_id", "")
+
+    if not os.path.exists(video_path):
+        return {"status": "ERROR", "error": f"Rendered video file not found at: {video_path}"}
+
+    # Upload using existing local master video file
+    up_res = upload_youtube_video(
+        video_path=video_path,
+        title=title,
+        description=description,
+        tags=tags,
+        category_id=category_id,
+        engagement_question=engagement_question,
+        genre=genre,
+    )
+
+    # If slot was tracked, mark it completed now that it's approved
+    if slot_id:
+        mark_slot_completed(slot_id, video_path=video_path)
+
+    # Approve in approval registry as well
+    try:
+        ApprovalRegistry.approve(proposal_id, note="Approved via Telegram inline button")
+    except Exception:
+        pass
+
+    # Clean up review queue JSON
+    json_path = PENDING_REVIEW_DIR / f"{proposal_id}.json"
+    if json_path.exists():
+        try:
+            json_path.unlink()
+        except Exception:
+            pass
+
+    return {
+        "status": up_res.get("status", "SUCCESS"),
+        "title": title,
+        "video_url": up_res.get("video_url") or up_res.get("url", "https://youtube.com/@Zaine"),
+        "details": up_res
+    }

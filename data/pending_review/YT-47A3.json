@@ -1,0 +1,39 @@
+{
+  "proposal_id": "YT-47A3",
+  "slot_id": "slot_03_midday_gaming",
+  "slot_label": "Slot 3 (13:30) \u2014 Midday Gaming Physics & Secrets",
+  "genre": "gaming",
+  "title": "The Darkest Secret in Elden Ring Lore #Shorts #Gaming #EldenRing",
+  "description": "The Darkest Secret in Elden Ring Lore #Shorts #Gaming #EldenRing \ud83c\udf1f\n\n\ud83d\udcac Question of the day:\nWhat is the single hardest boss you have ever defeated in any video game? Drop your crowning achievement below! \ud83c\udfae\ud83d\udc47\n\nWelcome to Zaine Studio! Subscribe for daily epic gaming lore, mind-blowing facts, anime battles, hilarious pet chaos, and frontier tech intelligence!\n\n#Shorts #YouTubeShorts #Viral #Gaming #Trending #ZaineStudio",
+  "tags": [
+    "shorts",
+    "gaming",
+    "eldenring",
+    "eldenringlore",
+    "fromsoftware",
+    "gamer",
+    "gamingsecrets",
+    "viral"
+  ],
+  "category_id": "20",
+  "engagement_question": "What is the single hardest boss you have ever defeated in any video game? Drop your crowning achievement below! \ud83c\udfae\ud83d\udc47",
+  "video_path": "C:\\Users\\Mohemad Mateen ullah\\Documents\\projects\\Project-Z\\workspace\\youtube_shorts\\short_20260916_142312.mp4",
+  "metadata_path": "C:\\Users\\Mohemad Mateen ullah\\Documents\\projects\\Project-Z\\workspace\\youtube_shorts\\short_20260916_142312.json",
+  "duration_sec": 32.64,
+  "file_size_mb": 3.5,
+  "optical_flow_climaxes": [
+    10.8,
+    21.5,
+    27.7
+  ],
+  "audio_stems": "TTS Voiceover (en-US-GuyNeural) + Procedural BGM",
+  "editorial_rationale": "Virality-optimized gaming topic: 'Elden Ring Godskin Secret' with retention hook.",
+  "created_at": "2026-09-16T14:24:19.489155",
+  "created_timestamp": 1789548859.4901576,
+  "status": "PENDING_REVIEW",
+  "reminder_3h_sent": false,
+  "reminder_6h_sent": false,
+  "video_sent": true,
+  "retry_count": 0,
+  "last_retry_timestamp": 1789548859.4901576
+}

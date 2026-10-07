@@ -1,0 +1,38 @@
+{
+  "proposal_id": "YT-2473",
+  "slot_id": "slot_01_morning_tech",
+  "slot_label": "Slot 1 (08:30) \u2014 Morning AI & Tech Frontier Intel",
+  "genre": "tech",
+  "title": "AI Breakthrough: Anthropic Unveils Claude 3.7 Sonnet with Hybrid Reasoning #Shorts #Tech #AI",
+  "description": "Here is what you need to know about AI Breakthrough: Anthropic Unveils Claude 3.7 Sonnet with Hybrid Reasoning! \ud83d\ude80\n\n\ud83d\udcac Question of the day:\nWhat is the biggest breakthrough you are watching in AI right now? Comment below! \u26a1\ud83d\udc47\n\nSubscribe to Zaine Studio for daily AI breakthroughs.\n\n#Shorts #Tech #AI #ArtificialIntelligence #ZaineStudio",
+  "tags": [
+    "shorts",
+    "technology",
+    "ai",
+    "artificialintelligence",
+    "coding",
+    "programming",
+    "viral"
+  ],
+  "category_id": "28",
+  "engagement_question": "What is the biggest breakthrough you are watching in AI right now? Comment below! \u26a1\ud83d\udc47",
+  "video_path": "C:\\Users\\Mohemad Mateen ullah\\Documents\\projects\\Project-Z\\workspace\\youtube_shorts\\short_20260916_142148.mp4",
+  "metadata_path": "C:\\Users\\Mohemad Mateen ullah\\Documents\\projects\\Project-Z\\workspace\\youtube_shorts\\short_20260916_142148.json",
+  "duration_sec": 30.84,
+  "file_size_mb": 2.95,
+  "optical_flow_climaxes": [
+    10.2,
+    20.4,
+    26.2
+  ],
+  "audio_stems": "TTS Voiceover (en-US-ChristopherNeural) + Procedural BGM",
+  "editorial_rationale": "Virality-optimized tech topic: 'AI Breakthrough: Anthropic Unveils Claude 3.7 Sonnet with Hybrid Reasoning' with retention hook.",
+  "created_at": "2026-09-16T14:22:42.749219",
+  "created_timestamp": 1789548762.7492192,
+  "status": "PENDING_REVIEW",
+  "reminder_3h_sent": false,
+  "reminder_6h_sent": false,
+  "video_sent": true,
+  "retry_count": 0,
+  "last_retry_timestamp": 1789548762.7492192
+}

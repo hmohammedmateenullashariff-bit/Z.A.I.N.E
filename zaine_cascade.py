@@ -29,8 +29,34 @@ WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from agent import ZaineAgent
+import json
+import uuid
+from typing import Any, Optional
+import requests
 import tools
+
+
+def get_core_service_url() -> str:
+    """Discovers active core HTTP service port from .zaine_core.json."""
+    config_path = PROJECT_ROOT / ".zaine_core.json"
+    if config_path.exists():
+        try:
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+            port = data.get("port", 7860)
+            return f"http://127.0.0.1:{port}"
+        except Exception:
+            pass
+    return "http://127.0.0.1:7860"
+
+
+def check_core_service_health(core_url: str = None) -> bool:
+    """Checks if Z.A.I.N.E Core Service is online."""
+    url = core_url or get_core_service_url()
+    try:
+        resp = requests.get(f"{url}/api/health", timeout=1.5)
+        return resp.status_code == 200 and resp.json().get("ok", False)
+    except Exception:
+        return False
 
 # ANSI Terminal Styling
 CYAN = "\033[96m"
@@ -85,7 +111,7 @@ def on_tool_event(stage: str, tool_name: str, data):
         print(f"{GREEN}✓ [RESULT]{RESET} {DIM}{preview}{RESET}")
 
 
-def handle_cascade_command(cmd_text: str, agent: ZaineAgent) -> bool:
+def handle_cascade_command(cmd_text: str, core_url: str = None, agent: Any = None) -> bool:
     clean = cmd_text.strip()
     if not clean:
         return True
@@ -180,12 +206,70 @@ def handle_cascade_command(cmd_text: str, agent: ZaineAgent) -> bool:
 
     # 9. Natural Language Pair Programming (Full Agent Orchestration with Live Feedback)
     print(f"\n{CYAN}[Zaine Cascade thinking & synthesizing...]...{RESET}")
+    if agent is not None:
+        try:
+            print(f"\n{BOLD}{CYAN}Zaine Cascade:{RESET} ", end="", flush=True)
+            for sentence in agent.chat_stream(clean, on_tool_event=on_tool_event):
+                sys.stdout.write(sentence + " ")
+                sys.stdout.flush()
+            print("\n")
+        except Exception as e:
+            print(f"\n{RED}Error in Cascade execution: {e}{RESET}\n")
+        return True
+
+    # Thin Client: Stream response from core HTTP service
+    base_url = core_url or get_core_service_url()
+    stream_url = f"{base_url}/api/chat/stream"
+    req_id = f"casc-{uuid.uuid4().hex[:8]}"
+    payload = {
+        "message": clean,
+        "client": "cascade",
+        "request_id": req_id
+    }
+
     try:
         print(f"\n{BOLD}{CYAN}Zaine Cascade:{RESET} ", end="", flush=True)
-        for sentence in agent.chat_stream(clean, on_tool_event=on_tool_event):
-            sys.stdout.write(sentence + " ")
-            sys.stdout.flush()
-        print("\n")
+        resp = requests.post(stream_url, json=payload, stream=True, timeout=120)
+        if resp.status_code == 200:
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                line_str = line.decode("utf-8", errors="replace")
+                if line_str.startswith("data: "):
+                    raw_data = line_str[6:].strip()
+                    try:
+                        event = json.loads(raw_data)
+                        ev_type = event.get("type")
+                        if ev_type == "queued":
+                            pos = event.get("position", 1)
+                            print(f"\n{YELLOW}[Core Busy: Request queued at position #{pos}. Waiting for turn...]{RESET}", flush=True)
+                        elif ev_type == "running":
+                            waited = event.get("waited_seconds", 0)
+                            if waited > 0:
+                                print(f"\n{GREEN}[Turn started after {waited:.1f}s queue wait: Generating response...]{RESET}\n", flush=True)
+                        elif ev_type == "tool_event":
+                            on_tool_event(event.get("stage", ""), event.get("tool", ""), event.get("data", ""))
+                        elif ev_type == "token":
+                            sys.stdout.write(event.get("content", "") + " ")
+                            sys.stdout.flush()
+                        elif ev_type == "error":
+                            print(f"\n{RED}Error from core: {event.get('message')}{RESET}")
+                        elif ev_type == "done":
+                            break
+                    except Exception:
+                        pass
+            print("\n")
+        else:
+            # Fallback to non-streaming /api/chat
+            fb_url = f"{base_url}/api/chat"
+            fb_resp = requests.post(fb_url, json=payload, timeout=90)
+            if fb_resp.status_code == 200:
+                reply = fb_resp.json().get("reply", "")
+                print(f"{reply}\n")
+            else:
+                print(f"\n{RED}Error from core ({fb_resp.status_code}): {fb_resp.text}{RESET}\n")
+    except requests.exceptions.ConnectionError:
+        print(f"\n{RED}[!] Connection to Z.A.I.N.E Core lost. Please verify main.py is running.{RESET}\n")
     except Exception as e:
         print(f"\n{RED}Error in Cascade execution: {e}{RESET}\n")
 
@@ -193,12 +277,27 @@ def handle_cascade_command(cmd_text: str, agent: ZaineAgent) -> bool:
 
 
 def run_cascade_cli():
+    try:
+        from terminal_ui import run_terminal_cli, state
+        state.mode = "code"
+        run_terminal_cli()
+        return
+    except Exception:
+        pass
+
     print_banner()
-    agent = ZaineAgent()
+    core_url = get_core_service_url()
+    if not check_core_service_health(core_url):
+        print(f"{RED}{BOLD}[!] Z.A.I.N.E Core Service is offline at {core_url}.{RESET}")
+        print(f"{YELLOW}Zaine Cascade operates as a thin client connected to the unified cognitive core.{RESET}")
+        print(f"{YELLOW}Please launch Zaine first via: python main.py{RESET}\n")
+        return
+
+    print(f"{GREEN}✓ Connected to Z.A.I.N.E Core Service ({core_url}){RESET}\n")
     while True:
         try:
             user_input = input(f"{CYAN}{BOLD}ZAINE CASCADE //>{RESET} ")
-            keep_running = handle_cascade_command(user_input, agent)
+            keep_running = handle_cascade_command(user_input, core_url=core_url)
             if not keep_running:
                 break
         except (KeyboardInterrupt, EOFError):

@@ -15,6 +15,12 @@ import time
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 AI_CLIPS_DIR = PROJECT_ROOT / "workspace" / "edits" / "ai_generated"
 AI_CLIPS_DIR.mkdir(parents=True, exist_ok=True)
@@ -25,7 +31,7 @@ def get_available_video_providers() -> Dict[str, Dict[str, Any]]:
     providers = {
         "higgsfield": {
             "name": "Higgsfield AI",
-            "available": bool(os.getenv("HIGGSFIELD_API_KEY")),
+            "available": bool((os.getenv("HIGGSFIELD_API_KEY_ID") and os.getenv("HIGGSFIELD_API_SECRET")) or os.getenv("HIGGSFIELD_API_KEY")),
             "description": "Specialized in high-energy action camera motion and anime VFX",
         },
         "runway": {
@@ -74,7 +80,7 @@ def generate_action_scene(
         guide = (
             "No AI Video API keys are currently configured in your .env file.\n"
             "To enable autonomous text-to-video scene generation, add one of:\n"
-            "- HIGGSFIELD_API_KEY=your_key\n"
+            "- HIGGSFIELD_API_KEY_ID=your_key_id and HIGGSFIELD_API_SECRET=your_secret\n"
             "- RUNWAY_API_KEY=your_key\n"
             "- KLING_API_KEY=your_key\n"
             "- LUMA_API_KEY=your_key\n"

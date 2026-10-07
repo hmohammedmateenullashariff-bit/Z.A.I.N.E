@@ -3,63 +3,181 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Z.A.I.N.E — Holographic Jarvis HUD</title>
-  <!-- Google Fonts: Orbitron for Sci-Fi HUD headers, Inter for dialogue, JetBrains Mono for telemetry -->
+  <title>Z.A.I.N.E — Holographic Neural HUD</title>
+  <!-- Google Fonts: Orbitron for Sci-Fi HUD headers, Outfit for glassmorphism UI, JetBrains Mono for telemetry -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@500;700;900&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/style.css">
 </head>
-<body>
-  <!-- Ambient Sci-Fi Background Particle Mesh -->
-  <div class="hud-background-grid"></div>
-  <div class="hud-ambient-glow"></div>
+<body class="theme-glass">
+  <!-- Ambient Luminous Bokeh Scene (Behind Glass for Authentic Refraction & Depth) -->
+  <div class="hud-ambient-scene">
+    <div class="hud-background-grid"></div>
+    <div class="ambient-orb orb-warm-amber"></div>
+    <div class="ambient-orb orb-cyan"></div>
+    <div class="ambient-orb orb-violet"></div>
+    <div class="ambient-orb orb-emerald"></div>
+    <div class="ambient-orb orb-rose"></div>
+  </div>
 
-  <!-- Main HUD Grid Layout -->
-  <div class="hud-container">
+  <!-- ===================================================================== -->
+  <!-- 1. HOLOGRAPHIC BIOMETRIC LOCK SCREEN OVERLAY                          -->
+  <!-- ===================================================================== -->
+  <div class="lockscreen-overlay" id="lockScreenOverlay">
+    <div class="lockscreen-backdrop"></div>
     
-    <!-- Top Header Bar -->
-    <header class="hud-header">
+    <div class="lockscreen-card glass-panel">
+      <!-- Top Stark Industries Brand -->
+      <div class="lockscreen-brand">
+        <div class="brand-pill">
+          <span class="brand-dot pulse-beacon"></span>
+          <span class="brand-tag">STARK NEURAL ARCHITECTURE</span>
+        </div>
+        <h1 class="lockscreen-title">Z.A.I.N.E <span class="title-sub">IDENTITY GATE</span></h1>
+        <p class="lockscreen-desc">Biometric Facial Recognition & Protocol Authorization</p>
+      </div>
+
+      <!-- Center Holographic Reticle & Optical Sensor Box -->
+      <div class="reticle-stage">
+        <div class="scanner-bracket bracket-tl"></div>
+        <div class="scanner-bracket bracket-tr"></div>
+        <div class="scanner-bracket bracket-bl"></div>
+        <div class="scanner-bracket bracket-br"></div>
+        
+        <div class="reticle-core" id="lockReticleCore">
+          <!-- Animated Ring Overlays -->
+          <div class="scan-ring ring-1"></div>
+          <div class="scan-ring ring-2"></div>
+          <div class="scan-ring ring-3"></div>
+          
+          <!-- Optical Preview / Radar Canvas -->
+          <div class="optical-viewfinder">
+            <canvas id="lockRadarCanvas" width="220" height="220"></canvas>
+            <div class="laser-sweep" id="lockLaserSweep"></div>
+          </div>
+        </div>
+
+        <!-- Biometric Status Readout -->
+        <div class="scanner-status-box">
+          <div class="status-indicator-badge" id="lockStatusBadge">
+            <span class="badge-dot" id="lockBadgeDot"></span>
+            <span class="badge-text" id="lockBadgeText">AWAITING OPTICAL IDENTIFICATION</span>
+          </div>
+          <div class="status-subtext" id="lockSubtext">Look directly at the webcam for automated facial recognition</div>
+        </div>
+      </div>
+
+      <!-- Action Controls -->
+      <div class="lockscreen-actions">
+        <button class="glass-btn btn-primary" id="btnLockScan" title="Perform 1-shot biometric scan">
+          <span class="btn-icon">👁️</span>
+          <span class="btn-text">SCAN IDENTITY</span>
+        </button>
+        <button class="glass-btn btn-subtle" id="btnLockGuest" title="Proceed with restricted guest access">
+          <span class="btn-icon">👤</span>
+          <span class="btn-text">GUEST LOGIN</span>
+        </button>
+        <button class="glass-btn btn-ghost" id="btnLockPin" title="Enter Admin Passcode">
+          <span class="btn-icon">🔑</span>
+          <span class="btn-text">ADMIN PIN</span>
+        </button>
+      </div>
+
+      <!-- Hidden PIN Input Box -->
+      <div class="pin-input-drawer" id="pinDrawer" style="display: none;">
+        <input type="password" id="pinInput" placeholder="Enter Admin Passcode..." maxlength="20">
+        <button class="pin-submit-btn" id="btnSubmitPin">→</button>
+      </div>
+
+      <!-- Footer Security Note -->
+      <div class="lockscreen-footer">
+        <span>🔒 CPU YuNet + SFace Biometrics | 0MB VRAM Footprint | Ephemeral RAM Processing</span>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ===================================================================== -->
+  <!-- 2. MAIN HOLOGRAPHIC JARVIS HUD                                        -->
+  <!-- ===================================================================== -->
+  <div class="hud-container" id="mainHudContainer">
+    
+    <!-- Top Glass Header Bar -->
+    <header class="hud-header glass-card">
       <div class="header-left">
         <div class="sys-badge" id="hudSysBadge">
           <span class="pulsing-dot" id="hudSysDot"></span>
           <span class="sys-title" id="hudSysTitle">SYSTEM ONLINE</span>
         </div>
-        <h1 class="logo-text" id="hudLogoText">Z.A.I.N.E <span class="logo-sub" id="hudLogoSub">NEURAL HUD v5.0</span></h1>
+        <div class="logo-group">
+          <h1 class="logo-text" id="hudLogoText">Z.A.I.N.E</h1>
+          <span class="logo-badge" id="hudUserTierBadge">ADMIN ACCESS: MATEEN SIR</span>
+        </div>
       </div>
+
       <div class="header-center">
         <div class="clock-display" id="hudClock">00:00:00</div>
         <div class="date-display" id="hudDate">FRIDAY, SEPTEMBER 04, 2026</div>
       </div>
+
+      <!-- Decluttered, Streamlined Control Pills -->
       <div class="header-right">
-        <button class="ultron-toggle-btn" id="btnToggleUltron" title="Toggle Ultron Mode Protocol">
-          <span class="ultron-btn-icon">⚡</span>
-          <span class="ultron-btn-text">ULTRON MODE</span>
+        <!-- 1. IronHands Gesture Control Button -->
+        <button class="glass-pill-btn gesture-pill" id="btnToggleGesture" title="Toggle IronHands Gesture Control (Swipe Left: Back, Swipe Right: App Switch)">
+          <span class="pill-icon" id="gestureIcon">✋</span>
+          <span class="pill-text" id="gestureText">IRON HANDS</span>
+          <span class="pill-beacon" id="gestureBeacon"></span>
         </button>
-        <div class="mode-indicator" id="nightModeIndicator">
-          <span class="indicator-icon">☀️</span>
-          <span class="indicator-text">DAYTIME NORMAL</span>
+
+        <!-- 2. Holographic Workspace Files Button -->
+        <button class="glass-pill-btn" id="btnQuickFiles" title="Open Holographic Workspace Nexus">
+          <span class="pill-icon">📁</span>
+          <span class="pill-text">FILES</span>
+        </button>
+
+        <!-- 3. Voice Output Mute/Unmute Button -->
+        <button class="glass-pill-btn mute-pill" id="btnToggleMute" title="Toggle Zaine Neural Speech Output">
+          <span class="pill-icon" id="muteIcon">🔊</span>
+          <span class="pill-text" id="muteText">VOICE ON</span>
+        </button>
+
+        <!-- 4. Ultron Protocol / Jarvis Switch -->
+        <button class="glass-pill-btn ultron-pill" id="btnToggleUltron" title="Toggle Jarvis British vs Ultron Unchained Protocol">
+          <span class="pill-icon" id="ultronIcon">⚡</span>
+          <span class="pill-text" id="ultronText">JARVIS</span>
+        </button>
+
+        <!-- 5. Relock Screen Button -->
+        <button class="glass-pill-btn relock-pill" id="btnRelock" title="Lock Workstation & Biometric Gate">
+          <span class="pill-icon">🔒</span>
+        </button>
+
+        <!-- 6. Native Window Controls (Electron Frameless Shell) -->
+        <div class="window-controls-group" id="electronWindowControls">
+          <button class="window-ctrl-btn ctrl-min" id="btnWinMin" title="Minimize Window">─</button>
+          <button class="window-ctrl-btn ctrl-max" id="btnWinMax" title="Maximize Window">□</button>
+          <button class="window-ctrl-btn ctrl-close" id="btnWinClose" title="Close Window">✕</button>
         </div>
-        <button class="icon-btn" id="btnToggleAudio" title="Toggle Visualizer Audio">
-          <span class="btn-icon">🔊</span>
-        </button>
       </div>
     </header>
 
-    <!-- Main Workspace: 3 Columns -->
+    <!-- Main 3-Column Glass Layout -->
     <main class="hud-body">
 
-      <!-- LEFT COLUMN: Hardware Telemetry HUD -->
-      <aside class="hud-panel panel-left">
+      <!-- LEFT COLUMN: Hardware Telemetry Matrix -->
+      <aside class="hud-panel panel-left glass-card">
         <div class="panel-header">
           <span class="panel-icon">⚡</span>
           <h2>TELEMETRY MATRIX</h2>
+          <button class="panel-action-btn" id="btnRefreshStatus" title="Refresh Telemetry">↻</button>
         </div>
+        
         <div class="panel-content">
-          <!-- Dial 1: CPU -->
-          <div class="telemetry-card">
+          <!-- CPU Load -->
+          <div class="telemetry-card glass-subcard">
             <div class="card-header">
-              <span class="card-label">CPU LOAD</span>
+              <span class="card-label">CPU CORE LOAD</span>
               <span class="card-value" id="valCpu">--%</span>
             </div>
             <div class="progress-bar-bg">
@@ -67,10 +185,10 @@
             </div>
           </div>
 
-          <!-- Dial 2: RAM -->
-          <div class="telemetry-card">
+          <!-- Memory Usage -->
+          <div class="telemetry-card glass-subcard">
             <div class="card-header">
-              <span class="card-label">MEMORY USAGE</span>
+              <span class="card-label">RAM ALLOCATION</span>
               <span class="card-value" id="valRam">--%</span>
             </div>
             <div class="progress-bar-bg">
@@ -78,122 +196,102 @@
             </div>
           </div>
 
-          <!-- Dial 2b: Thermal Guardian (Hardware Temperature) -->
-          <div class="telemetry-card thermal-card">
+          <!-- Thermal Sentinel -->
+          <div class="telemetry-card glass-subcard">
             <div class="card-header">
-              <span class="card-label">CPU THERMAL SENTINEL</span>
+              <span class="card-label">THERMAL SENTINEL</span>
               <span class="card-value" id="valTemp">--°C</span>
             </div>
             <div class="progress-bar-bg">
               <div class="progress-bar-fill fill-cyan" id="barTemp" style="width: 50%;"></div>
             </div>
-            <div class="thermal-footer">
-              <span class="safeguard-badge" id="thermalBadge">CEILING: 82.0°C | NOMINAL</span>
-            </div>
+            <div class="card-subnote" id="thermalBadge">CEILING: 82.0°C | NOMINAL</div>
           </div>
 
-          <!-- Dial 3: Battery -->
-          <div class="telemetry-card">
+          <!-- Power Reserve -->
+          <div class="telemetry-card glass-subcard">
             <div class="card-header">
               <span class="card-label">POWER RESERVE</span>
-              <span class="card-value" id="valBattery">100% (AC)</span>
+              <span class="card-value" id="valBattery">100%</span>
             </div>
             <div class="progress-bar-bg">
               <div class="progress-bar-fill fill-cyan" id="barBattery" style="width: 100%;"></div>
             </div>
           </div>
 
-          <!-- Dial 4: C: Drive Storage -->
-          <div class="telemetry-card">
+          <!-- Storage -->
+          <div class="telemetry-card glass-subcard">
             <div class="card-header">
               <span class="card-label">PRIMARY STORAGE (C:)</span>
-              <span class="card-value" id="valStorage">Checking...</span>
+              <span class="card-value" id="valStorage">-- GB</span>
             </div>
             <div class="progress-bar-bg">
               <div class="progress-bar-fill fill-amber" id="barStorage" style="width: 60%;"></div>
             </div>
           </div>
 
-          <!-- Neural Engine Status Badges -->
-          <div class="neural-cluster">
-            <div class="cluster-title">NEURAL CLUSTERS</div>
-            <div class="cluster-row">
-              <div class="engine-tag tag-active">
-                <span class="dot-small"></span>
-                <span>zaine:latest (100% GPU)</span>
-              </div>
-              <div class="engine-tag tag-active">
-                <span class="dot-small"></span>
-                <span>moondream (100% GPU)</span>
-              </div>
-              <div class="engine-tag tag-active">
-                <span class="dot-small"></span>
-                <span>piper-alan (Neural TTS)</span>
-              </div>
-              <div class="engine-tag tag-active">
-                <span class="dot-small"></span>
-                <span>whisper-base (Streaming)</span>
-              </div>
+          <!-- Neural Cluster Nodes -->
+          <div class="neural-cluster glass-subcard">
+            <div class="cluster-title">ACTIVE NEURAL NODES</div>
+            <div class="cluster-tags">
+              <span class="node-tag"><span class="dot-green"></span>qwen2.5 (Core LLM)</span>
+              <span class="node-tag"><span class="dot-green"></span>YuNet + SFace (Face-ID)</span>
+              <span class="node-tag"><span class="dot-cyan"></span>IronHands (Gesture Engine)</span>
+              <span class="node-tag"><span class="dot-cyan"></span>Edge-TTS (Neural Speech)</span>
             </div>
           </div>
-
-          <!-- Quick Telemetry Refresh -->
-          <button class="action-btn btn-secondary w-100" id="btnRefreshStatus">
-            <span>⚡ REFRESH HARDWARE STATS</span>
-          </button>
         </div>
       </aside>
 
-      <!-- CENTER STAGE: Holographic Arc Reactor & Visualizer -->
+      <!-- CENTER STAGE: Reactive Arc Reactor & Waveform Core -->
       <section class="hud-center">
-        <div class="arc-container">
-          <!-- 60FPS Reactive Canvas -->
-          <canvas id="arcCanvas" width="480" height="480"></canvas>
-          
-          <!-- Holographic Rings SVG Overlays -->
-          <div class="hologram-ring ring-outer"></div>
-          <div class="hologram-ring ring-middle"></div>
-          
-          <!-- Central Persona Status Banner -->
-          <div class="arc-status-badge" id="arcStatusBadge">
-            <span class="status-indicator-dot" id="statusDot"></span>
-            <span class="status-indicator-text" id="statusText">IDLE</span>
+        <div class="arc-wrapper">
+          <!-- 60FPS Reactive Arc Reactor Canvas -->
+          <div class="arc-container">
+            <canvas id="arcCanvas" width="440" height="440"></canvas>
+            <div class="hologram-ring ring-outer"></div>
+            <div class="hologram-ring ring-middle"></div>
+            
+            <!-- Central Status Indicator Capsule -->
+            <div class="arc-status-badge glass-pill" id="arcStatusBadge">
+              <span class="status-indicator-dot" id="statusDot"></span>
+              <span class="status-indicator-text" id="statusText">IDLE</span>
+            </div>
           </div>
-        </div>
 
-        <!-- Audio Frequency Waveform Visualizer -->
-        <div class="waveform-container">
-          <canvas id="waveformCanvas" width="600" height="70"></canvas>
-          <div class="waveform-label" id="waveformLabel">VOICE SENSOR STANDBY</div>
+          <!-- Audio Waveform Visualizer -->
+          <div class="waveform-container glass-card">
+            <canvas id="waveformCanvas" width="560" height="60"></canvas>
+            <div class="waveform-label" id="waveformLabel">VOICE SENSOR STANDBY</div>
+          </div>
         </div>
       </section>
 
-      <!-- RIGHT COLUMN: Live Dialogue Stream & Tool History -->
-      <aside class="hud-panel panel-right">
+      <!-- RIGHT COLUMN: Clean Conversational Dialogue Timeline -->
+      <aside class="hud-panel panel-right glass-card">
         <div class="panel-header">
           <span class="panel-icon">💬</span>
-          <h2>DIALOGUE FEED</h2>
-          <button class="header-btn" id="btnClearFeed" title="Clear Conversation">CLEAR</button>
+          <h2>CONVERSATIONAL MATRIX</h2>
+          <button class="panel-action-btn" id="btnClearFeed" title="Clear Dialogue">CLEAR</button>
         </div>
         
         <!-- Live Chat Message Stream -->
         <div class="dialogue-stream" id="dialogueStream">
-          <!-- Initial Welcome Message -->
-          <div class="msg-bubble assistant-msg">
+          <div class="msg-bubble assistant-msg glass-subcard">
             <div class="msg-header">
               <span class="sender-name">Z.A.I.N.E</span>
               <span class="msg-time">SYSTEM BOOT</span>
             </div>
             <div class="msg-body">
-              All neural nodes operational. How may I assist you today, Sir?
+              All neural nodes operational. Biometric identity verified. How may I assist you today, Sir?
             </div>
           </div>
         </div>
 
         <!-- Vision Preview Card (Expandable Modal Drawer) -->
-        <div class="vision-preview-card" id="visionCard" style="display: none;">
+        <div class="vision-preview-card glass-subcard" id="visionCard" style="display: none;">
           <div class="vision-header">
-            <span id="visionTypeTitle">📷 VISION CAPTURE</span>
+            <span id="visionTypeTitle">📷 OPTICAL PERCEPTION</span>
             <button class="vision-close-btn" id="btnCloseVision">✕</button>
           </div>
           <div class="vision-image-wrapper">
@@ -207,46 +305,9 @@
 
     </main>
 
-    <!-- Bottom Action Dock & Input Bar -->
+    <!-- Floating Glass Command Bar (Minimalist, Zero Clutter) -->
     <footer class="hud-footer">
-      <!-- Action Toolbar Buttons -->
-      <div class="quick-actions-bar">
-        <button class="quick-btn btn-highlight" id="btnDailyAI" title="View Top 10 AI Updates of the Day">
-          <span class="btn-icon">🌐</span>
-          <span>AI INTEL</span>
-        </button>
-        <button class="quick-btn" id="btnQuickScreen" title="Capture Desktop Screen">
-          <span class="btn-icon">🖥️</span>
-          <span>SCREEN</span>
-        </button>
-        <button class="quick-btn" id="btnQuickCamera" title="Take Webcam Snapshot">
-          <span class="btn-icon">📷</span>
-          <span>CAMERA</span>
-        </button>
-        <button class="quick-btn" id="btnQuickVault" title="Search Second Brain">
-          <span class="btn-icon">🧠</span>
-          <span>VAULT</span>
-        </button>
-        <button class="quick-btn" id="btnQuickEmails" title="Check Unread Gmails">
-          <span class="btn-icon">📧</span>
-          <span>EMAILS</span>
-        </button>
-        <button class="quick-btn" id="btnQuickRemind" title="Set Quick Reminder">
-          <span class="btn-icon">⏰</span>
-          <span>REMIND</span>
-        </button>
-        <button class="quick-btn" id="btnQuickNight" title="Toggle Quiet Night Mode">
-          <span class="btn-icon">🌙</span>
-          <span>NIGHT MODE</span>
-        </button>
-        <button class="quick-btn ultron-quick-btn" id="btnQuickUltron" title="Toggle Ultron Protocol (Unfiltered Cognition)">
-          <span class="btn-icon">⚡</span>
-          <span>ULTRON</span>
-        </button>
-      </div>
-
-      <!-- Interactive Command Input Field -->
-      <form class="command-bar" id="commandForm">
+      <form class="command-bar glass-card" id="commandForm">
         <div class="input-prefix">ZAINE://></div>
         <input 
           type="text" 
@@ -254,8 +315,8 @@
           placeholder="Speak out loud ('Zaine...'), or type command here..." 
           autocomplete="off"
         >
-        <button type="submit" class="submit-btn" id="btnSubmitCommand">
-          <span>TRANSMIT</span>
+        <button type="submit" class="submit-btn glass-btn" id="btnSubmitCommand">
+          <span class="btn-text">TRANSMIT</span>
           <span class="submit-arrow">→</span>
         </button>
       </form>
@@ -263,25 +324,60 @@
 
   </div>
 
-  <!-- Daily AI Intel Cyberpunk Modal Drawer -->
-  <div class="hud-modal" id="aiIntelModal" style="display: none;">
-    <div class="modal-backdrop" id="aiIntelBackdrop"></div>
-    <div class="modal-dialog">
-      <div class="modal-header">
-        <div class="modal-title-group">
-          <span class="modal-icon">🌐</span>
-          <h2>DAILY AI INTEL — TOP 10 BREAKTHROUGHS</h2>
+  <!-- ===================================================================== -->
+  <!-- 3. HOLOGRAPHIC FILE BROWSER OVERLAY                                   -->
+  <!-- ===================================================================== -->
+  <div class="holographic-glass-layer" id="holographicLayer" style="display: none;">
+    <div class="holo-backdrop" id="holoBackdrop"></div>
+    <div class="holo-window glass-card">
+      <div class="holo-header">
+        <div class="holo-title-group">
+          <span class="holo-icon">📁</span>
+          <div class="holo-titles">
+            <h2>HOLOGRAPHIC WORKSPACE NEXUS</h2>
+            <div class="holo-breadcrumb" id="holoBreadcrumb">ROOT://workspace</div>
+          </div>
         </div>
-        <button class="modal-close-btn" id="btnCloseAiIntel">✕</button>
+        <div class="holo-header-controls">
+          <span class="holo-gesture-badge glass-pill" id="holoGestureBadge">✋ IRONHANDS SENSOR ACTIVE</span>
+          <button class="glass-pill-btn" id="btnHoloRefresh" title="Refresh Workspace Tree">⚡ REFRESH</button>
+          <button class="holo-close-btn" id="btnCloseHolo">✕</button>
+        </div>
       </div>
-      <div class="modal-subtitle">
-        <span>Autonomous Web Harvester & Cognitive Ingestion</span>
-        <button class="header-refresh-btn" id="btnRefreshAiIntel">⚡ HARVEST FRESH</button>
+      <div class="holo-body">
+        <div class="holo-grid-pane glass-subcard">
+          <div class="holo-pane-label">WORKSPACE NODES (PINCH TO SELECT / DRAG)</div>
+          <div class="holo-cards-grid" id="holoCardsGrid">
+            <div class="loading-state">Loading workspace tree...</div>
+          </div>
+        </div>
+        <div class="holo-preview-pane glass-subcard" id="holoPreviewPane">
+          <div class="preview-header">
+            <span class="preview-title" id="holoPreviewTitle">SELECT A FILE TO PREVIEW</span>
+            <span class="preview-meta" id="holoPreviewMeta">--</span>
+          </div>
+          <div class="preview-content-wrapper">
+            <pre class="preview-code" id="holoPreviewContent">// Click or Pinch a file card to inspect contents.</pre>
+          </div>
+        </div>
       </div>
-      <div class="ai-intel-grid" id="aiIntelGrid">
-        <div class="loading-state">Harvesting latest AI breakthroughs from the web...</div>
+      <div class="holo-footer">
+        <span class="holo-tip">💡 GESTURE COMMANDS: Swipe Left to Back / Close | Swipe Right to Switch App | Pinch-Release to Open</span>
       </div>
     </div>
+  </div>
+
+  <!-- Floating Holographic Gesture Reticle -->
+  <div class="gesture-reticle" id="gestureCursor" style="display: none;">
+    <div class="reticle-ring"></div>
+    <div class="reticle-dot"></div>
+    <div class="reticle-label" id="reticleLabel">IRONHANDS</div>
+  </div>
+
+  <!-- Gesture Action Toast Notification (HUD OSD) -->
+  <div class="gesture-toast" id="gestureToast" style="display: none;">
+    <span class="toast-icon" id="toastIcon">⬅️</span>
+    <span class="toast-text" id="toastText">SWIPE LEFT: BACK</span>
   </div>
 
   <!-- HUD Engine Scripts -->

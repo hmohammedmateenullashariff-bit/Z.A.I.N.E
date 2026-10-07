@@ -1,0 +1,37 @@
+{
+  "proposal_id": "YT-2C6C",
+  "slot_id": "slot_02_mid_morning_facts",
+  "slot_label": "Slot 2 (11:00) \u2014 Mind-Blowing Science & Secrets",
+  "genre": "facts",
+  "title": "The Psychological Trick That Retail Stores Use on Your Brain #Shorts #Facts #Psychology",
+  "description": "The Psychological Trick That Retail Stores Use on Your Brain #Shorts #Facts #Psychology \ud83c\udf1f\n\n\ud83d\udcac Question of the day:\nHave you ever caught yourself falling for this psychological trick? Drop a comment below! \ud83e\udde0\ud83d\udc47\n\nWelcome to Zaine Studio! Subscribe for daily epic gaming lore, mind-blowing facts, anime battles, hilarious pet chaos, and frontier tech intelligence!\n\n#Shorts #YouTubeShorts #Viral #Facts #Trending #ZaineStudio",
+  "tags": [
+    "shorts",
+    "facts",
+    "psychology",
+    "mindtricks",
+    "humanbrain",
+    "didyouknow",
+    "sciencefacts",
+    "viral"
+  ],
+  "category_id": "27",
+  "engagement_question": "Have you ever caught yourself falling for this psychological trick? Drop a comment below! \ud83e\udde0\ud83d\udc47",
+  "video_path": "C:\\Users\\Mohemad Mateen ullah\\Documents\\projects\\Project-Z\\workspace\\youtube_shorts\\short_20260912_124018.mp4",
+  "metadata_path": "C:\\Users\\Mohemad Mateen ullah\\Documents\\projects\\Project-Z\\workspace\\youtube_shorts\\short_20260912_124018.json",
+  "duration_sec": 31.85,
+  "file_size_mb": 3.1,
+  "optical_flow_climaxes": [
+    10.5,
+    21.0,
+    27.1
+  ],
+  "audio_stems": "TTS Voiceover (en-US-ChristopherNeural) + Procedural BGM",
+  "editorial_rationale": "Virality-optimized facts topic: 'The Gruen Effect in Retail' with retention hook.",
+  "created_at": "2026-09-12T12:40:48.806755",
+  "created_timestamp": 1789197048.8067553,
+  "status": "PENDING_REVIEW",
+  "reminder_3h_sent": true,
+  "reminder_6h_sent": true,
+  "video_sent": true
+}

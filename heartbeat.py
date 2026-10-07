@@ -43,18 +43,27 @@ class HeartbeatDaemon:
         self.last_briefing_date = None
         self.last_evening_debrief_date = None
         self.last_disk_alert_date = None
+        self.last_proactive_observation_date = None
+        self.last_proactive_observation_time = 0
         self.session_start_time = time.time()
         self.last_ergonomics_reminder_time = time.time()
         self.user_last_active_time = time.time()
+        self.last_active_channel = "voice"
+        self.last_telegram_chat_id = None
 
-    def record_activity(self):
+    def record_activity(self, channel: str = "voice", chat_id = None):
         """Called whenever the user interacts with Zaine to track active sessions."""
         self.user_last_active_time = time.time()
+        if channel:
+            self.last_active_channel = channel
+        if chat_id is not None:
+            self.last_telegram_chat_id = chat_id
 
     def is_night_mode(self) -> bool:
-        """Returns True between 00:00 and 07:00 AM for sleep quiet hours."""
-        hour = datetime.datetime.now().hour
-        return 0 <= hour < 7
+        """Returns True between 22:00 and 08:30 AM for quiet hours."""
+        now = datetime.datetime.now()
+        hour = now.hour
+        return hour >= 22 or hour < 8 or (hour == 8 and now.minute < 30)
 
     def check_reminders(self) -> list:
         """Checks and delivers due scheduled alarms/reminders."""
@@ -299,12 +308,95 @@ class HeartbeatDaemon:
         return {"greeting_sent": False}
 
     def check_youtube_studio_schedule(self) -> dict:
-        """Executes the daily 14:00 - 17:00 autonomous YouTube Shorts creation, upload & analytics cycle."""
+        """Executes the daily autonomous YouTube Shorts creation, upload & analytics cycle."""
+        if self.is_night_mode():
+            return {"status": "QUIET_HOURS", "message": "Overnight quiet hours active (22:00 - 08:30). Generation silenced."}
         try:
             from youtube_studio import check_and_run_daily_youtube_schedule
             return check_and_run_daily_youtube_schedule(force=False)
         except Exception as e:
             return {"ran": False, "error": str(e)}
+
+    def check_proactive_observation(self) -> dict:
+        """
+        Lightweight proactive observation hook:
+        - Fires at most once per day (strictly capped at 1 per 24 hours).
+        - Queries conversation_episodes for the day's most substantive topic
+          (highest keyword count or longest key_points).
+        - Only fires if the user is actively in a Telegram or voice session (not blind-pushed).
+        - Lets Zaine naturally reference it once ('still thinking about what we discussed on X earlier').
+        - Skips entirely if today had no substantive episodes.
+        """
+        now = datetime.datetime.now()
+        now_ts = time.time()
+        today_str = now.strftime("%Y-%m-%d")
+
+        # 1. Strictly capped at 1 per 24 hours / once per calendar day
+        if self.last_proactive_observation_date == today_str or (now_ts - self.last_proactive_observation_time < 86400):
+            return {"observed": False, "reason": "Already observed within 24 hours"}
+
+        # 2. Quiet hours check
+        if self.is_night_mode():
+            return {"observed": False, "reason": "Night mode active"}
+
+        # 3. Only if user is actively in a Telegram/voice session (not blind-pushed)
+        # Must have recent user activity within the last 5 minutes (300 seconds),
+        # with at least a 15-second pause so we don't interrupt active typing/speaking.
+        time_since_active = now_ts - self.user_last_active_time
+        if time_since_active > 300 or time_since_active < 15:
+            return {"observed": False, "reason": "User not in active session window (blind push prevented)"}
+
+        # 4. Do not talk over other speech
+        if is_speaking():
+            return {"observed": False, "reason": "Speech synthesizer busy"}
+
+        # 5. Query conversation_episodes for the day's most substantive topic
+        try:
+            from memory import get_daily_substantive_episode
+            substantive = get_daily_substantive_episode(today_str)
+        except Exception as e:
+            return {"observed": False, "error": str(e)}
+
+        if not substantive:
+            return {"observed": False, "reason": "No substantive episodes recorded today"}
+
+        topic = substantive["topic_summary"]
+        clean_topic = topic
+        for prefix in ["Discussion about ", "Discussion on ", "Request for "]:
+            if clean_topic.lower().startswith(prefix.lower()):
+                clean_topic = clean_topic[len(prefix):]
+                break
+
+        # Natural reference phrase
+        spoken_thought = f"Pardon the thought, Sir, but I'm still thinking about what we discussed on {clean_topic} earlier."
+        telegram_msg = f"💭 *Proactive Thought:*\nSir, I'm still thinking about what we discussed on *{clean_topic}* earlier. Whenever you'd like to revisit that, I'm ready."
+
+        # 6. Deliver to active session channel
+        if self.last_active_channel == "telegram":
+            send_telegram_alert(telegram_msg, parse_mode="Markdown")
+        else:
+            try:
+                speak_sentence(spoken_thought)
+            except Exception:
+                pass
+
+        try:
+            import ui
+            active_ui = ui.get_ui()
+            if active_ui:
+                active_ui.append_message("system", f"💭 OBSERVATION: Still thinking about {clean_topic}...")
+        except Exception:
+            pass
+
+        self.last_proactive_observation_date = today_str
+        self.last_proactive_observation_time = now_ts
+
+        return {
+            "observed": True,
+            "topic": clean_topic,
+            "channel": self.last_active_channel,
+            "timestamp": now.isoformat(),
+        }
 
     def run_cycle(self) -> dict:
         """Executes one complete sentinel inspection cycle."""
@@ -316,6 +408,7 @@ class HeartbeatDaemon:
         e_res = self.check_ergonomics()
         pres_res = self.check_desk_presence_sentinel()
         yt_res = self.check_youtube_studio_schedule()
+        obs_res = self.check_proactive_observation()
 
         return {
             "reminders_fired": rem_res,
@@ -326,6 +419,7 @@ class HeartbeatDaemon:
             "ergonomics": e_res,
             "desk_presence": pres_res,
             "youtube_studio": yt_res,
+            "proactive_observation": obs_res,
             "night_mode": self.is_night_mode(),
             "timestamp": datetime.datetime.now().isoformat(),
         }
@@ -368,6 +462,8 @@ def trigger_proactive_check() -> str:
     status = heartbeat_daemon.run_cycle()
     bat = status.get("battery", {})
     bat_str = f"{bat.get('percent', 'N/A')}% ({'Plugged' if bat.get('plugged') else 'On Battery'})" if bat.get("has_battery") else "AC Power"
+    obs = status.get("proactive_observation", {})
+    obs_str = f"Triggered ({obs.get('topic', '')})" if obs.get("observed") else obs.get("reason", "Idle")
 
     return (
         f"Proactive Heartbeat Status:\n"
@@ -375,6 +471,7 @@ def trigger_proactive_check() -> str:
         f"- Reminders Triggered: {len(status.get('reminders_fired', []))}\n"
         f"- Morning Briefing: {'Sent' if status['morning_briefing'].get('sent') else status['morning_briefing'].get('reason', 'Pending')}\n"
         f"- Evening Debrief: {'Sent' if status['evening_debrief'].get('sent') else status['evening_debrief'].get('reason', 'Pending')}\n"
+        f"- Proactive Observation: {obs_str}\n"
         f"- Night Mode: {'Active (Whisper-Quiet)' if status['night_mode'] else 'Daytime Normal'}\n"
         f"- Ergonomics: {'Reminder issued' if status['ergonomics'].get('reminded') else 'Session normal'}\n"
         f"- Monitored At: {status['timestamp']}"

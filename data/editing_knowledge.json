@@ -1,0 +1,64 @@
+{
+  "deku_animes_luffy_vs_lucci": {
+    "url": "https://youtu.be/p0kCE0cFXw4",
+    "title": "Luffy Gear 5 vs Lucci [AMV] Courtesy Call",
+    "song": "Courtesy Call - Thousand Foot Krutch",
+    "avg_shot_duration_seconds": 0.33,
+    "cuts_per_minute": 182.0,
+    "mean_contrast": 52.1,
+    "key_editing_techniques": [
+      "Rapid beat-synced cutting (cuts every 1.1s - 1.8s during rock and trap drops)",
+      "Directional whip zoom transitions on strike impacts",
+      "High contrast grade with saturation boost (+35%) on Conqueror lightning arcs",
+      "Bass-drop screen shake and RGB chromatic displacement on heavy hits",
+      "Subtle dark vignette to focus audience gaze on character center"
+    ],
+    "learned_at": "2026-09-06T15:04:00"
+  },
+  "darin_joyboy_royalty": {
+    "url": "https://youtu.be/wrZO6fofeIM",
+    "title": "Joy Boy's return (One Piece) [AMV] Royalty",
+    "song": "Royalty - Egzod and Maestro Chives ft. Neoni",
+    "key_editing_techniques": [
+      "Manga Ink Bleed: High-contrast black and white monochrome on serious backstory frames",
+      "Wide tracking (letter-spacing) on geometric all-caps sans-serif typography (Segoe UI Bold / Montserrat)",
+      "Keyword color accents: Blood Crimson for Joy Boy, Electric Cyan for Liberation, Gold for Sun God Nika",
+      "Deep sidechain ducking of background music during iconic voice dialogues (Zunesha and Luffy)",
+      "Violent trap drop synchronization on the climax combat clash"
+    ],
+    "learned_at": "2026-09-06T15:04:00"
+  },
+  "goku_mui_vs_jiren_4k": {
+    "url": "https://www.youtube.com/watch?v=BAQvCB3Fnm0",
+    "title": "GOKU MASTERED ULTRA INSTINCT VS FULL POWER JIREN{4K ULTRA HD}",
+    "avg_shot_duration_seconds": 0.5,
+    "cuts_per_minute": 120.0,
+    "mean_contrast": 52.0,
+    "key_editing_techniques": [
+      "Godly Ultra Instinct silver/blue aura bloom color grading",
+      "Negative flash transition on supreme counter impacts",
+      "High-speed dual laser tracking during Null Realm debris flight",
+      "Heavy orchestral brass drop synchronization on climactic strikes",
+      "Anamorphic 2.35:1 letterbox cinematic framing for wide-angle battle staging"
+    ],
+    "learned_at": "2026-09-06T15:43:01"
+  },
+  "directional_whip_pan_blur": {
+    "title": "Directional Whip Pan & Motion Blur Ramping",
+    "category": "transitions",
+    "description": "Applies directional vector blur aligned with combat strike angles during exponential speed ramps.",
+    "ffmpeg_filter_snippet": "boxblur=lr=10:lp=2:cr=0",
+    "pacing_impact": "Accelerates perceived velocity between cuts without causing visual disorientation.",
+    "learned_at": "2026-09-12T03:18:05",
+    "status": "ACTIVE_PRODUCTION_PRESET"
+  },
+  "temporal_ghost_trails": {
+    "title": "Temporal Ghost Trailing (Combat Frame Echo)",
+    "category": "visual_effects",
+    "description": "Multi-frame opacity decay (100% -> 50% -> 20%) highlighting superhuman dashes and flash steps.",
+    "ffmpeg_filter_snippet": "tblend=all_mode=average",
+    "pacing_impact": "Elevates sense of god-tier speed during close-quarters hand-to-hand combat.",
+    "learned_at": "2026-09-12T03:18:05",
+    "status": "ACTIVE_PRODUCTION_PRESET"
+  }
+}

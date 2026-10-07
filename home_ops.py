@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-DB_PATH = PROJECT_ROOT / "zaine_memory.db"
+DB_PATH = PROJECT_ROOT / "zaine_tasks.db"
 BACKUP_DIR = PROJECT_ROOT / "data" / "backups"
 
 
@@ -55,9 +55,9 @@ def check_database_health() -> Dict[str, Any]:
         cursor.execute("PRAGMA integrity_check;")
         integrity = cursor.fetchone()[0]
 
-        # Count records across main tables
+        # Count records across main tables in active zaine_tasks.db
         tables = {}
-        for tbl in ["messages", "summaries", "vault_notes", "task_learnings", "context_pins"]:
+        for tbl in ["tasks", "memories", "task_learnings", "reminders", "conversation_episodes", "enrolled_faces", "telegram_chat_settings"]:
             try:
                 cursor.execute(f"SELECT COUNT(*) FROM {tbl};")
                 tables[tbl] = cursor.fetchone()[0]
@@ -81,7 +81,7 @@ def check_database_health() -> Dict[str, Any]:
 
 def backup_database(max_backups: int = 7) -> str:
     """
-    Creates a consistent timestamped copy of zaine_memory.db.
+    Creates a consistent timestamped copy of zaine_tasks.db.
     Maintains a rolling window of recent backups.
     """
     if not DB_PATH.exists():
@@ -89,7 +89,7 @@ def backup_database(max_backups: int = 7) -> str:
 
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_file = BACKUP_DIR / f"zaine_memory_{timestamp}.db"
+    backup_file = BACKUP_DIR / f"zaine_tasks_{timestamp}.db"
 
     try:
         # Use sqlite backup API for non-blocking live backup
@@ -101,7 +101,7 @@ def backup_database(max_backups: int = 7) -> str:
         src.close()
 
         # Prune old backups exceeding max_backups
-        backups = sorted(BACKUP_DIR.glob("zaine_memory_*.db"), key=os.path.getmtime)
+        backups = sorted(BACKUP_DIR.glob("zaine_tasks_*.db"), key=os.path.getmtime)
         while len(backups) > max_backups:
             oldest = backups.pop(0)
             try:
@@ -180,8 +180,10 @@ def generate_devops_report() -> str:
         "------------------------------------------------------------------",
         f"Cognitive Database:    {db.get('status')} (Integrity: {db.get('integrity', 'N/A')}, Size: {db.get('size_kb')} KB)",
         f"Learned Lessons:       {db.get('table_counts', {}).get('task_learnings', 0)} experiential records",
-        f"Message History:       {db.get('table_counts', {}).get('messages', 0)} turns",
-        f"Second Brain Notes:    {db.get('table_counts', {}).get('vault_notes', 0)} vault records",
+        f"Saved Memories:        {db.get('table_counts', {}).get('memories', 0)} permanent facts",
+        f"Recorded Episodes:     {db.get('table_counts', {}).get('conversation_episodes', 0)} sessions",
+        f"Active Tasks:          {db.get('table_counts', {}).get('tasks', 0)} tasks",
+        f"Enrolled Faces:        {db.get('table_counts', {}).get('enrolled_faces', 0)} biometric profiles",
         "------------------------------------------------------------------",
         f"System CPU:            {telemetry.get('cpu_percent')}%",
         f"System RAM:            {telemetry.get('ram_used_gb')} / {telemetry.get('ram_total_gb')} GB ({telemetry.get('ram_percent')}%)",

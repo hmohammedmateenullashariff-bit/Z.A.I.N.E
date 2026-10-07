@@ -890,6 +890,40 @@ def system_status() -> str:
         return f"Error getting system status: {e}"
 
 
+def enroll_new_face(name: str, role: str = "guest", relationship_note: str = "") -> str:
+    """
+    Enrolls a new person's face into Zaine's biometric identity database using the webcam.
+    ADMIN ONLY: Can only be executed when authorized by Mateen Sir.
+    """
+    try:
+        from face_id import get_active_user, enroll_person
+        active_user = get_active_user()
+        if active_user.get("role") != "admin":
+            return "[ACCESS DENIED]: Only Mateen Sir (Admin) has permission to enroll new faces into Zaine."
+        
+        res = enroll_person(name=name, role=role, relationship_note=relationship_note)
+        if res.get("status") == "success":
+            return f"Successfully enrolled {name} as '{role}' ({relationship_note or 'No notes'}). Zaine will recognize them automatically."
+        return f"Failed to enroll {name}: {res.get('message', 'Unknown error')}"
+    except Exception as e:
+        return f"Error during face enrollment: {e}"
+
+
+def list_enrolled_faces() -> str:
+    """Lists all people enrolled in Zaine's biometric face identification database."""
+    try:
+        from face_id import list_enrolled_faces as _list_faces
+        faces = _list_faces()
+        if not faces:
+            return "No faces currently enrolled in the database."
+        lines = ["Enrolled Identities:"]
+        for f in faces:
+            lines.append(f"- {f['name']} ({f['role'].upper()}) - Note: {f['relationship_note'] or 'None'} [Enrolled: {f['enrolled_at']}]")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error listing enrolled faces: {e}"
+
+
 def close_application(app_name: str) -> str:
     """Closes an open application or browser tab (e.g. 'youtube', 'browser', 'chrome', 'notepad', 'calc')."""
     import subprocess
@@ -957,6 +991,18 @@ def media_control(action: str) -> str:
     else:
         pyautogui.press("space")
         return f"Triggered media action '{action}'."
+
+
+def set_volume(level: int = 50) -> str:
+    """Sets master system volume (0-100)."""
+    try:
+        level = max(0, min(100, int(level)))
+        import subprocess
+        ps_cmd = f"$wsh = New-Object -ComObject WScript.Shell; $target = {level}; $steps = [math]::Round(($target - 50) / 2); if ($steps -gt 0) {{ 1..$steps | % {{ $wsh.SendKeys([char]175) }} }} elseif ($steps -lt 0) {{ 1..(-$steps) | % {{ $wsh.SendKeys([char]174) }} }}"
+        subprocess.Popen(["powershell", "-NoProfile", "-Command", ps_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return f"System volume adjusted toward {level}%."
+    except Exception as e:
+        return f"Volume adjust error: {e}"
 
 
 def change_voice(voice_name: str) -> str:
@@ -1176,6 +1222,9 @@ def youtube_studio_status_tool() -> str:
         st = get_studio_status()
         queue = get_upload_queue()
         is_active = st.get("in_active_window", False)
+        # Only count actionable items — exclude PUBLISHED from pending count
+        actionable_statuses = {"QUEUED", "QUEUED_PENDING_AUTH"}
+        pending_items = [q for q in queue if q.get("status") in actionable_statuses]
         return (
             f"🎬 **YouTube Studio Status:**\n"
             f"• Current Time: {st.get('current_time')}\n"
@@ -1183,8 +1232,8 @@ def youtube_studio_status_tool() -> str:
             f"• Last Generation: {st.get('last_generation_date') or 'Pending today'}\n"
             f"• Last Upload: {st.get('last_upload_date') or 'Pending today'}\n"
             f"• Last Analytics: {st.get('last_analytics_date') or 'Pending today'}\n"
-            f"• Local Upload Queue: {len(queue)} pending item(s)\n"
-            f"• Latest Video: {st.get('latest_video_path') or 'None'}"
+            f"• Local Upload Queue: {len(pending_items)} pending item(s)\n"
+            f"• Last Rendered File (informational): {st.get('latest_video_path') or 'None'}"
         )
     except Exception as e:
         return f"Error checking YouTube Studio status: {e}"
@@ -1242,6 +1291,23 @@ def capture_gesture_tool(execute_action: bool = True) -> str:
         return f"Gesture capture error: {e}"
 
 
+def toggle_gesture_control_tool(enable: bool = None) -> str:
+    """Toggles or sets continuous hand gesture tracking (pinch to drag, swipe to open holographic file browser)."""
+    try:
+        from gesture_control import get_gesture_tracker
+        tracker = get_gesture_tracker()
+        if enable is None:
+            active = tracker.toggle()
+        elif enable:
+            active = tracker.start()
+        else:
+            tracker.stop()
+            active = False
+        return f"Hand gesture tracking is now {'ACTIVE (Pinch & Swipe Ready)' if active else 'OFF (Camera Stream Idle)'}."
+    except Exception as e:
+        return f"Error toggling gesture tracking: {e}"
+
+
 def trigger_youtube_pipeline_tool(genre: str = "auto") -> str:
     """Forces an immediate execution of the daily YouTube 5-slot creation & analytics cycle."""
     try:
@@ -1287,8 +1353,82 @@ def export_timeline_tool(video_path: str, format_type: str = "fcpxml") -> str:
         return f"Timeline export error: {e}"
 
 
+def identify_face_tool(threshold: float = 0.58) -> str:
+    """1-shot biometric face identification using YuNet + SFace. Matches against enrolled faces."""
+    try:
+        import face_id
+        res = face_id.identify_person(threshold=threshold)
+        status = res.get("status")
+        if status == "recognized":
+            face_id.set_active_user(res['name'], res.get('role', 'guest'), res.get('relationship_note', ''), status="recognized")
+            return f"Biometric Match: Recognized {res['name']} ({res.get('role', 'guest')}, {res.get('relationship_note', '')}) with similarity {res.get('similarity', 0.0):.2f}."
+        elif status == "unknown":
+            face_id.set_active_user("Unknown Guest", "guest", "", status="unknown")
+            return f"Biometric Result: Unrecognized person detected (highest similarity {res.get('similarity', 0.0):.2f})."
+        elif status == "no_face":
+            return "Biometric Result: No human face detected in camera frame."
+        elif status == "no_camera":
+            return "Biometric Result: Camera capture unavailable or hardware busy."
+        elif status == "unconfigured":
+            face_id.set_active_user("Mateen Sir", "admin", "Creator", status="unconfigured")
+            return f"Biometric Result: System unconfigured. Defaulting to {res.get('name', 'Mateen Sir')}."
+        return f"Biometric Result: {res}"
+    except Exception as e:
+        return f"Face identification error: {e}"
+
+
+def enroll_face_tool(name: str, role: str = "guest", relationship_note: str = "", num_samples: int = 5) -> str:
+    """Enrolls a new person's face into biometric database by averaging multiple camera frames."""
+    try:
+        import face_id
+        res = face_id.enroll_person(name=name, role=role, relationship_note=relationship_note, num_samples=num_samples)
+        if res.get("status") == "success":
+            return f"Successfully enrolled '{res['name']}' as {res['role']} using {res['samples_used']} biometric samples."
+        return f"Face enrollment failed: {res.get('message', 'Unknown error')}"
+    except Exception as e:
+        return f"Face enrollment error: {e}"
+
+
+def launch_zaine_cascade_tool(target_path: str = "") -> str:
+    """Launches VS Code and activates the autonomous Zaine Cascade pair programming engine."""
+    return open_vscode(target_path=target_path, launch_cascade=True)
+
+
+def get_active_capabilities() -> str:
+    """Introspects TOOL_REGISTRY and TOOL_CLUSTERS, returning a comprehensive categorized report of Zaine's active capabilities."""
+    try:
+        from tool_clusters import TOOL_CLUSTERS
+        total_registered = len(TOOL_REGISTRY)
+        lines = [
+            f"⚡ Z.A.I.N.E Active Capabilities & Tool Architecture ({total_registered} registered tools):\n"
+        ]
+        registered_set = set(TOOL_REGISTRY.keys())
+        accounted_for = set()
+
+        for cluster_name, cluster_info in TOOL_CLUSTERS.items():
+            desc = cluster_info.get("description", "")
+            tools_in_cluster = [t for t in cluster_info.get("tools", []) if t in registered_set]
+            accounted_for.update(tools_in_cluster)
+            lines.append(f"📦 [{cluster_name}] — {desc}")
+            lines.append(f"   Active Tools ({len(tools_in_cluster)}): {', '.join(sorted(tools_in_cluster))}\n")
+
+        uncategorized = [t for t in registered_set if t not in accounted_for]
+        if uncategorized:
+            lines.append(f"📦 [EXTENDED_UTILITIES] — Dynamic & Custom Tools")
+            lines.append(f"   Active Tools ({len(uncategorized)}): {', '.join(sorted(uncategorized))}\n")
+
+        lines.append("Zaine is equipped with real-time biometric face ID, automated YouTube production, autonomous coding cascade, system diagnostics, second brain memory, and web intelligence.")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Capabilities introspection error: {e}"
+
+
 # Registry the agent uses to look up and call tools by name.
 TOOL_REGISTRY = {
+    "identify_face": identify_face_tool,
+    "enroll_face": enroll_face_tool,
+    "launch_zaine_cascade": launch_zaine_cascade_tool,
+    "get_active_capabilities": get_active_capabilities,
     "change_voice": change_voice,
     "deep_search": deep_search,
     "add_task": add_task,
@@ -1298,7 +1438,10 @@ TOOL_REGISTRY = {
     "get_datetime": get_datetime,
     "search_web": search_web,
     "remember": remember,
+    "save_memory": remember,
     "recall": recall,
+    "get_memory": recall,
+    "set_volume": set_volume,
     "read_workspace_file": read_workspace_file,
     "write_workspace_file": write_workspace_file,
     "edit_workspace_file": edit_workspace_file,
@@ -1339,6 +1482,11 @@ TOOL_REGISTRY = {
     "get_crypto_price": lambda coin="bitcoin": __import__("public_apis").get_crypto_price(coin),
     "convert_currency": lambda amount=1.0, from_curr="USD", to_curr="INR": __import__("public_apis").convert_currency(amount, from_curr, to_curr),
     "get_word_definition": lambda word="": __import__("public_apis").get_word_definition(word),
+    "lookup_word": lambda word="": __import__("public_apis").get_word_definition(word),
+    "lookup_definition": lambda word="": __import__("public_apis").get_word_definition(word),
+    "define_word": lambda word="": __import__("public_apis").get_word_definition(word),
+    "crypto_price": lambda coin="bitcoin": __import__("public_apis").get_crypto_price(coin),
+    "weather": lambda city="": __import__("public_apis").get_weather(city),
     "get_random_joke": lambda: __import__("public_apis").get_random_joke(),
     "get_inspirational_quote": lambda: __import__("public_apis").get_inspirational_quote(),
     "query_public_api": lambda endpoint_url="", params=None: __import__("public_apis").query_public_api(endpoint_url, params),
@@ -1363,6 +1511,7 @@ TOOL_REGISTRY = {
     "create_channel_playlists": create_channel_playlists_tool,
     "generate_manga_recap": generate_manga_recap_tool,
     "capture_gesture": capture_gesture_tool,
+    "toggle_gesture_control": toggle_gesture_control_tool,
     "separate_audio_stems": separate_audio_stems_tool,
     "isolate_dialogue": separate_audio_stems_tool,
     "export_timeline": export_timeline_tool,
@@ -1378,15 +1527,47 @@ TOOL_REGISTRY = {
     "get_career_roadmap": get_career_roadmap,
     "lookup_llm_architecture": lookup_llm_architecture,
     "search_developer_knowledge": search_developer_knowledge,
+    "learn_editing_style": lambda youtube_url, custom_name="", notes=None: __import__("youtube_studio.learning_engine", fromlist=["learn_video_reference"]).learn_video_reference(youtube_url, custom_name, notes),
+    "list_editing_styles": lambda: __import__("youtube_studio.learning_engine", fromlist=["list_learned_editing_styles"]).list_learned_editing_styles(),
+    "create_custom_tool": lambda tool_name="", python_code="", description="": __import__("toolmaker").create_custom_tool(tool_name, python_code, description),
+    "install_python_package": lambda package_name="": __import__("toolmaker").install_python_package(package_name),
+    "list_custom_tools": lambda: __import__("toolmaker").list_custom_tools(),
+    "propose_implementation": lambda action_type="", title="", description="", code_or_cmd="", explanation="": __import__("approval").ApprovalRegistry.create_proposal(action_type, title, description, code_or_cmd, explanation),
+    "check_pending_approvals": lambda: __import__("approval").ApprovalRegistry.list_pending(),
+    "generate_ideas": lambda focus="", count=5: __import__("idea_engine").get_ideas_on_demand(focus=focus, count=count),
+    "list_ideas": lambda category="", status="NEW", limit=10: __import__("idea_engine").list_ideas(category=category, status=status, limit=limit),
+    "star_idea": lambda idea_id=0: __import__("idea_engine").star_idea(idea_id),
+    "archive_idea": lambda idea_id=0: __import__("idea_engine").archive_idea(idea_id),
+    "system_diagnostics": lambda action="list_heavy", target="": __import__("custom_tools.system_diagnostics", fromlist=["system_diagnostics"]).system_diagnostics(action=action, target=target),
+    "custom_system_diagnostics": lambda action="list_heavy", target="": __import__("custom_tools.system_diagnostics", fromlist=["system_diagnostics"]).system_diagnostics(action=action, target=target),
+    "code_benchmarker": lambda script_path="", args="": __import__("custom_tools.code_benchmarker", fromlist=["code_benchmarker"]).code_benchmarker(script_path=script_path, args=args),
+    "custom_code_benchmarker": lambda script_path="", args="": __import__("custom_tools.code_benchmarker", fromlist=["code_benchmarker"]).code_benchmarker(script_path=script_path, args=args),
+    "instagram_manager": lambda action="stats", username="", password="", video_path="", caption="": __import__("custom_tools.instagram_manager", fromlist=["instagram_manager"]).instagram_manager(action=action, username=username, password=password, video_path=video_path, caption=caption),
+    "custom_instagram_manager": lambda action="stats", username="", password="", video_path="", caption="": __import__("custom_tools.instagram_manager", fromlist=["instagram_manager"]).instagram_manager(action=action, username=username, password=password, video_path=video_path, caption=caption),
 }
+
+# Boot up and register previously synthesized custom tools
+try:
+    import toolmaker
+    toolmaker.load_all_custom_tools()
+except Exception:
+    pass
 
 # Description block injected into the system prompt so the model knows what's available.
 TOOL_DESCRIPTIONS = """
 Available tools:
+- propose_implementation(action_type: str, title: str, description: str, code_or_cmd: str = "", explanation: str = "") -> dispatches an implementation proposal to Mateen Sir via Telegram with interactive buttons [Approve / Deny / Explain]
+- check_pending_approvals() -> lists all pending action authorizations awaiting Mateen Sir's review
+- create_custom_tool(tool_name: str, python_code: str, description: str) -> synthesizes, smoke-tests, and hot-registers a brand-new Python tool into memory
+- install_python_package(package_name: str) -> autonomously installs required Python pip library
+- list_custom_tools() -> lists all dynamically created tools in Zaine's vault
+- learn_editing_style(youtube_url: str, custom_name: str = "", notes: list = None) -> autonomously ingests and learns editing techniques, cut velocities, and color grading from any reference AMV/video into knowledge vault
+- list_editing_styles() -> lists all learned AMV & video editing knowledge profiles stored in the vault
 - track_viral_trends(genre: str = "auto") -> discovers real-time trending topics and viral memes across Anime, Gaming, Facts, and Tech
 - create_channel_playlists() -> ensures all 7 niche playlists exist on the YouTube channel and caches IDs for auto-assignment
 - generate_manga_recap(series_name: str = "", max_chapters: int = 5, upload_now: bool = False) -> produces an episodic long-form widescreen (16:9, 1080p) manga/manhwa deep dive recap with Ken Burns camera motion
 - capture_gesture(execute_action: bool = True) -> captures webcam frame and classifies hand gestures (Thumbs Up, Peace, Open Palm, Fist, Pointing Up)
+- toggle_gesture_control(enable: bool = None) -> activates or deactivates continuous physical hand gesture tracking (pinch to drag, swipe to open holographic file browser)
 - generate_youtube_short(topic: str = "", genre: str = "auto", upload_now: bool = False) -> produces an autonomous AI-generated viral vertical YouTube Short (1080x1920) across genres: 'anime' (Naruto vs Sasuke, Luffy vs Imu, Goku vs Vegeta), 'gaming' (Elden Ring, GTA 6), 'facts' (mind-blowing space/science/psychology), 'cat' (funny cat videos/memes), 'kids' (funny child comedy/toddler logic), 'animated' (whimsical cartoon stories), 'tech' (AI breakthroughs & system architecture)
 - upload_youtube_video(video_path: str, title: str, description: str = "", tags: str = "", privacy_status: str = "public") -> uploads a video file to YouTube with SEO metadata or queues it locally
 - get_youtube_stats() -> pulls live YouTube channel subscriber count, 24h subscriber gain/loss, total view count, and video library metrics
@@ -1461,4 +1642,14 @@ Available tools:
 - list_vault_documents() -> lists all documents and notes currently saved in the vault
 - trigger_proactive_check() -> runs an immediate check of battery, unread emails, and pending tasks
 - change_voice(voice_name: str) -> switches Zaine's active speech voice ('ryan', 'thomas', 'brian', 'madhur', 'asad')
+- generate_ideas(focus: str = "", count: int = 5) -> generates fresh creative ideas across 6 domains (youtube, project_z, tech_project, business, creative, learning) using the Idea Engine. Grounded in vault knowledge + wild creative synthesis.
+- list_ideas(category: str = "", status: str = "NEW", limit: int = 10) -> browses stored ideas from the Idea Engine vault, filterable by category and status (NEW, STARRED, IN_PROGRESS, DONE, ARCHIVED)
+- star_idea(idea_id: int) -> marks a generated idea as starred/favorite for future reference
+- archive_idea(idea_id: int) -> archives a stale or completed idea
+- identify_face(threshold: float = 0.58) -> performs 1-shot biometric face identification via OpenCV YuNet + SFace on webcam frame
+- enroll_face(name: str, role: str = "guest", relationship_note: str = "", num_samples: int = 5) -> registers a new face identity into the local biometric database by averaging multiple camera frames
+- launch_zaine_cascade(target_path: str = "") -> launches VS Code and activates the autonomous Zaine Cascade pair programming engine
+- get_active_capabilities() -> introspects and returns a complete categorized status report of all active tools and capabilities
+- separate_audio_stems(audio_path: str, output_dir: str = "") -> uses Meta Demucs neural net to isolate vocals, drums, bass, and accompaniment
+- export_timeline(video_path: str, format_type: str = "fcpxml") -> exports cut points to FCPXML or EDL for CapCut Pro, Premiere, or DaVinci Resolve
 """

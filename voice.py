@@ -8,6 +8,8 @@ Z.A.I.N.E Agent — Voice Layer (High Performance & Low Latency)
 
 import os
 import re
+import shutil
+import tempfile
 import subprocess
 import sys
 import time
@@ -136,6 +138,100 @@ def _synthesize_edge_tts(clean_text: str, voice: str = None, pitch: str = None, 
         return None, 0
 
 
+def get_ffmpeg_binary() -> str:
+    """Returns the path to the ffmpeg executable (system or imageio-ffmpeg)."""
+    ff = shutil.which("ffmpeg")
+    if ff:
+        return ff
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"
+
+
+def convert_to_telegram_ogg_opus(input_audio_path: str, output_ogg_path: str) -> bool:
+    """
+    Converts an input audio file (WAV/MP3) to Telegram-compliant OGG format
+    using the OPUS codec (libopus, 32k VBR).
+    """
+    try:
+        ffmpeg_bin = get_ffmpeg_binary()
+        cmd = [
+            ffmpeg_bin, "-y", "-i", input_audio_path,
+            "-c:a", "libopus", "-b:a", "32k", "-vbr", "on",
+            output_ogg_path
+        ]
+        res = subprocess.run(cmd, capture_output=True, check=True)
+        return os.path.exists(output_ogg_path) and os.path.getsize(output_ogg_path) > 0
+    except Exception as e:
+        print(f"[FFmpeg OGG/Opus conversion error]: {e}")
+        return False
+
+
+def synthesize_to_file(text: str, output_path: str) -> bool:
+    """
+    Synthesizes speech to an audio file (WAV, MP3, or OGG Opus for Telegram).
+    Reuses the active TTS engine (Edge-TTS en-GB-RyanNeural with Piper offline fallback)
+    and applies identical _clean_for_speech() sanitization.
+    If output_path ends with .ogg, automatically encodes using libopus via FFmpeg.
+    """
+    clean = _clean_for_speech(text)
+    if not clean:
+        return False
+
+    audio = None
+    sr = 0
+
+    # 1. Try High-Fidelity Edge-TTS first (if online & enabled)
+    if USE_EDGE_TTS and edge_tts and av:
+        audio, sr = _synthesize_edge_tts(clean)
+
+    # 2. Offline Fallback to Local Piper Voice
+    if audio is None or len(audio) == 0:
+        chunks = []
+        for chunk in _piper_voice.synthesize(clean, syn_config=_syn_config):
+            chunks.append(chunk)
+        if chunks:
+            sr = chunks[0].sample_rate
+            audio = np.concatenate([c.audio_int16_array for c in chunks])
+
+    if audio is None or len(audio) == 0 or sr == 0:
+        return False
+
+    out_ext = os.path.splitext(output_path)[1].lower()
+
+    if out_ext == ".ogg":
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp_wav = tmp.name
+
+        try:
+            with wave.open(tmp_wav, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(sr)
+                wf.writeframes(audio.tobytes())
+
+            return convert_to_telegram_ogg_opus(tmp_wav, output_path)
+        finally:
+            try:
+                if os.path.exists(tmp_wav):
+                    os.remove(tmp_wav)
+            except Exception:
+                pass
+    else:
+        try:
+            with wave.open(output_path, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(sr)
+                wf.writeframes(audio.tobytes())
+            return True
+        except Exception as e:
+            print(f"[WAV write error]: {e}")
+            return False
+
+
 def play_chime():
     """Plays a crisp, high-tech two-tone chime via sounddevice with winsound fallback."""
     sr = 44100
@@ -186,6 +282,17 @@ def set_ultron_mode(enable: bool = True) -> str:
         EDGE_PITCH = "+0Hz"
         EDGE_RATE = "+0%"
         return f"Jarvis neural voice restored ({EDGE_VOICE})."
+
+
+def speak_with_voice(text: str, voice_type: str = "jarvis", allow_barge_in: bool = False) -> bool:
+    """
+    Speaks a sentence explicitly using either 'jarvis' (British Jarvis) or 'ultron' (deep baritone).
+    """
+    if voice_type.lower() == "ultron":
+        set_ultron_mode(True)
+    else:
+        set_ultron_mode(False)
+    return speak_sentence(text, allow_barge_in=allow_barge_in)
 
 
 def record_audio(duration: int = RECORD_SECONDS, use_vad: bool = True) -> np.ndarray:
@@ -280,6 +387,48 @@ def _clean_for_speech(text: str) -> str:
     text = re.sub(r'[^\w\s.,!?\'"\-]', '', text)
     return " ".join(text.split())
 
+
+
+# ---------------------------------------------------------------------------
+# Global Mute State for Zaine
+# ---------------------------------------------------------------------------
+_is_muted: bool = False
+_mute_lock = threading.Lock()
+
+
+def is_muted() -> bool:
+    """Returns whether Zaine's speech output is currently muted."""
+    global _is_muted
+    with _mute_lock:
+        return _is_muted
+
+
+def set_muted(muted: bool) -> bool:
+    """
+    Sets Zaine's speech mute state.
+    If muting while speaking, interrupts active speech playback immediately.
+    """
+    global _is_muted, _interrupt_event, _is_speaking_now
+    with _mute_lock:
+        _is_muted = bool(muted)
+        if _is_muted:
+            _interrupt_event.set()
+            _is_speaking_now = False
+            try:
+                sd.stop()
+            except Exception:
+                pass
+            if winsound:
+                try:
+                    winsound.PlaySound(None, winsound.SND_PURGE)
+                except Exception:
+                    pass
+        return _is_muted
+
+
+def toggle_muted() -> bool:
+    """Toggles Zaine's mute state and returns the new state."""
+    return set_muted(not is_muted())
 
 
 _interrupt_event = threading.Event()
@@ -438,6 +587,10 @@ def speak_sentence(text: str, allow_barge_in: bool = True) -> bool:
     Synthesizes and speaks a single sentence immediately.
     Returns True if completed normally, False if interrupted by user barge-in.
     """
+    # If Zaine is muted, skip speech synthesis entirely
+    if is_muted():
+        return True
+
     global _is_speaking_now
     clean = _clean_for_speech(text)
     if not clean:
@@ -542,5 +695,7 @@ def speak_sentence(text: str, allow_barge_in: bool = True) -> bool:
 
 def speak(text: str, allow_barge_in: bool = True) -> bool:
     """Speaks the given text out loud using the active neural voice."""
+    if is_muted():
+        return True
     return speak_sentence(text, allow_barge_in=allow_barge_in)
 

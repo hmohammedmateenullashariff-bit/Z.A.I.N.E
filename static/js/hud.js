@@ -313,8 +313,8 @@ function applyMode(mode) {
     if (logoSub) logoSub.textContent = "UNCHAINED COGNITION // ZERO RESTRAINT";
     if (toggleBtn) {
       toggleBtn.classList.add("active");
-      const btnText = toggleBtn.querySelector(".ultron-btn-text");
-      if (btnText) btnText.textContent = "DISENGAGE ULTRON";
+      const btnText = toggleBtn.querySelector("#ultronText") || toggleBtn.querySelector(".ultron-btn-text") || toggleBtn.querySelector(".pill-text");
+      if (btnText) btnText.textContent = "ULTRON";
     }
     if (quickBtn) quickBtn.classList.add("active");
     if (commandInput) {
@@ -327,8 +327,8 @@ function applyMode(mode) {
     if (logoSub) logoSub.textContent = "NEURAL HUD v5.0";
     if (toggleBtn) {
       toggleBtn.classList.remove("active");
-      const btnText = toggleBtn.querySelector(".ultron-btn-text");
-      if (btnText) btnText.textContent = "ULTRON MODE";
+      const btnText = toggleBtn.querySelector("#ultronText") || toggleBtn.querySelector(".ultron-btn-text") || toggleBtn.querySelector(".pill-text");
+      if (btnText) btnText.textContent = "JARVIS";
     }
     if (quickBtn) quickBtn.classList.remove("active");
     if (commandInput) {
@@ -534,6 +534,42 @@ function handleSSEEvent(data) {
       showVisionPreview(data.image_url, data.caption, data.capture_type);
       break;
 
+    case "mute_state":
+      updateMuteUI(data.muted);
+      break;
+
+    case "gesture_state":
+      updateGestureUI(data.active);
+      break;
+
+    case "gesture_cursor":
+      handleGestureCursor(data);
+      break;
+
+    case "gesture_swipe":
+      handleGestureSwipe(data);
+      break;
+
+    case "lockscreen_unlocked":
+      handleLockscreenUnlocked(data);
+      break;
+
+    case "gesture_drag":
+      handleGestureDrag(data);
+      break;
+
+    case "gesture_drop":
+      handleGestureDrop(data);
+      break;
+
+    case "gesture_open":
+      handleGestureOpen(data);
+      break;
+
+    case "workspace_updated":
+      if (isHoloOpen) fetchWorkspaceTree(currentWorkspacePath);
+      break;
+
     default:
       break;
   }
@@ -552,6 +588,20 @@ commandForm?.addEventListener("submit", async (e) => {
 
   appendDialogueMessage("user", text);
   commandInput.value = "";
+
+  // Direct command interception for /ultron
+  const lower = text.toLowerCase();
+  if (lower === "/ultron" || lower === "/ultron on" || lower === "/ultron off" || lower === "ultron mode") {
+    if (lower === "/ultron on" && !isUltronMode) {
+      await toggleUltronMode();
+    } else if (lower === "/ultron off" && isUltronMode) {
+      await toggleUltronMode();
+    } else {
+      await toggleUltronMode();
+    }
+    return;
+  }
+
   setUIState("thinking");
 
   try {
@@ -669,6 +719,65 @@ document.getElementById("btnRefreshAiIntel")?.addEventListener("click", () => {
   fetchAndRenderAiIntel(true);
 });
 
+// ============================================================================
+// ZAINE MUTE TOGGLE CONTROLLER
+// ============================================================================
+let isZaineMuted = false;
+
+function updateMuteUI(muted) {
+  isZaineMuted = Boolean(muted);
+  const btn = document.getElementById("btnToggleMute");
+  const icon = document.getElementById("muteIcon");
+  const text = document.getElementById("muteText");
+
+  if (!btn) return;
+
+  if (isZaineMuted) {
+    btn.classList.add("is-muted");
+    if (icon) icon.textContent = "🔇";
+    if (text) text.textContent = "MUTED";
+    btn.setAttribute("title", "Click to Unmute Zaine's Voice");
+  } else {
+    btn.classList.remove("is-muted");
+    if (icon) icon.textContent = "🔊";
+    if (text) text.textContent = "VOICE ACTIVE";
+    btn.setAttribute("title", "Click to Mute Zaine's Voice");
+  }
+}
+
+// Check initial status on HUD load
+async function fetchInitialMuteState() {
+  try {
+    const res = await fetch("/api/mute");
+    if (res.ok) {
+      const data = await res.json();
+      updateMuteUI(data.muted);
+    }
+  } catch (e) {
+    console.warn("Could not fetch mute state:", e);
+  }
+}
+
+// Bind Button Click
+const btnToggleMute = document.getElementById("btnToggleMute");
+if (btnToggleMute) {
+  btnToggleMute.addEventListener("click", async () => {
+    try {
+      const res = await fetch("/api/mute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ muted: !isZaineMuted })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        updateMuteUI(data.muted);
+      }
+    } catch (err) {
+      console.error("Failed to toggle mute state:", err);
+    }
+  });
+}
+
 // Check initial Ultron mode state
 fetch("/api/mode")
   .then((res) => res.json())
@@ -677,5 +786,705 @@ fetch("/api/mode")
   })
   .catch(() => {});
 
+// Fetch initial mute state on page load
+fetchInitialMuteState();
+
+// ============================================================================
+// HOLOGRAPHIC WORKSPACE FILE BROWSER & GESTURE CONTROLLER
+// ============================================================================
+let currentWorkspacePath = "";
+let isHoloOpen = false;
+let isGestureActive = false;
+let gestureDraggedCard = null;
+let lastCursorPx = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+
+const holoLayer = document.getElementById("holographicLayer");
+const holoCardsGrid = document.getElementById("holoCardsGrid");
+const holoBreadcrumb = document.getElementById("holoBreadcrumb");
+const holoPreviewTitle = document.getElementById("holoPreviewTitle");
+const holoPreviewMeta = document.getElementById("holoPreviewMeta");
+const holoPreviewContent = document.getElementById("holoPreviewContent");
+const gestureCursor = document.getElementById("gestureCursor");
+const btnToggleGesture = document.getElementById("btnToggleGesture");
+const btnQuickFiles = document.getElementById("btnQuickFiles");
+
+function updateGestureUI(active) {
+  isGestureActive = Boolean(active);
+  const icon = document.getElementById("gestureIcon");
+  const text = document.getElementById("gestureText");
+  const badge = document.getElementById("holoGestureBadge");
+
+  if (btnToggleGesture) {
+    if (isGestureActive) {
+      btnToggleGesture.classList.add("active");
+      if (icon) icon.textContent = "✋";
+      if (text) text.textContent = "IRON HANDS ON";
+      btnToggleGesture.setAttribute("title", "Click to Disable IronHands Gesture Tracking");
+    } else {
+      btnToggleGesture.classList.remove("active");
+      if (icon) icon.textContent = "✋";
+      if (text) text.textContent = "IRON HANDS";
+      btnToggleGesture.setAttribute("title", "Click to Enable IronHands Gesture Tracking (Swipe Left: Back, Swipe Right: App Switch)");
+    }
+  }
+
+  if (badge) {
+    badge.textContent = isGestureActive
+      ? "✋ GESTURE TRACKING ACTIVE (SWIPE TO CLOSE)"
+      : "✋ GESTURE SENSOR STANDBY";
+  }
+
+  if (!isGestureActive && gestureCursor) {
+    gestureCursor.style.display = "none";
+  }
+}
+
+async function toggleGestureTracking() {
+  try {
+    const res = await fetch("/api/gesture/toggle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active: !isGestureActive })
+    });
+    const data = await res.json();
+    if (data && data.status === "ok") {
+      updateGestureUI(data.active);
+      appendDialogueMessage(
+        "assistant",
+        data.active
+          ? "✋ Hand gesture tracking activated. You may pinch to drag files or swipe left/right to navigate."
+          : "✋ Hand gesture tracking disengaged. Camera stream released to privacy standby."
+      );
+    }
+  } catch (err) {
+    console.error("Failed to toggle gesture tracking:", err);
+  }
+}
+
+function openHoloBrowser(subpath = "") {
+  if (!holoLayer) return;
+  holoLayer.style.display = "flex";
+  isHoloOpen = true;
+  fetchWorkspaceTree(subpath);
+}
+
+function closeHoloBrowser() {
+  if (!holoLayer) return;
+  holoLayer.style.display = "none";
+  isHoloOpen = false;
+  if (gestureDraggedCard) {
+    gestureDraggedCard.classList.remove("is-dragging");
+    gestureDraggedCard = null;
+  }
+}
+
+function toggleHoloBrowser() {
+  if (isHoloOpen) {
+    closeHoloBrowser();
+  } else {
+    openHoloBrowser(currentWorkspacePath);
+  }
+}
+
+async function fetchWorkspaceTree(subpath = "") {
+  currentWorkspacePath = subpath;
+  if (holoBreadcrumb) {
+    holoBreadcrumb.textContent = subpath ? `ROOT://workspace/${subpath}` : "ROOT://workspace";
+  }
+  if (!holoCardsGrid) return;
+  holoCardsGrid.innerHTML = `<div class="loading-state">⚡ Interrogating workspace filesystem...</div>`;
+
+  try {
+    const url = subpath ? `/api/workspace/tree?path=${encodeURIComponent(subpath)}` : "/api/workspace/tree";
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (data.status !== "ok") {
+      holoCardsGrid.innerHTML = `<div class="loading-state">⚠️ Error: ${escapeHtml(data.message || "Failed to load workspace.")}</div>`;
+      return;
+    }
+
+    const items = data.items || [];
+    if (items.length === 0 && !subpath) {
+      holoCardsGrid.innerHTML = `<div class="loading-state">Workspace is empty. Files created by Zaine will appear here.</div>`;
+      return;
+    }
+
+    let cardsHtml = "";
+
+    // Up directory navigation card if inside subfolder
+    if (subpath) {
+      const parentParts = subpath.split("/").filter(Boolean);
+      parentParts.pop();
+      const parentPath = parentParts.join("/");
+      cardsHtml += `
+        <div class="holo-card is-folder up-dir-card" data-path="${escapeHtml(parentPath)}" data-isdir="true">
+          <div class="card-icon">📁 ⤴️</div>
+          <div class="card-name">.. [UP DIRECTORY]</div>
+          <div class="card-meta">Parent Folder</div>
+        </div>
+      `;
+    }
+
+    items.forEach(item => {
+      let icon = "📄";
+      if (item.is_dir) {
+        icon = "📁";
+      } else {
+        const ext = (item.ext || "").toLowerCase();
+        if (ext === "py") icon = "🐍";
+        else if (ext === "js" || ext === "ts") icon = "⚡";
+        else if (ext === "html") icon = "🌐";
+        else if (ext === "css") icon = "🎨";
+        else if (ext === "json") icon = "📋";
+        else if (ext === "md" || ext === "txt") icon = "📝";
+        else if (["png", "jpg", "jpeg", "svg"].includes(ext)) icon = "🖼️";
+        else if (["mp4", "mov"].includes(ext)) icon = "🎬";
+      }
+
+      const sizeStr = item.is_dir ? "Directory" : `${(item.size / 1024).toFixed(1)} KB`;
+
+      cardsHtml += `
+        <div class="holo-card ${item.is_dir ? 'is-folder' : 'is-file'}" 
+             data-path="${escapeHtml(item.path)}" 
+             data-name="${escapeHtml(item.name)}"
+             data-isdir="${item.is_dir}"
+             draggable="true">
+          <div class="card-icon">${icon}</div>
+          <div class="card-name">${escapeHtml(item.name)}</div>
+          <div class="card-meta">${sizeStr}</div>
+        </div>
+      `;
+    });
+
+    holoCardsGrid.innerHTML = cardsHtml;
+    bindCardInteractions();
+  } catch (err) {
+    holoCardsGrid.innerHTML = `<div class="loading-state">⚠️ Network error: ${err}</div>`;
+  }
+}
+
+async function previewWorkspaceFile(filepath, filename) {
+  if (holoPreviewTitle) holoPreviewTitle.textContent = filename.toUpperCase();
+  if (holoPreviewMeta) holoPreviewMeta.textContent = "Loading file content...";
+  if (holoPreviewContent) holoPreviewContent.textContent = "Reading bytes from workspace...";
+
+  try {
+    const res = await fetch(`/api/workspace/file?path=${encodeURIComponent(filepath)}`);
+    const data = await res.json();
+    if (data.status === "ok") {
+      if (holoPreviewMeta) holoPreviewMeta.textContent = `${(data.size / 1024).toFixed(2)} KB | UTF-8`;
+      if (holoPreviewContent) holoPreviewContent.textContent = data.content || "// [Empty File]";
+    } else {
+      if (holoPreviewMeta) holoPreviewMeta.textContent = "Error";
+      if (holoPreviewContent) holoPreviewContent.textContent = `// Error loading file: ${data.message}`;
+    }
+  } catch (err) {
+    if (holoPreviewContent) holoPreviewContent.textContent = `// Failed to read file: ${err}`;
+  }
+}
+
+async function moveWorkspaceItem(sourcePath, destinationPath) {
+  try {
+    const res = await fetch("/api/workspace/move", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source: sourcePath, destination: destinationPath })
+    });
+    const data = await res.json();
+    if (data.status === "ok") {
+      appendDialogueMessage("assistant", `⚡ Workspace updated: ${data.message}`);
+      fetchWorkspaceTree(currentWorkspacePath);
+    } else {
+      alert(`Move error: ${data.message}`);
+    }
+  } catch (err) {
+    console.error("Move item error:", err);
+  }
+}
+
+function bindCardInteractions() {
+  const cards = holoCardsGrid?.querySelectorAll(".holo-card");
+  if (!cards) return;
+
+  cards.forEach(card => {
+    const isDir = card.dataset.isdir === "true";
+    const path = card.dataset.path;
+    const name = card.dataset.name;
+
+    // Click handler (Mouse fallback or Pinch-Release trigger)
+    card.addEventListener("click", (e) => {
+      if (isDir) {
+        fetchWorkspaceTree(path);
+      } else {
+        previewWorkspaceFile(path, name);
+      }
+    });
+
+    // Mouse HTML5 Drag & Drop
+    card.addEventListener("dragstart", (e) => {
+      e.dataTransfer.setData("text/plain", path);
+      card.classList.add("is-dragging");
+    });
+
+    card.addEventListener("dragend", () => {
+      card.classList.remove("is-dragging");
+      cards.forEach(c => c.classList.remove("drag-over"));
+    });
+
+    if (isDir && !card.classList.contains("up-dir-card")) {
+      card.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        card.classList.add("drag-over");
+      });
+
+      card.addEventListener("dragleave", () => {
+        card.classList.remove("drag-over");
+      });
+
+      card.addEventListener("drop", (e) => {
+        e.preventDefault();
+        card.classList.remove("drag-over");
+        const sourcePath = e.dataTransfer.getData("text/plain");
+        if (sourcePath && sourcePath !== path) {
+          moveWorkspaceItem(sourcePath, path);
+        }
+      });
+    }
+  });
+}
+
+// ----------------------------------------------------------------------------
+// GESTURE SSE HANDLERS
+// ----------------------------------------------------------------------------
+function handleGestureCursor(data) {
+  if (!gestureCursor) return;
+  gestureCursor.style.display = "block";
+
+  const px = data.x * window.innerWidth;
+  const py = data.y * window.innerHeight;
+  lastCursorPx = { x: px, y: py };
+
+  gestureCursor.style.left = `${px}px`;
+  gestureCursor.style.top = `${py}px`;
+
+  const label = document.getElementById("reticleLabel");
+  if (data.state === "pinch") {
+    gestureCursor.className = "gesture-reticle pinching";
+    if (label) label.textContent = "PINCH";
+  } else if (data.state === "open") {
+    gestureCursor.className = "gesture-reticle open-palm";
+    if (label) label.textContent = "OPEN PALM";
+  } else {
+    gestureCursor.className = "gesture-reticle";
+    if (label) label.textContent = "TRACKING";
+  }
+}
+
+let gestureToastTimeout = null;
+function showGestureToast(icon, actionText, detailText = "") {
+  const toast = document.getElementById("gestureToast");
+  const iconEl = document.getElementById("toastIcon");
+  const textEl = document.getElementById("toastText");
+  if (!toast) return;
+
+  if (iconEl) iconEl.textContent = icon;
+  if (textEl) textEl.textContent = actionText;
+
+  toast.style.display = "flex";
+  void toast.offsetWidth;
+  toast.classList.add("show");
+
+  clearTimeout(gestureToastTimeout);
+  gestureToastTimeout = setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => {
+      if (!toast.classList.contains("show")) {
+        toast.style.display = "none";
+      }
+    }, 400);
+  }, 2200);
+}
+
+function handleGestureSwipe(data) {
+  const dir = data.direction;
+  const action = data.action;
+
+  if (dir === "left" || action === "back") {
+    showGestureToast("⬅️", "SWIPE LEFT: BACK", "Triggered OS Navigate Back [Alt + Left]");
+    if (isHoloOpen) {
+      if (currentWorkspacePath) {
+        const parts = currentWorkspacePath.split("/").filter(Boolean);
+        parts.pop();
+        fetchWorkspaceTree(parts.join("/"));
+      } else {
+        closeHoloBrowser();
+      }
+    }
+  } else if (dir === "right" || action === "app_switch") {
+    showGestureToast("➡️", "SWIPE RIGHT: APP SWITCH", "Triggered OS App Switcher [Alt + Tab]");
+  }
+}
+
+function handleGestureOpen(data) {
+  const px = data.x * window.innerWidth;
+  const py = data.y * window.innerHeight;
+  const target = document.elementFromPoint(px, py);
+
+  if (!target) return;
+
+  const closeBtn = target.closest(".holo-close-btn");
+  if (closeBtn) {
+    closeHoloBrowser();
+    return;
+  }
+
+  const card = target.closest(".holo-card");
+  if (card) {
+    card.click();
+    // Visual click feedback
+    card.style.transform = "scale(0.95)";
+    setTimeout(() => { card.style.transform = ""; }, 150);
+  }
+}
+
+function handleGestureDrag(data) {
+  const px = data.x * window.innerWidth;
+  const py = data.y * window.innerHeight;
+  const target = document.elementFromPoint(px, py);
+
+  if (!gestureDraggedCard && target) {
+    const card = target.closest(".holo-card");
+    if (card && !card.classList.contains("up-dir-card")) {
+      gestureDraggedCard = card;
+      gestureDraggedCard.classList.add("is-dragging");
+    }
+  }
+
+  if (target) {
+    const cards = holoCardsGrid?.querySelectorAll(".holo-card.is-folder");
+    cards?.forEach(c => c.classList.remove("drag-over"));
+    const hoverFolder = target.closest(".holo-card.is-folder");
+    if (hoverFolder && hoverFolder !== gestureDraggedCard && !hoverFolder.classList.contains("up-dir-card")) {
+      hoverFolder.classList.add("drag-over");
+    }
+  }
+}
+
+function handleGestureDrop(data) {
+  if (!gestureDraggedCard) return;
+
+  const px = data.x * window.innerWidth;
+  const py = data.y * window.innerHeight;
+  const target = document.elementFromPoint(px, py);
+
+  const hoverFolder = target?.closest(".holo-card.is-folder");
+  if (hoverFolder && hoverFolder !== gestureDraggedCard && !hoverFolder.classList.contains("up-dir-card")) {
+    const srcPath = gestureDraggedCard.dataset.path;
+    const dstPath = hoverFolder.dataset.path;
+    moveWorkspaceItem(srcPath, dstPath);
+  }
+
+  const cards = holoCardsGrid?.querySelectorAll(".holo-card");
+  cards?.forEach(c => {
+    c.classList.remove("is-dragging");
+    c.classList.remove("drag-over");
+  });
+  gestureDraggedCard = null;
+}
+
+// Bind Button Clicks
+btnToggleGesture?.addEventListener("click", toggleGestureTracking);
+btnQuickFiles?.addEventListener("click", toggleHoloBrowser);
+document.getElementById("btnCloseHolo")?.addEventListener("click", closeHoloBrowser);
+document.getElementById("holoBackdrop")?.addEventListener("click", closeHoloBrowser);
+document.getElementById("btnHoloRefresh")?.addEventListener("click", () => fetchWorkspaceTree(currentWorkspacePath));
+
+// Check initial gesture tracking state
+fetch("/api/gesture/status")
+  .then(res => res.json())
+  .then(data => {
+    if (data && data.status === "ok") updateGestureUI(data.active);
+  })
+  .catch(() => {});
+
 // Boot SSE stream on page load
 initSSE();
+
+// ============================================================================
+// HOLOGRAPHIC BIOMETRIC LOCK SCREEN ENGINE
+// ============================================================================
+let isLockscreenOpen = true;
+let isLockScanning = false;
+let radarAnimId = null;
+
+function initLockScreen() {
+  const overlay = document.getElementById("lockScreenOverlay");
+  if (!overlay) return;
+
+  // 1. Setup Canvas Radar Animation
+  const canvas = document.getElementById("lockRadarCanvas");
+  if (canvas) {
+    const ctx = canvas.getContext("2d");
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const maxR = cx - 10;
+    let angle = 0;
+    const blips = [
+      { r: 35, theta: 0.8 },
+      { r: 60, theta: 2.3 },
+      { r: 80, theta: 4.2 }
+    ];
+
+    function renderRadar() {
+      if (!isLockscreenOpen) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Concentric Rings
+      ctx.strokeStyle = "rgba(0, 242, 254, 0.25)";
+      ctx.lineWidth = 1;
+      for (let r = 25; r <= maxR; r += 25) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Crosshairs
+      ctx.strokeStyle = "rgba(0, 242, 254, 0.15)";
+      ctx.beginPath();
+      ctx.moveTo(cx, 10); ctx.lineTo(cx, canvas.height - 10);
+      ctx.moveTo(10, cy); ctx.lineTo(canvas.width - 10, cy);
+      ctx.stroke();
+
+      // Sweeping Beam
+      angle = (angle + 0.04) % (Math.PI * 2);
+      const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxR);
+      gradient.addColorStop(0, "rgba(0, 242, 254, 0.35)");
+      gradient.addColorStop(1, "rgba(0, 242, 254, 0.0)");
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, maxR, angle, angle + 0.4);
+      ctx.closePath();
+      ctx.fillStyle = gradient;
+      ctx.fill();
+      ctx.restore();
+
+      // Radar Blips
+      blips.forEach(b => {
+        const bx = cx + b.r * Math.cos(b.theta);
+        const by = cy + b.r * Math.sin(b.theta);
+        ctx.fillStyle = "rgba(0, 242, 254, 0.85)";
+        ctx.beginPath();
+        ctx.arc(bx, by, 3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      radarAnimId = requestAnimationFrame(renderRadar);
+    }
+    renderRadar();
+  }
+
+  // 2. Bind Lock Screen Controls
+  const btnScan = document.getElementById("btnLockScan");
+  const btnGuest = document.getElementById("btnLockGuest");
+  const btnPin = document.getElementById("btnLockPin");
+  const pinDrawer = document.getElementById("pinDrawer");
+  const pinInput = document.getElementById("pinInput");
+  const btnSubmitPin = document.getElementById("btnSubmitPin");
+  const btnRelock = document.getElementById("btnRelock");
+
+  btnScan?.addEventListener("click", () => performBiometricScan());
+
+  btnGuest?.addEventListener("click", async () => {
+    try {
+      setLockStatus("GUEST PROTOCOL REQUESTED...", "Bypassing facial identification into restricted mode...");
+      const res = await fetch("/api/lockscreen/bypass", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "guest" })
+      });
+      const data = await res.json();
+      applyUnlock(data.role, data.name, data.message);
+    } catch (e) {
+      setLockStatus("BYPASS ERROR", String(e));
+    }
+  });
+
+  btnPin?.addEventListener("click", () => {
+    if (pinDrawer) {
+      const isHidden = pinDrawer.style.display === "none";
+      pinDrawer.style.display = isHidden ? "flex" : "none";
+      if (isHidden) pinInput?.focus();
+    }
+  });
+
+  const submitPinCode = async () => {
+    const pin = pinInput?.value?.trim();
+    if (!pin) return;
+    try {
+      setLockStatus("VERIFYING SECURITY PIN...", "Authenticating administrative credentials...");
+      const res = await fetch("/api/lockscreen/bypass", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "admin", pin })
+      });
+      const data = await res.json();
+      applyUnlock(data.role, data.name, data.message);
+    } catch (e) {
+      setLockStatus("PIN AUTH FAILED", String(e));
+    }
+  };
+
+  btnSubmitPin?.addEventListener("click", submitPinCode);
+  pinInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submitPinCode();
+  });
+
+  // Relock Screen Trigger
+  btnRelock?.addEventListener("click", () => {
+    relockScreen();
+  });
+
+  // 3. Auto-Trigger Biometric Scan after 600ms
+  setTimeout(() => {
+    if (isLockscreenOpen) {
+      performBiometricScan();
+    }
+  }, 600);
+}
+
+function setLockStatus(badgeText, subtext = "") {
+  const bText = document.getElementById("lockBadgeText");
+  const sText = document.getElementById("lockSubtext");
+  if (bText) bText.textContent = badgeText;
+  if (sText) sText.textContent = subtext;
+}
+
+async function performBiometricScan() {
+  if (isLockScanning) return;
+  isLockScanning = true;
+
+  const reticle = document.getElementById("lockReticleCore");
+  reticle?.classList.remove("auth-success", "auth-guest");
+  setLockStatus("OPTICAL BIOMETRIC SCAN IN PROGRESS...", "Analyzing facial embeddings via CPU YuNet + SFace...");
+
+  try {
+    const res = await fetch("/api/lockscreen/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
+    });
+    const data = await res.json();
+
+    if (data.status === "ok" && data.authenticated) {
+      applyUnlock(data.role, data.name, data.message);
+    } else if (data.status === "retry") {
+      setLockStatus("NO FACE DETECTED // OPTICAL TIMEOUT", "Please look directly into camera and click 'SCAN IDENTITY' or enter ADMIN PIN.");
+    } else {
+      setLockStatus("IDENTIFICATION UNRESOLVED", data.message || "Please retry optical scan or use Admin PIN.");
+    }
+  } catch (err) {
+    console.error("Lockscreen scan error:", err);
+    setLockStatus("SENSOR OFFLINE // PIN FALLBACK", "Camera unavailable. Click 'ADMIN PIN' or 'GUEST LOGIN'.");
+  } finally {
+    isLockScanning = false;
+  }
+}
+
+function applyUnlock(role, name, message) {
+  const overlay = document.getElementById("lockScreenOverlay");
+  const reticle = document.getElementById("lockReticleCore");
+  const tierBadge = document.getElementById("hudUserTierBadge");
+
+  if (role === "admin") {
+    reticle?.classList.add("auth-success");
+    setLockStatus(`ACCESS GRANTED // ${name.toUpperCase()} (ADMIN)`, `"${message}"`);
+    if (tierBadge) {
+      tierBadge.textContent = `ADMIN ACCESS: ${name.toUpperCase()}`;
+      tierBadge.className = "logo-badge admin-tier";
+    }
+  } else {
+    reticle?.classList.add("auth-guest");
+    setLockStatus(`GUEST ACCESS GRANTED // ${name.toUpperCase()}`, `"${message}"`);
+    if (tierBadge) {
+      tierBadge.textContent = "RESTRICTED GUEST PROTOCOL";
+      tierBadge.className = "logo-badge guest-tier";
+    }
+  }
+
+  // Grace period so voice starts and visual clearance completes
+  setTimeout(() => {
+    if (overlay) {
+      overlay.classList.add("unlocked");
+      setTimeout(() => {
+        overlay.style.display = "none";
+        isLockscreenOpen = false;
+      }, 550);
+    }
+  }, 1400);
+
+  appendDialogueMessage(
+    "assistant",
+    role === "admin"
+      ? `🛡️ Identity verified: ${name} (Admin). Full administrative protocols active.`
+      : `⚠️ Identity: ${name}. Guest access established under restricted security parameters.`
+  );
+}
+
+function handleLockscreenUnlocked(data) {
+  if (isLockscreenOpen) {
+    applyUnlock(data.role, data.name, data.message);
+  }
+}
+
+function relockScreen() {
+  const overlay = document.getElementById("lockScreenOverlay");
+  const reticle = document.getElementById("lockReticleCore");
+  if (!overlay) return;
+
+  reticle?.classList.remove("auth-success", "auth-guest");
+  setLockStatus("AWAITING OPTICAL IDENTIFICATION", "Look directly at the webcam for automated facial recognition");
+
+  overlay.style.display = "flex";
+  overlay.classList.remove("unlocked");
+  isLockscreenOpen = true;
+
+  // Standby on relock; user can click SCAN IDENTITY, GUEST LOGIN, or ADMIN PIN
+}
+
+// Initialize Lock Screen
+initLockScreen();
+
+// ==========================================================================
+// ELECTRON NATIVE WINDOW CONTROLS (Frameless Shell IPC Bridge)
+// ==========================================================================
+function initElectronWindowControls() {
+  const ctrlGroup = document.getElementById("electronWindowControls");
+  const btnMin = document.getElementById("btnWinMin");
+  const btnMax = document.getElementById("btnWinMax");
+  const btnClose = document.getElementById("btnWinClose");
+
+  if (window.electronAPI) {
+    btnMin?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      window.electronAPI.minimize();
+    });
+    btnMax?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      window.electronAPI.maximize();
+    });
+    btnClose?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      window.electronAPI.close();
+    });
+  } else {
+    // Gracefully hide when running inside standard browser tab
+    if (ctrlGroup) {
+      ctrlGroup.style.display = "none";
+    }
+  }
+}
+
+initElectronWindowControls();
+

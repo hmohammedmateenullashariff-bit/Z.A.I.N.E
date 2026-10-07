@@ -111,11 +111,33 @@ def compile_morning_briefing(salutation: str = "Sir") -> str:
     except Exception:
         ai_section = "AI Intel stream temporarily offline."
 
+    # 6. Dynamic Tools & Guardian Approvals
+    try:
+        from toolmaker import list_custom_tools
+        custom_tools_list = list_custom_tools()
+        tools_section = ", ".join(f"`{t['tool_name']}`" for t in custom_tools_list) if custom_tools_list else "None"
+    except Exception:
+        tools_section = "None"
+
+    try:
+        from approval import ApprovalRegistry
+        pending_props = ApprovalRegistry.list_pending()
+        pending_section = "\n".join(f"- **[{p['id']}]** {p['title']} ({p['action_type']}, Risk: {p['risk_level']})" for p in pending_props) if pending_props else "No pending actions requiring authorization."
+    except Exception:
+        pending_section = "None"
+
+    # 7. Overnight Idea Engine
+    try:
+        from idea_engine import get_daily_ideas
+        ideas_section = get_daily_ideas(count=5)
+    except Exception:
+        ideas_section = "Idea Engine offline tonight."
+
     # Build British-cadenced Markdown Briefing
     briefing = f"""# Z.A.I.N.E — EXECUTIVE MORNING DOSSIER
 **Date:** {date_str} | **Time:** {time_str}  
 **Prepared for:** {salutation}  
-**Status:** All Neural Systems Nominal  
+**Status:** All Neural Systems Nominal & Guardian Protocol Active  
 
 ---
 
@@ -144,7 +166,20 @@ Good morning, {salutation}. I trust you rested well. While you were away, I have
 
 ---
 
-### 5. System Health & Infrastructure
+### 5. Dynamic Tool Vault & Guardian Proposals
+- **Synthesized Custom Tools ({len(custom_tools_list) if 'custom_tools_list' in locals() else 0}):** {tools_section}
+- **Pending Action Proposals:**
+{pending_section}
+
+---
+
+### 6. YouTube Studio & Published Media
+- **Luffy Gear 5 "Royalty" 1:30 AMV:** https://youtube.com/watch?v=GoN6zE3_6vs (Live & Streaming)
+- **Goku Ultra Instinct "50-50 Mix" 1:30 AMV:** https://youtube.com/watch?v=23O2ke5_cLs (Live & Streaming)
+
+---
+
+### 7. System Health & Infrastructure
 - **CPU Utilization:** {devops_raw.get('cpu_percent')}%
 - **System Memory:** {devops_raw.get('ram_used_gb')} GB / {devops_raw.get('ram_total_gb')} GB ({devops_raw.get('ram_percent')}%)
 - **Storage Reserve:** {devops_raw.get('disk_free_gb')} GB available
@@ -152,9 +187,17 @@ Good morning, {salutation}. I trust you rested well. While you were away, I have
 
 ---
 
-### 6. Workspace Status
+### 8. Workspace Status
 - **Active Code Artifacts ({len(ws_files)}):** {', '.join(ws_files) if ws_files else 'None'}
 - **Zaine Cascade Daemon:** Standing by for interactive coding sessions in VS Code.
+- **Telegram Bridge:** Running 24/7 in background with instant action authorization buttons.
+
+---
+
+### 9. Today's Fresh Ideas from Z.A.I.N.E
+{ideas_section}
+
+_Star any idea with `star_idea(<id>)` to save it for later, {salutation}._
 
 Standing by for your next directive, {salutation}.
 """
