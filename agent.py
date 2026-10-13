@@ -5,10 +5,12 @@ Supports sentence-level streaming for ultra-low TTS latency,
 dynamic long-term memory injection, and self-healing tool calling.
 """
 
+import os
 import json
 import re
 import threading
 import requests
+import time
 
 from tools import TOOL_REGISTRY, TOOL_DESCRIPTIONS
 from memory import ConversationMemory
@@ -37,10 +39,11 @@ _validate_tool_registrations()
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 
+ZAINE_SINGLE_MODEL = os.getenv("ZAINE_SINGLE_MODEL", "1").lower() in ("1", "true", "yes")
 
-MODEL_NAME = "qwen2.5:3b"
-CODER_MODEL_NAME = "zaine-coder"
-DEEP_MODEL_NAME = "qwen2.5:7b"
+MODEL_NAME = "zaine-reflex-7b"
+CODER_MODEL_NAME = "zaine-reflex-7b" if ZAINE_SINGLE_MODEL else "zaine-coder-7b"
+DEEP_MODEL_NAME = "zaine-reflex-7b"
 
 
 def is_coding_intent(prompt: str) -> bool:
@@ -1080,6 +1083,7 @@ class ZaineAgent:
             is_tool_candidate = False
             checked_prefix = False
 
+            last_liveness_time = time.monotonic()
             for line in resp.iter_lines():
                 if not line:
                     continue
@@ -1092,6 +1096,15 @@ class ZaineAgent:
                     continue
 
                 full_content += token
+
+                now_mono = time.monotonic()
+                if now_mono - last_liveness_time >= 3.0:
+                    last_liveness_time = now_mono
+                    if on_tool_event:
+                        try:
+                            on_tool_event("generating", active_model, "")
+                        except Exception:
+                            pass
 
                 # Intercept DeepSeek-R1 / CoT thinking blocks from speech output
                 if "<think>" in token or ("<think>" in full_content and "</think>" not in full_content):
@@ -1121,22 +1134,33 @@ class ZaineAgent:
 
                 if not checked_prefix:
                     stripped = full_content.strip()
-                    if stripped.startswith("{") or "```" in stripped or '"tool"' in stripped:
+                    if stripped.startswith("{") and ('"tool"' in stripped or len(stripped) < 15):
                         is_tool_candidate = True
-                    if len(stripped) >= 6:
+                    else:
+                        is_tool_candidate = False
+                    if len(stripped) >= 15:
                         checked_prefix = True
 
-                # If not a tool call, stream sentences in real time
+                # If not a tool call, stream sentences and code lines in real time
                 if not is_tool_candidate:
                     # Check for sentence end punctuation followed by whitespace or line break
+                    yielded = False
                     for punct in [". ", "! ", "? ", ".\n", "!\n", "?\n"]:
                         if punct in sentence_buffer:
                             parts = sentence_buffer.split(punct, 1)
                             sentence = (parts[0] + punct[0]).strip()
                             if sentence:
-                                yield sentence
+                                yield sentence + " "
                             sentence_buffer = parts[1]
+                            yielded = True
                             break
+                    # Also stream complete code/markdown lines to maintain constant stream liveness
+                    if not yielded and "\n" in sentence_buffer and len(sentence_buffer) > 15:
+                        parts = sentence_buffer.split("\n", 1)
+                        line_seg = parts[0] + "\n"
+                        if line_seg.strip():
+                            yield line_seg
+                        sentence_buffer = parts[1]
 
             # Stream finished for this hop — check for tool call(s)
             tool_calls = self._try_parse_tool_calls(full_content)
@@ -1165,7 +1189,19 @@ class ZaineAgent:
                                 on_tool_event("start", tname, targs)
                             except Exception:
                                 pass
-                        tool_result = self._execute_tool(tc)
+                        try:
+                            from approval import set_current_tool_name
+                            set_current_tool_name(tname)
+                        except Exception:
+                            pass
+                        try:
+                            tool_result = self._execute_tool(tc)
+                        finally:
+                            try:
+                                from approval import set_current_tool_name
+                                set_current_tool_name(None)
+                            except Exception:
+                                pass
                         if on_tool_event:
                             try:
                                 on_tool_event("done", tname, tool_result)

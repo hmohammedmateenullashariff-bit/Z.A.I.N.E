@@ -310,9 +310,10 @@ def search_web(query: str) -> str:
 
 
 def remember(key: str, value: str) -> str:
-    """Saves a permanent fact or user preference to long-term memory."""
+    """Saves a learned fact or preference to long-term memory with tool provenance."""
     from memory import save_memory
-    return save_memory(key, value)
+    from memory_types import MemorySource, TrustLevel
+    return save_memory(key, value, source=MemorySource.TOOL, trust=TrustLevel.PROVISIONAL)
 
 
 def recall(query: str = "") -> str:
@@ -472,6 +473,48 @@ def execute_command(command: str) -> str:
         if d in cmd_lower:
             return f"Security Error: Command contains forbidden pattern '{d}'."
 
+    # Guardian Protocol: Package installations & external module runners require human approval
+    install_patterns = ["pip install", "pip3 install", "npm install", "npm i ", "npx ", "yarn add", "pnpm add"]
+    if any(p in cmd_lower for p in install_patterns):
+        from approval import require_approval
+        ok, msg = require_approval(
+            action_type="PACKAGE_INSTALL",
+            title=f"Execute: {cmd}",
+            description=f"Package installation / external tool run: {cmd}",
+            code_or_cmd=cmd,
+            explanation=f"Command '{cmd}' requires security authorization to install packages or execute external modules.",
+            risk_level="High",
+            tool_name="execute_command",
+        )
+        if not ok:
+            return f"Security Authorization Failed: {msg}"
+
+    # Pipe-to-shell & Remote Code Execution interception
+    import re
+    pipe_shell_patterns = [
+        r"\|\s*(?:ba|z)?sh\b",
+        r"\|\s*iex\b",
+        r"powershell.*?iex",
+        r"iex\s*\(",
+        r"downloadstring",
+        r"invoke-expression",
+        r"curl.*?\|\s*(?:ba|z)?sh",
+        r"wget.*?\|\s*(?:ba|z)?sh",
+    ]
+    if any(re.search(pat, cmd_lower) for pat in pipe_shell_patterns):
+        from approval import require_approval
+        ok, msg = require_approval(
+            action_type="SUSPICIOUS_SHELL_PIPE",
+            title=f"Authorize Pipe Execution: {cmd[:60]}",
+            description=f"Pipe-to-shell / dynamic code execution detected: {cmd}",
+            code_or_cmd=cmd,
+            explanation=f"Command '{cmd}' contains pipe-to-shell or dynamic code execution pattern requiring explicit Guardian authorization.",
+            risk_level="Critical",
+            tool_name="execute_command",
+        )
+        if not ok:
+            return f"Security Authorization Failed: {msg}"
+
     try:
         res = subprocess.run(
             cmd,
@@ -555,10 +598,12 @@ def code_assistant(prompt: str, context_code: str = "", use_ponytail: bool = Tru
         full_prompt += f"\nExisting Code / Error Context:\n```python\n{context_code}\n```\n"
 
     try:
+        from core_router import router
+        coder_target = router.resolve_model(router.coder_model)
         resp = requests.post(
             "http://localhost:11434/api/generate",
             json={
-                "model": "qwen2.5-coder:3b",
+                "model": coder_target,
                 "prompt": full_prompt,
                 "stream": False,
             },
@@ -1049,12 +1094,12 @@ def toggle_ultron_mode(enable: bool = True) -> str:
     except Exception:
         pass
 
-    # Broadcast to Holographic HUD if active
+    # Update CoreService mode if running
     try:
-        from ui import get_ui
-        ui = get_ui()
-        if ui:
-            ui.set_mode("ultron" if enable else "jarvis")
+        from core_service import get_core_service
+        core = get_core_service()
+        if core:
+            core.set_mode("ultron" if enable else "jarvis")
     except Exception:
         pass
 

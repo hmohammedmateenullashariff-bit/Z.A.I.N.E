@@ -13,7 +13,19 @@ SAMPLE_RATE = 16000
 CHUNK_SECONDS = 2
 
 # "tiny" runs in-memory on CPU without hogging resources.
-_wake_model = WhisperModel("tiny", device="cpu", compute_type="int8")
+_wake_model = None
+
+
+def get_wake_model():
+    global _wake_model
+    if _wake_model is None:
+        try:
+            from faster_whisper import WhisperModel
+            _wake_model = WhisperModel("tiny", device="cpu", compute_type="int8")
+        except Exception as e:
+            print(f"[WakeModel init notice]: {e}")
+            return None
+    return _wake_model
 
 # Common ways Whisper mis-hears "Zaine" — checked both exactly and fuzzily.
 WAKE_VARIANTS = [
@@ -59,8 +71,12 @@ def _heard_wake_word(audio: np.ndarray, wake_word: str) -> bool:
     if rms < 0.008:
         return False
 
+    wm = get_wake_model()
+    if wm is None:
+        return False
+
     try:
-        segments, _ = _wake_model.transcribe(audio_f32, language="en")
+        segments, _ = wm.transcribe(audio_f32, language="en")
         text = " ".join(seg.text for seg in segments).lower()
     except Exception:
         return False

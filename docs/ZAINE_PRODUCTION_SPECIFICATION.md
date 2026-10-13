@@ -14,7 +14,7 @@
 3. [Tiered Neural Cognition & Model Fleet](#3-tiered-neural-cognition--model-fleet)
 4. [Prompt Compression & Dynamic Tool Clustering](#4-prompt-compression--dynamic-tool-clustering)
 5. [Voice & Perceptual Streaming Pipeline](#5-voice--perceptual-streaming-pipeline)
-6. [Holographic Web HUD Interface (HTML5/Canvas/SSE)](#6-holographic-web-hud-interface-html5canvassse)
+6. [Terminal Agent Operating Environment (CLI/TUI)](#6-terminal-agent-operating-environment-clitui)
 7. [Pocket Zaine — 24/7 Mobile Remote Telegram Bridge](#7-pocket-zaine--247-mobile-remote-telegram-bridge)
 8. [Autonomous YouTube Studio & Anime Production Pipeline](#8-autonomous-youtube-studio--anime-production-pipeline)
 9. [Total Recall, Knowledge Engine & Cognitive Memory](#9-total-recall-knowledge-engine--cognitive-memory)
@@ -190,40 +190,32 @@ If Sir speaks while Zaine is talking (using trigger words like *"stop", "wait", 
 
 ---
 
-## 6. Holographic Web HUD Interface (HTML5/Canvas/SSE)
+## 6. Terminal Agent Operating Environment (CLI/TUI)
 
-The Holographic Web HUD (`http://127.0.0.1:7860`) serves as Zaine's primary visual command center, engineered with zero external framework overhead (pure Vanilla HTML5, CSS3, and JavaScript).
+The Terminal Operating Environment (`terminal_ui.py`) serves as Zaine's primary, authoritative, and singular user interface, replacing the retired desktop Web HUD. It connects to the headless Core Agent Service (`core_service.py` on `127.0.0.1:7860`).
 
 ```
-+-------------------------------------------------------------------------------+
-| [● ONLINE] Z.A.I.N.E NEURAL HUD v5.0    02:14:08 AM    [ENGAGE ULTRON] [🔊]  |
-+-------------------------------------------------------------------------------+
-|  TELEMETRY MATRIX  |            HOLOGRAPHIC CORE           |  DIALOGUE FEED   |
-|  ----------------- |  -----------------------------------  |  --------------- |
-|  CPU: 18.4% [=== ] |                                       |  [User]: Status? |
-|  RAM: 6.2GB [====] |        (((((( 60 FPS ))))))          |  [Zaine]: All    |
-|  DISK: 15.2GB Free |            ARC REACTOR                |  subsystems are  |
-|  TEMP: 51.9°C Nom  |         CYAN / CRIMSON CORE           |  nominal, Sir.   |
-|                    |                                       |                  |
-|  QUICK ACTIONS     |        REAL-TIME AUDIO WAVE           |  TOOL TELEMETRY  |
-|  [Screen] [Camera] |     /\__/\_/\/\___/\/\___/\__/\       |  [Core: Qwen3B]  |
-|  [Vault]  [Intel]  |                                       |  [Ping: 38ms]    |
-+-------------------------------------------------------------------------------+
-|  > Command: [ Type directive or trigger voice transcription... ]    [TRANSMIT]|
-+-------------------------------------------------------------------------------+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Z.A.I.N.E │ JARVIS │ VOICE: OFF │ ● READY │ 0.0s                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+BRAIN: Reflex (Qwen 3B) | Reasoning (DeepSeek 7B) | Coder (Qwen 3B) | Vision (Moondream)
+CAPABILITIES: Tools (119+) | Memory (SQLite + Obsidian) | Voice (OFF) | Telegram (Online)
+
+Sir ❯ 
 ```
 
-### 6.1 Core Visual Components
-1. **60 FPS Reactive Arc Reactor Canvas (`renderArcReactor`):**
-   - 48 floating quantum particles orbiting dynamic concentric rings.
-   - Smooth RGB color interpolation based on system cognition state.
-2. **Real-Time Audio Waveform Visualizer (`renderWaveform`):**
-   - Renders live 32-bar frequency oscillations during speech synthesis and microphone capture.
-3. **Responsive Non-Clipping Layout:**
-   - Arc container scales responsively via `min(360px, 38vh)` with `flex-shrink: 0` on command footer.
-   - Ensures zero viewport overflow or clipped buttons across all laptop displays.
-4. **Server-Sent Events (SSE) Stream (`/api/stream`):**
-   - Pushes live hardware telemetry, cognitive state transitions, dialogue messages, and camera vision previews asynchronously to client browsers.
+### 6.1 Core Terminal Architecture
+1. **Dynamic Rich Status Bar (`render_status_bar`):**
+   - Displays real-time agent persona, model, latency, and explicit voice status (`VOICE: OFF` / `VOICE: ON`).
+2. **Dynamic Capability Discovery:**
+   - Reports models, 119+ registered tools, and Obsidian durable vault notes dynamically at startup without hardcoded metrics.
+3. **Command & Natural Language Router:**
+   - Seamlessly parses natural language instructions alongside interactive slash commands (`/help`, `/status`, `/voice`, `/memory`, `/code`, `/session`, `/new`, `/clear`).
+4. **Command-Gated Voice State Machine:**
+   - Voice is strictly disabled by default (`VOICE_DISABLED`). Microphone is never opened without explicit user invocation (`/voice on` or `/speak`).
+5. **Headless Core Agent Service (`core_service.py`):**
+   - Hosts `ZaineAgent` engine, request coordination, and multi-threaded REST/SSE endpoints (`/api/chat/stream`, `/api/health`, `/api/status`, `/api/voice/status`) with zero GUI dependencies.
+
 
 ---
 
@@ -378,32 +370,37 @@ Project-Z/
 ├── approval.py                   # Human-in-the-Loop Guardian Approval Registry
 ├── browser_agent.py              # Autonomous Playwright/Selenium web navigator
 ├── code_reviewer.py              # Automated AST & Code Rabbit review engine
+├── coordinator.py                # Multi-threaded task coordination & idempotency
 ├── core_router.py                # Tiered Dual-Brain low-latency intent router
+├── core_service.py               # Layer 2 Headless Core Agent Service (REST/SSE on :7860)
 ├── email_client.py               # Autonomous email digest & briefing client
-├── gesture_control.py            # MediaPipe vision hand tracking & desktop gestures
+├── gesture_control.py            # MediaPipe vision hand tracking backend
 ├── heartbeat.py                  # Proactive event & time-based daemon
 ├── home_ops.py                   # Service watchdog, telemetry & DB defragmentation
 ├── knowledge_engine.py           # Vector embeddings & semantic retrieval store
-├── launch_hud.py                 # Standalone Holographic Web HUD launcher
-├── main.py                       # CLI entry point for multimodal terminal session
+├── main.py                       # Canonical application entry point (Terminal TUI)
 ├── memory.py                     # Long-term episodic & semantic memory store
+├── memory_manager.py             # Unified SQLite + Obsidian memory manager
+├── obsidian_adapter.py           # Obsidian durable Markdown vault interface
 ├── morning_briefing.py           # 06:00 AM Executive Dossier synthesizer
 ├── overnight_autonomous_pipeline.py # Production 24/7 Operations Sentinel (v3.0)
 ├── ponytail.py                   # Autonomous multi-file software engineering cascade
 ├── public_apis.py                # Public crypto, forex, weather & search gateways
+├── run_zaine.bat                 # Windows batch launcher
 ├── social_omni.py                # Developer profiles & Unstop hackathon harvester
 ├── telegram_bridge.py            # Mobile Pocket Zaine bridge & callback router
 ├── telegram_daemon.py            # 24/7 Background daemon for Telegram bridge
+├── terminal.py                   # Direct CLI launcher with flags
+├── terminal_ui.py                # Layer 1 Terminal/TUI interactive user interface
 ├── thermal_guard.py              # CPU/GPU thermals sentinel & auto-sanitizer
 ├── tool_clusters.py              # Domain tool clustering & prompt compression
 ├── toolmaker.py                  # Autonomous on-the-fly Python tool synthesizer
 ├── total_recall.py               # Temporal event stream & audit log
-├── ui.py                         # HTTP & SSE backend for Holographic Web HUD
 ├── vault.py                      # Second Brain markdown vault manager
 ├── vision.py                     # Desktop screenshot & webcam vision perception
-├── voice.py                      # In-memory Whisper STT, Edge-TTS, barge-in & mute
-├── wakeword.py                   # Real-time OpenWakeWord audio detector
-├── zaine_cascade.py              # IDE Copilot integration for live software coding
+├── voice.py                      # In-memory Whisper STT, Piper-TTS, state machine
+├── wakeword.py                   # Audio buffer and silence detection
+├── zaine_cascade.py              # Autonomous coding engine
 │
 ├── data/                         # Persistent databases, logs, and checkpoints
 │   ├── backups/                  # Rolling timestamped SQLite snapshots
@@ -412,13 +409,6 @@ Project-Z/
 │   ├── overnight_evolution.log   # 24/7 operational audit logs
 │   ├── zaine_approvals.db        # Guardian action proposals
 │   └── zaine_tasks.db            # Master task & experiential learning store
-│
-├── static/                       # Web HUD frontend assets
-│   ├── css/style.css             # Cyberpunk glassmorphic HUD styling
-│   └── js/hud.js                 # 60FPS canvas reactor & SSE controller
-│
-├── templates/
-│   └── index.html                # HUD HTML5 layout, dials, and action bars
 │
 ├── vault/                        # Second Brain Knowledge Base
 │   └── knowledge/                # Markdown notes & daily AI intelligence digests
@@ -444,13 +434,13 @@ Project-Z/
 
 ### 15.2 Primary Daemon Startup Commands
 
-To start the full production suite in background daemon mode:
+To start the full production suite in terminal agent mode:
 
 ```powershell
-# 1. Launch Holographic Web HUD (Port 7860)
-python -u launch_hud.py
+# 1. Launch Terminal-Native Agent (Canonical Entry Point)
+python main.py
 
-# 2. Launch 24/7 Mobile Telegram Bridge
+# 2. Launch 24/7 Mobile Telegram Bridge (Background Daemon)
 python -u telegram_daemon.py
 
 # 3. Launch Production Overnight Operations Sentinel (Until 06:00 AM)

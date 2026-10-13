@@ -1,0 +1,39 @@
+{
+  "proposal_id": "YT-8E73",
+  "slot_id": "forced_culinary",
+  "slot_label": "Forced (culinary)",
+  "genre": "culinary",
+  "title": "The Universal Hazard of Stepping on a Stray Lego in the Dark #Shorts #Parenting #Funny",
+  "description": "The Universal Hazard of Stepping on a Stray Lego in the Dark #Shorts #Parenting #Funny \ud83c\udf1f\n\n\ud83d\udcac Question of the day:\nHave you ever experienced the excruciating pain of a midnight Lego strike? Drop a comment below! \ud83e\uddf1\ud83d\udc47\n\nWelcome to Zaine Studio! Subscribe for daily epic gaming lore, mind-blowing facts, anime battles, hilarious pet chaos, and frontier tech intelligence!\n\n#Shorts #YouTubeShorts #Viral #Kids #Trending #ZaineStudio",
+  "tags": [
+    "shorts",
+    "parenting",
+    "lego",
+    "funnykids",
+    "familyhumor",
+    "comedy",
+    "relatable",
+    "viral"
+  ],
+  "category_id": "24",
+  "engagement_question": "Have you ever experienced the excruciating pain of a midnight Lego strike? Drop a comment below! \ud83e\uddf1\ud83d\udc47",
+  "video_path": "C:\\Users\\Mohemad Mateen ullah\\Documents\\projects\\Project-Z\\workspace\\youtube_shorts\\short_20261012_142703.mp4",
+  "metadata_path": "C:\\Users\\Mohemad Mateen ullah\\Documents\\projects\\Project-Z\\workspace\\youtube_shorts\\short_20261012_142703.json",
+  "duration_sec": 28.92,
+  "file_size_mb": 2.24,
+  "optical_flow_climaxes": [
+    9.5,
+    19.1,
+    24.6
+  ],
+  "audio_stems": "TTS Voiceover (en-US-EricNeural) + Procedural BGM",
+  "editorial_rationale": "Virality-optimized kids topic: 'The Universal Danger of Stray Legos' with retention hook.",
+  "created_at": "2026-10-12T14:27:52.462947",
+  "created_timestamp": 1791795472.4629474,
+  "status": "PENDING_REVIEW",
+  "reminder_3h_sent": false,
+  "reminder_6h_sent": false,
+  "video_sent": true,
+  "retry_count": 0,
+  "last_retry_timestamp": 1791795472.4629474
+}

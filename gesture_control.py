@@ -251,14 +251,8 @@ class GestureTracker:
         self._last_cursor_broadcast = 0.0
 
     def _broadcast_to_hud(self, payload: dict):
-        """Sends SSE message to active HUD clients if UI is initialized."""
-        try:
-            from ui import get_ui
-            ui = get_ui()
-            if ui:
-                ui.broadcast(payload)
-        except Exception:
-            pass
+        """Dispatches gesture telemetry event (no-op when HUD is retired)."""
+        pass
 
     def start(self) -> bool:
         """Starts the continuous gesture tracking loop."""

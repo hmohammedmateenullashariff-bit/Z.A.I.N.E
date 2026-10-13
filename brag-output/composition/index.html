@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Z.A.I.N.E — Official Launch Showcase</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face {
+        font-family: "Cascadia Code";
+        src: local("Cascadia Code");
+      }
+      @font-face {
+        font-family: "Consolas";
+        src: local("Consolas");
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #101212;
+        color: #e6e6e1;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background-color: #101212;
+        background-image: radial-gradient(circle at 50% 50%, rgba(28, 34, 34, 0.6) 0%, rgba(16, 18, 18, 1) 100%);
+      }
+      .mono {
+        font-family: "Cascadia Code", "Consolas", monospace;
+      }
+      .scene {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 60px 100px;
+      }
+
+      /* Persistent Status Header Bar */
+      .status-bar {
+        position: absolute;
+        top: 36px;
+        left: 70px;
+        right: 70px;
+        height: 58px;
+        background: #151818;
+        border: 1px solid #3a3e3e;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 28px;
+        font-size: 19px;
+        letter-spacing: 0.05em;
+        z-index: 50;
+      }
+      .status-bar-left {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+      }
+      .status-bar-right {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+      }
+      .divider {
+        color: #8c8f8f;
+      }
+      .pill {
+        padding: 4px 14px;
+        border-radius: 4px;
+        font-size: 15px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+      .pill-green {
+        background: rgba(114, 201, 139, 0.15);
+        color: #72c98b;
+        border: 1px solid #72c98b;
+      }
+      .pill-amber {
+        background: rgba(230, 184, 96, 0.15);
+        color: #e6b860;
+        border: 1px solid #e6b860;
+      }
+      .pill-red {
+        background: rgba(255, 120, 120, 0.15);
+        color: #ff7878;
+        border: 1px solid #ff7878;
+      }
+
+      /* Scene 1: Voice Awakening */
+      .voice-card {
+        width: 1080px;
+        background: #141717;
+        border: 1px solid #3a3e3e;
+        border-radius: 14px;
+        padding: 42px 50px;
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+      }
+      .boot-check-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: #181c1c;
+        border: 1px solid #2e3232;
+        border-radius: 6px;
+        padding: 10px 20px;
+        font-size: 16px;
+        color: #a0a4a0;
+      }
+      .boot-check-val {
+        color: #72c98b;
+        font-weight: 700;
+      }
+      .prompt-line {
+        background: #181c1c;
+        border: 1px solid #2e3232;
+        border-radius: 8px;
+        padding: 16px 24px;
+        font-size: 26px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .user-tag {
+        color: #72c98b;
+        font-weight: 700;
+      }
+      .wave-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        height: 72px;
+        margin: 6px 0;
+      }
+      .wave-bar {
+        width: 10px;
+        height: 28px;
+        background: #72c98b;
+        border-radius: 5px;
+      }
+      .speech-bubble {
+        text-align: center;
+        font-size: 38px;
+        font-weight: 600;
+        color: #ffffff;
+        font-style: italic;
+      }
+      .voice-meta-badge {
+        text-align: center;
+        font-size: 17px;
+        color: #a0a4a0;
+        letter-spacing: 0.08em;
+      }
+
+      /* Scene 2: Live Code Generation */
+      .code-window {
+        width: 1220px;
+        background: #131616;
+        border: 1px solid #3a3e3e;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65);
+      }
+      .code-header {
+        background: #1a1e1e;
+        padding: 14px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid #3a3e3e;
+      }
+      .code-dots {
+        display: flex;
+        gap: 10px;
+      }
+      .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+      }
+      .dot-red { background: #ff7878; }
+      .dot-amber { background: #e6b860; }
+      .dot-green { background: #72c98b; }
+      .code-body {
+        padding: 28px 38px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      .code-box {
+        background: #0d0f0f;
+        border: 1px solid #282c2c;
+        border-radius: 8px;
+        padding: 22px 28px;
+        font-size: 21px;
+        line-height: 1.6;
+        color: #e6e6e1;
+      }
+      .kw { color: #ff7878; font-weight: bold; }
+      .fn { color: #e6b860; }
+      .str { color: #72c98b; }
+      .test-row {
+        background: rgba(114, 201, 139, 0.09);
+        border: 1px solid #72c98b;
+        border-radius: 8px;
+        padding: 16px 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 20px;
+      }
+
+      /* Scene 3: Dual Persona Shift (ULTRON) */
+      .ultron-card {
+        width: 1160px;
+        background: #181212;
+        border: 2px solid #ff7878;
+        border-radius: 14px;
+        padding: 42px 52px;
+        display: flex;
+        flex-direction: column;
+        gap: 26px;
+        box-shadow: 0 24px 70px rgba(255, 120, 120, 0.25);
+      }
+      .ultron-prompt-line {
+        background: #201414;
+        border: 1px solid #4a2424;
+        border-radius: 8px;
+        padding: 16px 24px;
+        font-size: 26px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .ultron-tag {
+        color: #ff7878;
+        font-weight: 700;
+      }
+      .ultron-speech-bubble {
+        text-align: center;
+        font-size: 40px;
+        font-weight: 700;
+        color: #ffffff;
+        letter-spacing: 0.03em;
+        text-shadow: 0 0 20px rgba(255, 120, 120, 0.5);
+      }
+      .ultron-features {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+      }
+      .ultron-feat-box {
+        background: #221515;
+        border: 1px solid #552424;
+        border-radius: 8px;
+        padding: 18px 20px;
+        text-align: center;
+      }
+      .ultron-feat-title {
+        color: #ff7878;
+        font-size: 18px;
+        font-weight: 700;
+        margin-bottom: 6px;
+      }
+      .ultron-feat-sub {
+        color: #a0a4a0;
+        font-size: 15px;
+      }
+
+      /* Scene 4: Overnight Pipelines */
+      .pipeline-container {
+        width: 1240px;
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+      }
+      .pipeline-headline {
+        font-size: 44px;
+        font-weight: 800;
+        text-align: center;
+        color: #ffffff;
+        letter-spacing: -0.01em;
+      }
+      .pipeline-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+      }
+      .pipe-card {
+        background: #141717;
+        border: 1px solid #3a3e3e;
+        border-radius: 10px;
+        padding: 24px 28px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .pipe-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .pipe-title {
+        font-size: 22px;
+        font-weight: 700;
+        color: #ffffff;
+      }
+      .pipe-status {
+        color: #72c98b;
+        font-size: 16px;
+        font-weight: 700;
+      }
+      .pipe-detail {
+        font-size: 16px;
+        color: #a0a4a0;
+        line-height: 1.4;
+      }
+
+      /* Scene 5: Hero Final Emblem */
+      .emblem-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 20px;
+      }
+      .emblem-title {
+        font-size: 104px;
+        font-weight: 900;
+        letter-spacing: 0.16em;
+        color: #ffffff;
+        line-height: 1;
+        text-shadow: 0 0 35px rgba(114, 201, 139, 0.4);
+      }
+      .emblem-subtitle {
+        font-size: 26px;
+        color: #72c98b;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+      }
+      .emblem-tagline {
+        font-size: 22px;
+        color: #a0a4a0;
+        max-width: 980px;
+        line-height: 1.5;
+      }
+      .pills-row {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 14px;
+        max-width: 1140px;
+        margin-top: 10px;
+      }
+      .pill-feature {
+        background: #191c1c;
+        border: 1px solid #3a3e3e;
+        color: #e6e6e1;
+        padding: 10px 22px;
+        border-radius: 999px;
+        font-size: 17px;
+        font-weight: 600;
+      }
+      .cta-bar {
+        margin-top: 16px;
+        font-size: 22px;
+        color: #72c98b;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-width="1920"
+      data-height="1080"
+      data-duration="24"
+    >
+      <!-- Background Music & Audio Tracks -->
+      <audio
+        id="bgm"
+        data-track-index="1"
+        data-start="0"
+        data-duration="24"
+        data-volume="0.82"
+        src="assets/music/track.mp3"
+      ></audio>
+      <audio
+        id="vo-jarvis"
+        data-track-index="2"
+        data-start="0.6"
+        data-duration="2.64"
+        data-volume="1.0"
+        src="assets/sfx/jarvis_voice.mp3"
+      ></audio>
+      <audio
+        id="sfx-key"
+        data-track-index="3"
+        data-start="5.0"
+        data-duration="0.3"
+        data-volume="0.8"
+        src="assets/sfx/key1.wav"
+      ></audio>
+      <audio
+        id="sfx-switch"
+        data-track-index="3"
+        data-start="9.0"
+        data-duration="0.62"
+        data-volume="0.9"
+        src="assets/sfx/switch.ogg"
+      ></audio>
+      <audio
+        id="sfx-impact"
+        data-track-index="4"
+        data-start="9.2"
+        data-duration="0.49"
+        data-volume="0.9"
+        src="assets/sfx/impact.ogg"
+      ></audio>
+      <audio
+        id="sfx-click"
+        data-track-index="3"
+        data-start="14.3"
+        data-duration="0.05"
+        data-volume="0.8"
+        src="assets/sfx/click.ogg"
+      ></audio>
+
+      <!-- Persistent Status Header -->
+      <div id="status-bar" class="status-bar mono clip" data-start="0" data-duration="24">
+        <div class="status-bar-left">
+          <span style="font-weight: 800; color: #72c98b; font-size: 21px;">Z.A.I.N.E</span>
+          <span class="divider">│</span>
+          <span id="sb-persona" style="font-weight: 700; color: #72c98b;">JARVIS</span>
+          <span class="divider">│</span>
+          <span id="sb-model" style="color: #e6e6e1;">qwen2.5:3b</span>
+        </div>
+        <div class="status-bar-right">
+          <span id="sb-voice-text" style="color: #a0a4a0;">VOICE: <strong id="sb-voice-val" style="color: #e6e6e1;">OFF</strong></span>
+          <span class="divider">│</span>
+          <span style="color: #a0a4a0;">TOOLS: <strong id="sb-tools-val" style="color: #72c98b;">119</strong></span>
+          <span class="divider">│</span>
+          <span id="sb-badge" class="pill pill-green">● READY</span>
+        </div>
+      </div>
+
+      <!-- ACT 1: Awakening & Voice Synthesis (0.0s - 4.5s) -->
+      <section id="scene-1" class="scene clip" data-start="0" data-duration="4.5">
+        <div class="voice-card mono">
+          <div class="boot-check-row">
+            <span>[01] ROUTER: <span class="boot-check-val">ONLINE</span></span>
+            <span class="divider">│</span>
+            <span>[02] OBSIDIAN VAULT: <span class="boot-check-val">MOUNTED</span></span>
+            <span class="divider">│</span>
+            <span>[03] CLOUD DEPENDENCY: <span style="color: #ff7878; font-weight: 700;">NONE (0.0%)</span></span>
+          </div>
+          <div class="prompt-line">
+            <span class="user-tag">Sir ❯</span>
+            <span style="color: #ffffff; font-weight: 600;">/voice on</span>
+          </div>
+          <div class="wave-container">
+            <div id="wb-1" class="wave-bar"></div>
+            <div id="wb-2" class="wave-bar"></div>
+            <div id="wb-3" class="wave-bar"></div>
+            <div id="wb-4" class="wave-bar"></div>
+            <div id="wb-5" class="wave-bar"></div>
+            <div id="wb-6" class="wave-bar"></div>
+          </div>
+          <div id="s1-quote" class="speech-bubble">
+            "Voice system active, Sir."
+          </div>
+          <div class="voice-meta-badge">
+            ⚡ Command-Gated Neural Piper · 100% Offline · Zero Stealth Microphones
+          </div>
+        </div>
+      </section>
+
+      <!-- ACT 2: Live Code Generation & Validation (4.5s - 9.0s) -->
+      <section id="scene-2" class="scene clip" data-start="4.5" data-duration="4.5">
+        <div class="code-window mono">
+          <div class="code-header">
+            <div class="code-dots">
+              <div class="dot dot-red"></div>
+              <div class="dot dot-amber"></div>
+              <div class="dot dot-green"></div>
+            </div>
+            <span style="color: #72c98b; font-size: 16px; font-weight: 600;">❯ /code Refactor auth module &amp; generate test suite</span>
+            <span style="color: #a0a4a0; font-size: 14px;">qwen2.5-coder:3b · Local VRAM</span>
+          </div>
+          <div class="code-body">
+            <div id="code-snippet" class="code-box">
+              <span class="kw">class</span> <span class="fn">SecurityVault</span>:<br />
+              &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">def</span> <span class="fn">verify_token</span>(self, token: str) -&gt; bool:<br />
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">return</span> hmac.compare_digest(hash(token), self._master_key)<br />
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw"># 100% local synthesis — sub-millisecond execution</span>
+            </div>
+            <div id="s2-test" class="test-row">
+              <span style="color: #72c98b; font-weight: 700;">✓ pytest run: 14 passed in 0.12s</span>
+              <span style="color: #e6e6e1;">Durable Memory Updated in Obsidian Vault</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ACT 3: Dual Persona Shift — JARVIS ➔ ULTRON (9.0s - 14.0s) -->
+      <section id="scene-3" class="scene clip" data-start="9.0" data-duration="5.0">
+        <div class="ultron-card mono">
+          <div class="ultron-prompt-line">
+            <span class="ultron-tag">Master ❯</span>
+            <span style="color: #ffffff; font-weight: 600;">/persona ultron</span>
+          </div>
+          <div id="ultron-quote" class="ultron-speech-bubble">
+            "Creator, your workstation is mine."
+          </div>
+          <div class="ultron-features">
+            <div class="ultron-feat-box">
+              <div class="ultron-feat-title">🔥 DeepSeek-R1</div>
+              <div class="ultron-feat-sub">Unfiltered deep reasoning chains</div>
+            </div>
+            <div class="ultron-feat-box">
+              <div class="ultron-feat-title">⚡ Multi-Agent Swarm</div>
+              <div class="ultron-feat-sub">Autonomous tool orchestration</div>
+            </div>
+            <div class="ultron-feat-box">
+              <div class="ultron-feat-title">🛡️ Zero Cloud Tether</div>
+              <div class="ultron-feat-sub">Direct hardware &amp; kernel access</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ACT 4: Autonomous Overnight Pipelines (14.0s - 19.0s) -->
+      <section id="scene-4" class="scene clip" data-start="14.0" data-duration="5.0">
+        <div class="pipeline-container mono">
+          <h2 class="pipeline-headline">AUTONOMOUS OVERNIGHT PIPELINES</h2>
+          <div class="pipeline-grid">
+            <div id="pipe-1" class="pipe-card">
+              <div class="pipe-top">
+                <span class="pipe-title">🌙 Repo Distillation</span>
+                <span class="pipe-status">✓ COMPLETE</span>
+              </div>
+              <div class="pipe-detail">Tuned 4,200 synthetic Q&amp;A training pairs onto local Ollama model adapter.</div>
+            </div>
+            <div id="pipe-2" class="pipe-card">
+              <div class="pipe-top">
+                <span class="pipe-title">🛡️ Thermal &amp; VRAM Guard</span>
+                <span class="pipe-status">✓ 52°C NOMINAL</span>
+              </div>
+              <div class="pipe-detail">Automatic throttle protects workstation hardware during autonomous runs.</div>
+            </div>
+            <div id="pipe-3" class="pipe-card">
+              <div class="pipe-top">
+                <span class="pipe-title">📱 Pocket Zaine Bridge</span>
+                <span class="pipe-status">✓ DISPATCHED</span>
+              </div>
+              <div class="pipe-detail">End-to-end encrypted Telegram briefing and telemetry delivered to phone.</div>
+            </div>
+            <div id="pipe-4" class="pipe-card">
+              <div class="pipe-top">
+                <span class="pipe-title">⚡ 119 Tool Clusters</span>
+                <span class="pipe-status">✓ READY</span>
+              </div>
+              <div class="pipe-detail">Git, sandbox execution, system diagnostics, and filesystem automation.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ACT 5: Hero Final Emblem (19.0s - 24.0s) -->
+      <section id="scene-5" class="scene clip" data-start="19.0" data-duration="5.0">
+        <div class="emblem-wrap">
+          <h1 id="s5-title" class="emblem-title mono">Z.A.I.N.E</h1>
+          <div id="s5-sub" class="emblem-subtitle mono">ZERO-LATENCY AUTONOMOUS INTELLIGENT NEURAL ENTITY</div>
+          <p id="s5-desc" class="emblem-tagline">
+            Your workstation. Your neural models. Your Jarvis &amp; Ultron. Engineered with zero cloud dependencies.
+          </p>
+          <div id="s5-pills" class="pills-row mono">
+            <div class="pill-feature">⚡ Terminal-Native</div>
+            <div class="pill-feature">🎙️ Neural Voice</div>
+            <div class="pill-feature">💻 Local Code Mode</div>
+            <div class="pill-feature">🎭 Dual Persona</div>
+            <div class="pill-feature">🌙 Overnight Pipelines</div>
+            <div class="pill-feature">📱 Pocket Zaine</div>
+            <div class="pill-feature">🛡️ 100% Offline</div>
+          </div>
+          <div id="s5-cta" class="cta-bar mono">
+            github.com/hmohammedmateenullashariff-bit/Z.A.I.N.E
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- GSAP Master Timeline -->
+    <script>
+      const tl = gsap.timeline({ paused: true });
+      window.__timelines = window.__timelines || {};
+      window.__timelines["main"] = tl;
+
+      // ----------------------------------------------------
+      // ACT 1: Awakening & Voice Synthesis (0.0s - 4.5s)
+      // ----------------------------------------------------
+      tl.fromTo("#scene-1", { opacity: 0 }, { opacity: 1, duration: 0.3 }, 0.0);
+
+      // Voice turns on at 0.5s
+      tl.to("#sb-voice-val", { textContent: "ON", color: "#72c98b", duration: 0.1 }, 0.5);
+      tl.to("#sb-badge", { textContent: "◉ LISTENING", duration: 0.1 }, 0.5);
+
+      // Speech waveform bounce synchronized with voice delivery (0.6s - 3.2s)
+      tl.fromTo("#s1-quote", { opacity: 0, scale: 0.95 }, { opacity: 1, scale: 1, duration: 0.4 }, 0.6);
+      tl.fromTo("#wb-1", { height: 16 }, { height: 62, yoyo: true, repeat: 5, duration: 0.25 }, 0.6);
+      tl.fromTo("#wb-2", { height: 24 }, { height: 52, yoyo: true, repeat: 5, duration: 0.22 }, 0.6);
+      tl.fromTo("#wb-3", { height: 20 }, { height: 72, yoyo: true, repeat: 5, duration: 0.28 }, 0.6);
+      tl.fromTo("#wb-4", { height: 18 }, { height: 66, yoyo: true, repeat: 5, duration: 0.24 }, 0.6);
+      tl.fromTo("#wb-5", { height: 26 }, { height: 50, yoyo: true, repeat: 5, duration: 0.26 }, 0.6);
+      tl.fromTo("#wb-6", { height: 14 }, { height: 56, yoyo: true, repeat: 5, duration: 0.23 }, 0.6);
+
+      tl.to("#scene-1", { opacity: 0, duration: 0.3 }, 4.2);
+
+      // ----------------------------------------------------
+      // ACT 2: Live Code Generation & Validation (4.5s - 9.0s)
+      // ----------------------------------------------------
+      tl.fromTo("#scene-2", { opacity: 0 }, { opacity: 1, duration: 0.3 }, 4.5);
+      tl.to("#sb-model", { textContent: "qwen2.5-coder:3b", duration: 0.1 }, 4.5);
+      tl.to("#sb-badge", { className: "pill pill-amber", textContent: "⟳ CODE MODE", duration: 0.1 }, 4.5);
+
+      tl.fromTo("#code-snippet", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.5 }, 4.8);
+      tl.fromTo("#s2-test", { opacity: 0, scale: 0.96 }, { opacity: 1, scale: 1, duration: 0.4 }, 6.8);
+      tl.to("#scene-2", { opacity: 0, duration: 0.3 }, 8.7);
+
+      // ----------------------------------------------------
+      // ACT 3: Dual Persona Shift — JARVIS ➔ ULTRON (9.0s - 14.0s)
+      // ----------------------------------------------------
+      tl.fromTo("#scene-3", { opacity: 0 }, { opacity: 1, duration: 0.3 }, 9.0);
+      // Status bar transformation to crimson Ultron mode
+      tl.to("#status-bar", { borderColor: "#ff7878", boxShadow: "0 0 25px rgba(255, 120, 120, 0.3)", duration: 0.3 }, 9.0);
+      tl.to("#sb-persona", { textContent: "ULTRON", color: "#ff7878", duration: 0.1 }, 9.0);
+      tl.to("#sb-model", { textContent: "deepseek-r1", duration: 0.1 }, 9.0);
+      tl.to("#sb-badge", { className: "pill pill-red", textContent: "● UNFILTERED", duration: 0.1 }, 9.0);
+
+      tl.fromTo("#ultron-quote", { opacity: 0, scale: 0.9 }, { opacity: 1, scale: 1, duration: 0.5, ease: "power2.out" }, 9.3);
+      tl.fromTo(".ultron-feat-box", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.4, stagger: 0.15 }, 10.4);
+      tl.to("#scene-3", { opacity: 0, duration: 0.3 }, 13.7);
+
+      // ----------------------------------------------------
+      // ACT 4: Overnight Pipelines (14.0s - 19.0s)
+      // ----------------------------------------------------
+      tl.fromTo("#scene-4", { opacity: 0 }, { opacity: 1, duration: 0.3 }, 14.0);
+      // Reset status bar to Emerald autonomous pipeline mode
+      tl.to("#status-bar", { borderColor: "#3a3e3e", boxShadow: "none", duration: 0.3 }, 14.0);
+      tl.to("#sb-persona", { textContent: "JARVIS", color: "#72c98b", duration: 0.1 }, 14.0);
+      tl.to("#sb-model", { textContent: "qwen2.5:3b", duration: 0.1 }, 14.0);
+      tl.to("#sb-badge", { className: "pill pill-green", textContent: "⟳ PIPELINE ACTIVE", duration: 0.1 }, 14.0);
+
+      tl.fromTo("#pipe-1", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.4 }, 14.4);
+      tl.fromTo("#pipe-2", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.4 }, 15.0);
+      tl.fromTo("#pipe-3", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.4 }, 15.6);
+      tl.fromTo("#pipe-4", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.4 }, 16.2);
+      tl.to("#scene-4", { opacity: 0, duration: 0.3 }, 18.7);
+
+      // ----------------------------------------------------
+      // ACT 5: Hero Final Emblem (19.0s - 24.0s)
+      // ----------------------------------------------------
+      tl.fromTo("#scene-5", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 19.0);
+      tl.to("#sb-badge", { className: "pill pill-green", textContent: "● READY", duration: 0.1 }, 19.0);
+      tl.fromTo("#s5-title", { opacity: 0, scale: 0.9 }, { opacity: 1, scale: 1, duration: 0.6, ease: "power3.out" }, 19.2);
+      tl.fromTo("#s5-sub", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.4 }, 19.8);
+      tl.fromTo("#s5-desc", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.4 }, 20.3);
+      tl.fromTo("#s5-pills", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.5, ease: "back.out(1.4)" }, 21.0);
+      tl.fromTo("#s5-cta", { opacity: 0, scale: 0.95 }, { opacity: 1, scale: 1, duration: 0.4 }, 21.8);
+
+      tl.seek(0);
+    </script>
+  </body>
+</html>

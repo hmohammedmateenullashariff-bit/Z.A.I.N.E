@@ -1,0 +1,1 @@
+I built Z.A.I.N.E: A terminal-native AI entity running 100% locally on workstation silicon. Features command-gated British voice synthesis, live code generation with Qwen 2.5 Coder, dual-persona transformation into Ultron with DeepSeek-R1, and autonomous overnight self-distillation pipelines. 119 tools. Zero cloud required.

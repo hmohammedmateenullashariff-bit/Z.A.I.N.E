@@ -271,6 +271,18 @@ class RequestCoordinator:
                 "state": "unknown",
             }
 
+    def is_request_cancelled(self, request_id: str) -> bool:
+        """Checks if a request has been cancelled, failed, or evicted from active processing."""
+        with self._lock:
+            if request_id not in self._in_flight_registry:
+                # Not currently in flight
+                entry = self._completed_responses.get(request_id)
+                if entry and isinstance(entry[1], dict) and entry[1].get("state") == "failed":
+                    return True
+                return True
+            req = self._in_flight_registry[request_id]
+            return req.state in ("failed", "completed")
+
     def get_queue_telemetry(self) -> dict:
         """Returns a snapshot of active, queued, and cached requests."""
         with self._lock:

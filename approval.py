@@ -22,6 +22,40 @@ DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 _lock = threading.Lock()
 _action_callbacks: Dict[str, Callable[[], Any]] = {}
 
+# Thread-local storage for streaming request context (listener, request_id, tool_name)
+_stream_context = threading.local()
+
+
+def set_approval_listener(listener: Optional[Callable[[str, str, Dict[str, Any]], bool]]) -> None:
+    """Sets thread-local callback for SSE approval stream events and heartbeats."""
+    _stream_context.listener = listener
+
+
+def get_approval_listener() -> Optional[Callable[[str, str, Dict[str, Any]], bool]]:
+    return getattr(_stream_context, "listener", None)
+
+
+def clear_approval_listener() -> None:
+    _stream_context.listener = None
+    _stream_context.request_id = None
+    _stream_context.tool_name = None
+
+
+def set_current_request_id(request_id: Optional[str]) -> None:
+    _stream_context.request_id = request_id
+
+
+def get_current_request_id() -> Optional[str]:
+    return getattr(_stream_context, "request_id", None)
+
+
+def set_current_tool_name(tool_name: Optional[str]) -> None:
+    _stream_context.tool_name = tool_name
+
+
+def get_current_tool_name() -> Optional[str]:
+    return getattr(_stream_context, "tool_name", None)
+
 # Recognized proposal ID prefixes — IDs already carrying one of these
 # should NOT get a second prefix blindly prepended.
 _KNOWN_PREFIXES = ("ACT-", "YT-")
@@ -76,12 +110,15 @@ class ApprovalRegistry:
         explanation: str = "",
         risk_level: str = "Moderate",
         on_approve: Optional[Callable[[], Any]] = None,
+        tool_name: Optional[str] = None,
     ) -> str:
         """
-        Creates a new proposal, persists it, and dispatches a Telegram notification to Sir.
+        Creates a new proposal, persists it, dispatches a Telegram notification to Sir,
+        and emits an SSE approval_required event over any active stream listener.
         Returns the unique proposal ID (e.g. 'ACT-7412').
         """
-        short_id = f"ACT-{uuid.uuid4().hex[:4].upper()}"
+        # 12-hex unique proposal identifier
+        short_id = f"ACT-{uuid.uuid4().hex[:12].upper()}"
         now = time.time()
 
         if not explanation:
@@ -108,6 +145,21 @@ class ApprovalRegistry:
 
             if on_approve:
                 _action_callbacks[short_id] = on_approve
+
+        # Emit approval_required SSE event over active chat stream listener
+        active_tool = tool_name or get_current_tool_name() or "execute_command"
+        listener = get_approval_listener()
+        if listener:
+            try:
+                listener("approval_required", active_tool, {
+                    "proposal_id": short_id,
+                    "command": code_or_cmd,
+                    "reason": description or title or explanation,
+                    "action_type": action_type,
+                    "risk_level": risk_level,
+                })
+            except Exception:
+                pass
 
         # Dispatch Telegram notification with Inline Keyboard
         ApprovalRegistry._dispatch_telegram_alert(short_id, action_type, title, description, risk_level)
@@ -295,20 +347,61 @@ class ApprovalRegistry:
         return True, f"[DENIED] Proposal {clean_id} ('{prop['title']}') denied per Sir's directive. Action aborted."
 
     @staticmethod
-    def wait_for_decision(action_id: str, timeout_seconds: int = 180, poll_interval: float = 1.5) -> Tuple[str, str]:
+    def wait_for_decision(
+        action_id: str,
+        timeout_seconds: int = 180,
+        poll_interval: float = 1.5,
+        heartbeat_interval: float = 5.0,
+    ) -> Tuple[str, str]:
         """
-        Blocks and waits for Sir's decision on Telegram.
-        Returns (status, message) e.g. ("APPROVED", "..."), ("DENIED", "..."), ("TIMEOUT", "...").
+        Blocks and waits for Sir's decision on Telegram or TUI.
+        Emits periodic heartbeats every 5 seconds to keep SSE stream alive and check for client disconnects.
+        Returns (status, message) e.g. ("APPROVED", "..."), ("DENIED", "..."), ("TIMEOUT", "..."), ("CANCELLED", "...").
         """
         clean_id = _normalize_proposal_id(action_id)
+        active_tool = get_current_tool_name() or "execute_command"
 
         start_time = time.time()
+        last_heartbeat = start_time
+
         while time.time() - start_time < timeout_seconds:
+            # 1. Check if coordinator cancelled current request
+            req_id = get_current_request_id()
+            if req_id:
+                try:
+                    from coordinator import get_request_coordinator
+                    coord = get_request_coordinator()
+                    if coord.is_request_cancelled(req_id):
+                        return "CANCELLED", f"Request {req_id} cancelled by coordinator."
+                except Exception:
+                    pass
+
             prop = ApprovalRegistry.get_proposal(clean_id)
             if not prop:
                 return "ERROR", f"Proposal '{clean_id}' disappeared."
             if prop["status"] in ("APPROVED", "DENIED"):
                 return prop["status"], prop["resolution_note"]
+
+            # 2. Check periodic heartbeat (every 5 seconds)
+            now = time.time()
+            if now - last_heartbeat >= heartbeat_interval:
+                last_heartbeat = now
+                listener = get_approval_listener()
+                if listener:
+                    try:
+                        keep_going = listener("approval_wait", active_tool, {
+                            "proposal_id": clean_id,
+                            "command": prop.get("code_or_cmd", ""),
+                            "reason": prop.get("description", ""),
+                            "waited": round(now - start_time, 1),
+                        })
+                        if keep_going is False:
+                            return "CANCELLED", "Client disconnected during approval wait."
+                    except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError, OSError):
+                        return "CANCELLED", "Client socket disconnected."
+                    except Exception:
+                        pass
+
             time.sleep(poll_interval)
 
         return "TIMEOUT", f"Approval request for {clean_id} timed out after {timeout_seconds}s. Action remains PENDING."
@@ -323,6 +416,7 @@ def require_approval(
     risk_level: str = "Moderate",
     timeout_seconds: int = 180,
     on_approve: Optional[Callable[[], Any]] = None,
+    tool_name: Optional[str] = None,
 ) -> Tuple[bool, str]:
     """
     Convenience function that registers a proposal and blocks waiting for Sir's authorization.
@@ -336,6 +430,7 @@ def require_approval(
         explanation=explanation,
         risk_level=risk_level,
         on_approve=on_approve,
+        tool_name=tool_name,
     )
 
     status, msg = ApprovalRegistry.wait_for_decision(action_id, timeout_seconds=timeout_seconds)
@@ -343,5 +438,8 @@ def require_approval(
         return True, f"Approved: {msg}"
     elif status == "DENIED":
         return False, f"Denied: {msg}"
+    elif status == "CANCELLED":
+        return False, f"Cancelled: {msg}"
     else:
         return False, f"Pending authorization (ID: {action_id}). Awaiting Sir's response."
+

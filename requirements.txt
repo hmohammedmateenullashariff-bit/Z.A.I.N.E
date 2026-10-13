@@ -1,5 +1,6 @@
 requests
 colorama
+rich
 faster-whisper
 sounddevice
 numpy
@@ -13,3 +14,4 @@ opencv-python
 mss
 edge-tts
 av
+textual==8.2.8

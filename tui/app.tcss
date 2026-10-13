@@ -1,0 +1,265 @@
+/* Z.A.I.N.E Neural Command Textual Stylesheet */
+
+Screen {
+    background: #030712;
+    color: #f0fdf4;
+    layers: base overlay;
+}
+
+/* 1. Header Bar */
+#header-bar {
+    dock: top;
+    height: 3;
+    background: #0b0f19;
+    border-bottom: solid #1e293b;
+    padding: 0 1;
+    layout: horizontal;
+    align: left middle;
+}
+
+#header-logo {
+    width: auto;
+    color: #00f5a0;
+    text-style: bold;
+}
+
+#header-meta {
+    width: auto;
+    color: #64748b;
+    align: right middle;
+}
+
+/* 2. Main Workspaces */
+#chat-workspace, #workspace {
+    height: 1fr;
+    layout: horizontal;
+    background: #030712;
+}
+
+#topology-workspace {
+    height: 1fr;
+    layout: vertical;
+    background: #030712;
+    display: none;
+}
+
+#topo-main-split {
+    height: 1fr;
+    layout: horizontal;
+}
+
+#topo-canvas-container {
+    width: 65%;
+    height: 1fr;
+    background: #080d1a;
+    border: solid #1e293b;
+    margin: 0 1 0 1;
+}
+
+#topo-sidebar {
+    width: 35%;
+    height: 1fr;
+    layout: vertical;
+    overflow-y: auto;
+    margin: 0 1 0 0;
+}
+
+#topo-bus-panel {
+    height: 7;
+    background: #080d1a;
+    border: solid #1e293b;
+    padding: 0 1;
+    margin: 0 1 0 1;
+}
+
+/* 3. Left Chat Area */
+#chat-container {
+    width: 1fr;
+    height: 1fr;
+    layout: vertical;
+    background: #030712;
+    padding: 0 1;
+}
+
+#chat-log {
+    width: 100%;
+    height: 1fr;
+    overflow-x: hidden;
+    overflow-y: scroll;
+    padding: 0 0 1 0;
+}
+
+/* ASCII Banner */
+#banner-card {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    background: #0b0f19;
+    border: solid #1e293b;
+    padding: 0 1;
+    margin: 1 0;
+    color: #00f5a0;
+}
+
+/* Chat Cards */
+AssistantTurnCard, UserTurnCard, SystemCard, ApprovalCard {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+}
+
+.user-turn {
+    width: 100%;
+    max-width: 100%;
+    background: #0b0f19;
+    border-left: heavy #00f5a0;
+    padding: 0 1;
+    margin: 1 0;
+    color: #f0fdf4;
+}
+
+.assistant-turn {
+    width: 100%;
+    max-width: 100%;
+    background: transparent;
+    padding: 0;
+    margin: 1 0;
+    color: #f0fdf4;
+}
+
+.system-card {
+    background: #0b0f19;
+    border: solid #1e293b;
+    padding: 0 1;
+    margin: 1 0;
+    color: #64748b;
+}
+
+.tool-line {
+    background: #091322;
+    border-left: heavy #00d2ff;
+    padding: 0 1;
+    margin: 0 0 1 0;
+    color: #00d2ff;
+}
+
+.reasoning-block {
+    background: #111424;
+    border-left: heavy #7928ca;
+    padding: 0 1;
+    margin: 1 0;
+    color: #c4b5fd;
+}
+
+.reasoning-header {
+    color: #a855f7;
+    text-style: bold;
+}
+
+.reasoning-body {
+    color: #cbd5e1;
+    padding: 0 0 0 1;
+}
+
+.reasoning-collapsed {
+    display: none;
+}
+
+/* 4. Bottom Input Well */
+#input-well {
+    dock: bottom;
+    height: auto;
+    max-height: 6;
+    background: #0b0f19;
+    border: solid #1e293b;
+    margin: 0 0 1 0;
+    padding: 0 1;
+}
+
+#input-hints {
+    height: 1;
+    color: #64748b;
+    text-style: italic;
+}
+
+#prompt-row {
+    height: 3;
+    layout: horizontal;
+    align: left middle;
+}
+
+#prompt-label {
+    width: auto;
+    color: #00f5a0;
+    text-style: bold;
+    padding: 1 1 0 0;
+}
+
+#user-input {
+    width: 1fr;
+    background: #131b2e;
+    color: #f0fdf4;
+    border: tall #1e293b;
+    padding: 0 1;
+}
+
+#user-input:focus {
+    border: tall #00f5a0;
+}
+
+/* 5. Right HUD Area */
+#hud-container {
+    width: 40;
+    min-width: 34;
+    height: 1fr;
+    background: #0b0f19;
+    border-left: solid #1e293b;
+    padding: 0 1;
+    overflow-y: auto;
+}
+
+.hud-collapsed {
+    display: none;
+}
+
+.hud-section {
+    background: #111622;
+    border: solid #1e293b;
+    padding: 0 1;
+    margin: 1 0;
+}
+
+.hud-title {
+    color: #00d2ff;
+    text-style: bold;
+    border-bottom: solid #1e293b;
+    padding: 0 0 0 0;
+    margin-bottom: 0;
+}
+
+.hud-row {
+    layout: horizontal;
+    align: left middle;
+    height: 1;
+}
+
+.hud-label {
+    color: #64748b;
+}
+
+.hud-value {
+    color: #f0fdf4;
+    text-style: bold;
+}
+
+/* 6. Footer Bar */
+#footer-bar {
+    dock: bottom;
+    height: 1;
+    background: #0b0f19;
+    border-top: solid #1e293b;
+    color: #64748b;
+    padding: 0 1;
+    layout: horizontal;
+    align: left middle;
+}

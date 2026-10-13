@@ -20,6 +20,12 @@ import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from memory_types import (
     MemoryEntry, MemoryType, MemoryStatus, TrustLevel, MemorySource,
     generate_memory_id
@@ -39,6 +45,30 @@ TYPE_TO_FOLDER: Dict[MemoryType, str] = {
     MemoryType.SYSTEM: "00_System",
 }
 
+FOLDER_PRIORITY_ORDER = [
+    "01_People",
+    "03_Preferences",
+    "02_Projects",
+    "04_Episodes",
+    "06_Decisions",
+    "07_Reference",
+    "00_System",
+    "05_Lessons",
+]
+
+SEARCH_STOPWORDS = {
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "to", "from", "in", "out",
+    "on", "off", "over", "under", "again", "further", "then", "once", "here",
+    "there", "when", "where", "why", "how", "all", "any", "both", "each",
+    "few", "more", "most", "other", "some", "such", "no", "nor", "not",
+    "only", "own", "same", "so", "than", "too", "very", "s", "t", "can",
+    "will", "just", "don", "should", "now", "who", "whom", "what", "which",
+    "whose", "tell", "me", "about", "you", "your", "my", "our", "he", "she",
+    "it", "they", "them", "his", "her", "their", "of", "and", "or", "for",
+    "with", "at", "by", "up", "into", "as", "if"
+}
+
 
 def _sanitize_filename(text: str, max_length: int = 60) -> str:
     """Creates a safe filename from arbitrary text.
@@ -54,6 +84,14 @@ def _sanitize_filename(text: str, max_length: int = 60) -> str:
     if len(clean) > max_length:
         clean = clean[:max_length].rstrip('-')
     return clean or "untitled"
+
+
+def _sanitize_id(id_str: str) -> str:
+    """Sanitize ID to strictly alphanumeric, hyphen, and underscore to prevent traversal."""
+    if not id_str:
+        return "unknown"
+    clean = re.sub(r'[^\w\-]', '', str(id_str))
+    return clean or "unknown"
 
 
 class ObsidianAdapter:
@@ -95,6 +133,15 @@ class ObsidianAdapter:
     def vault_path(self) -> Optional[Path]:
         return self._vault_path
 
+    def _is_safe_vault_path(self, target_path: Path) -> bool:
+        """Verifies that target_path resides strictly inside the configured vault root."""
+        if not self._vault_path:
+            return False
+        try:
+            return target_path.resolve().is_relative_to(self._vault_path.resolve())
+        except Exception:
+            return False
+
     def _get_folder(self, mem_type: MemoryType) -> Path:
         """Returns the vault subfolder for a given memory type."""
         folder_name = TYPE_TO_FOLDER.get(mem_type, "07_Reference")
@@ -105,25 +152,34 @@ class ObsidianAdapter:
     def _get_filepath(self, entry: MemoryEntry) -> Path:
         """Deterministic filepath for a memory entry based on type and ID."""
         folder = self._get_folder(entry.type)
-        # Use ID as the primary filename component for determinism
+        safe_id = _sanitize_id(entry.id)
+        # Use safe ID as the primary filename component for determinism
         safe_title = _sanitize_filename(entry.title) if entry.title else "untitled"
-        filename = f"{entry.id}_{safe_title}.md"
-        return folder / filename
+        filename = f"{safe_id}_{safe_title}.md"
+        filepath = folder / filename
+        if not self._is_safe_vault_path(filepath):
+            raise ValueError(f"Path traversal detected for memory entry filepath: {filepath}")
+        return filepath
 
     def _find_by_id(self, memory_id: str) -> Optional[Path]:
         """Finds an existing memory file by its ID prefix."""
         if not self.available:
             return None
+        safe_id = _sanitize_id(memory_id)
+        if not safe_id or safe_id == "unknown":
+            return None
         for folder_name in TYPE_TO_FOLDER.values():
             folder = self._vault_path / folder_name
             if folder.exists():
-                for f in folder.glob(f"{memory_id}_*.md"):
-                    return f
+                for f in folder.glob(f"{safe_id}_*.md"):
+                    if self._is_safe_vault_path(f):
+                        return f
         # Also check archive
         archive = self._vault_path / "99_Archive"
         if archive.exists():
-            for f in archive.glob(f"{memory_id}_*.md"):
-                return f
+            for f in archive.glob(f"{safe_id}_*.md"):
+                if self._is_safe_vault_path(f):
+                    return f
         return None
 
     def write(self, entry: MemoryEntry) -> Optional[Path]:
@@ -186,22 +242,16 @@ class ObsidianAdapter:
             print(f"[ObsidianAdapter] Error reading {memory_id}: {e}")
             return None
 
-    def _parse_file(self, filepath: Path) -> Optional[MemoryEntry]:
-        """Parses a Markdown file with YAML frontmatter into a MemoryEntry."""
+    @classmethod
+    def parse_markdown(cls, text: str) -> Optional[MemoryEntry]:
+        """Parses a Markdown string containing YAML frontmatter into a MemoryEntry."""
         try:
             import yaml
         except ImportError:
             print("[ObsidianAdapter] PyYAML not installed. Cannot parse frontmatter.")
             return None
 
-        try:
-            text = filepath.read_text(encoding='utf-8', errors='replace')
-        except Exception as e:
-            print(f"[ObsidianAdapter] Error reading file {filepath}: {e}")
-            return None
-
-        # Parse frontmatter
-        if not text.startswith("---"):
+        if not text or not text.startswith("---"):
             return None
 
         parts = text.split("---", 2)
@@ -219,6 +269,19 @@ class ObsidianAdapter:
         body = parts[2].strip()
         return MemoryEntry.from_frontmatter(frontmatter, body)
 
+    def _parse_file(self, filepath: Path) -> Optional[MemoryEntry]:
+        """Parses a Markdown file with YAML frontmatter into a MemoryEntry."""
+        if not self._is_safe_vault_path(filepath):
+            return None
+
+        try:
+            text = filepath.read_text(encoding='utf-8', errors='replace')
+        except Exception as e:
+            print(f"[ObsidianAdapter] Error reading file {filepath}: {e}")
+            return None
+
+        return self.parse_markdown(text)
+
     def search(
         self,
         query: str = "",
@@ -228,10 +291,7 @@ class ObsidianAdapter:
         limit: int = 10,
         tags: Optional[List[str]] = None,
     ) -> List[MemoryEntry]:
-        """Searches the vault for matching memories.
-        
-        Current implementation: lexical scan with keyword matching.
-        Future: could be upgraded to FTS5, BM25, or vector search.
+        """Searches the vault for matching memories with relevance scoring and safety bounding.
         
         Args:
             query: Search keywords (space-separated, case-insensitive)
@@ -242,14 +302,21 @@ class ObsidianAdapter:
             tags: Filter by tag intersection
             
         Returns:
-            List of matching MemoryEntry objects, sorted by relevance (recency).
+            List of matching MemoryEntry objects, sorted by relevance score then recency.
         """
         if not self.available:
             return []
 
-        results: List[MemoryEntry] = []
+        import time
+        start_time = time.time()
+        timeout_seconds = 5.0
+
         query_lower = query.lower().strip()
-        query_words = set(query_lower.split()) if query_lower else set()
+        all_words = re.findall(r'\b\w+\b', query_lower)
+        keywords = [w for w in all_words if w not in SEARCH_STOPWORDS and len(w) > 1]
+        if not keywords and all_words:
+            # Fallback to all query words if all were common words
+            keywords = [w for w in all_words if len(w) > 1]
 
         # Trust ordering for filtering
         trust_order = [
@@ -257,17 +324,33 @@ class ObsidianAdapter:
             TrustLevel.DERIVED, TrustLevel.VERIFIED, TrustLevel.AUTHORITATIVE
         ]
 
-        # Determine which folders to scan
+        # Determine which folders to scan in priority order
         if mem_type:
             folders = [TYPE_TO_FOLDER.get(mem_type, "07_Reference")]
         else:
-            folders = list(set(TYPE_TO_FOLDER.values()))
+            folders = [f for f in FOLDER_PRIORITY_ORDER if (self._vault_path / f).exists()]
+            try:
+                for sd in self._vault_path.iterdir():
+                    if sd.is_dir() and not sd.name.startswith((".", "99_")) and sd.name not in folders:
+                        folders.append(sd.name)
+            except Exception:
+                pass
+
+        scored_results: List[Tuple[float, str, MemoryEntry]] = []
+        is_people_query = any(w in query_lower for w in ("who", "person", "friend", "contact", "people", "relationship"))
 
         for folder_name in folders:
+            if time.time() - start_time > timeout_seconds:
+                break
+
             folder = self._vault_path / folder_name
             if not folder.exists():
                 continue
+
             for md_file in folder.glob("*.md"):
+                if time.time() - start_time > timeout_seconds:
+                    break
+
                 entry = self._parse_file(md_file)
                 if entry is None:
                     continue
@@ -289,22 +372,53 @@ class ObsidianAdapter:
                     if not set(t.lower() for t in tags).intersection(entry_tags):
                         continue
 
-                # Query matching (if query provided)
-                if query_words:
-                    searchable = f"{entry.title} {entry.content} {' '.join(entry.tags)}".lower()
-                    # Require at least one query word to match
-                    if not any(w in searchable for w in query_words):
+                # Relevance scoring
+                score = 0.0
+                if keywords:
+                    title_lower = entry.title.lower()
+                    content_lower = entry.content.lower()
+                    entry_tags_lower = [t.lower() for t in entry.tags]
+
+                    # Exact full-query match
+                    if query_lower and query_lower in title_lower:
+                        score += 100.0
+                    elif query_lower and query_lower in content_lower:
+                        score += 50.0
+
+                    # Keyword matches
+                    for kw in keywords:
+                        if kw in title_lower:
+                            if re.search(r'\b' + re.escape(kw) + r'\b', title_lower):
+                                score += 60.0
+                            else:
+                                score += 30.0
+                        if any(kw in t for t in entry_tags_lower):
+                            score += 25.0
+                        if kw in content_lower:
+                            score += 10.0
+
+                    # Boost People folder for person / who queries only if a keyword matched
+                    if score > 0.0 and folder_name == "01_People" and is_people_query:
+                        score += 25.0
+
+                    # Require at least one positive keyword match
+                    if score <= 0.0:
                         continue
+                else:
+                    # Generic scan without query
+                    score = 1.0
 
-                results.append(entry)
+                recency = entry.updated or entry.created or ""
+                scored_results.append((score, recency, entry))
 
-                if len(results) >= limit * 3:  # Over-fetch for ranking
+                # Early break if enough high-confidence results collected
+                if len(scored_results) >= limit * 5 and score >= 50.0:
                     break
 
-        # Sort by recency (newest first)
-        results.sort(key=lambda e: e.updated or e.created, reverse=True)
+        # Sort primarily by relevance score (descending), then by recency (newest first)
+        scored_results.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return [item[2] for item in scored_results[:limit]]
 
-        return results[:limit]
 
     def list_all(
         self,
@@ -339,6 +453,8 @@ class ObsidianAdapter:
                 results.append(entry)
                 if len(results) >= limit:
                     break
+            if len(results) >= limit:
+                break
 
         results.sort(key=lambda e: e.updated or e.created, reverse=True)
         return results[:limit]
@@ -365,14 +481,17 @@ class ObsidianAdapter:
         archive_dir.mkdir(parents=True, exist_ok=True)
 
         # Write to archive location
+        safe_id = _sanitize_id(entry.id)
         safe_title = _sanitize_filename(entry.title) if entry.title else "untitled"
-        new_filepath = archive_dir / f"{entry.id}_{safe_title}.md"
+        new_filepath = archive_dir / f"{safe_id}_{safe_title}.md"
+        if not self._is_safe_vault_path(new_filepath):
+            return False
 
         try:
             markdown = entry.to_markdown()
             new_filepath.write_text(markdown, encoding='utf-8')
             # Remove from original location (safe because we just wrote the archived copy)
-            if old_filepath and old_filepath.exists() and old_filepath != new_filepath:
+            if old_filepath and old_filepath.exists() and self._is_safe_vault_path(old_filepath) and old_filepath != new_filepath:
                 old_filepath.unlink()
             return True
         except Exception as e:
@@ -406,7 +525,7 @@ class ObsidianAdapter:
             return False
 
         filepath = self._find_by_id(memory_id)
-        if filepath and filepath.exists():
+        if filepath and filepath.exists() and self._is_safe_vault_path(filepath):
             try:
                 filepath.unlink()
                 return True

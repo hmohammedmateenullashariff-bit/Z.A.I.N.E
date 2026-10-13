@@ -1,15 +1,18 @@
 @echo off
-title Z.A.I.N.E System - Sovereign AI Assistant
+title Z.A.I.N.E System - Terminal Agent Environment
 cd /d "%~dp0"
 echo ======================================================================
 echo   Z.A.I.N.E - Autonomous Sovereign AI Assistant
+echo   Terminal-First Agentic Operating Environment
 echo ======================================================================
-echo [1] Wake-Word Voice: Speak "Zaine" to talk
-echo [2] Holographic HUD: Launching at http://127.0.0.1:7860
-echo [3] Pocket Zaine:    Connected to Telegram (@Zaine_mateen_bot)
-echo [4] YouTube Studio:  Autonomous 5-slot pipeline running in background
+echo [1] Primary UI:       Interactive Terminal Agent (TUI)
+echo [2] Core Service:     Headless Multi-Threaded Daemon (127.0.0.1:7860)
+echo [3] Voice Protocol:   Command-Gated (Default: OFF, Use /voice on or /speak)
+echo [4] Pocket Zaine:     Telegram Remote Gateway
+echo [5] Memory Engine:    SQLite FTS5 + Obsidian Durable Vault
 echo ======================================================================
 echo.
+set OLLAMA_MODELS=D:\ollama\models
 python main.py
 if errorlevel 1 (
     echo.

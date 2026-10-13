@@ -14,21 +14,88 @@ import subprocess
 import sys
 import time
 import threading
+from typing import Tuple, Optional, Dict, Any, List
 try:
     import msvcrt
 except ImportError:
     msvcrt = None
 import numpy as np
-import sounddevice as sd
-from faster_whisper import WhisperModel
-from piper import PiperVoice
-from piper.config import SynthesisConfig
+
+try:
+    import sounddevice as sd
+except Exception:
+    sd = None
+
+# Lazy model references (never instantiated at import time)
+_whisper_model = None
+_piper_voice = None
+_syn_config = None
 
 SAMPLE_RATE = 16000
 RECORD_SECONDS = 7
 
-# Load once, reused across calls. "base" is a good speed/accuracy balance on CPU.
-_whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+# --- VOICE STATE MACHINE ---
+VOICE_STATE_DISABLED = "VOICE_DISABLED"
+VOICE_STATE_ENABLED = "VOICE_ENABLED"
+VOICE_STATE_LISTENING = "LISTENING"
+VOICE_STATE_PROCESSING = "PROCESSING"
+VOICE_STATE_SPEAKING = "SPEAKING"
+
+_voice_state = VOICE_STATE_DISABLED
+_voice_state_lock = threading.RLock()
+_persistent_voice = False
+
+
+def get_voice_state() -> str:
+    """Returns active voice state machine state."""
+    with _voice_state_lock:
+        return _voice_state
+
+
+def is_voice_enabled() -> bool:
+    """Returns True ONLY if voice mode has been explicitly enabled by user command."""
+    with _voice_state_lock:
+        return _voice_state != VOICE_STATE_DISABLED
+
+
+def set_voice_state(new_state: str) -> str:
+    """Transitions the voice state machine explicitly."""
+    global _voice_state
+    with _voice_state_lock:
+        _voice_state = new_state
+        return _voice_state
+
+
+def enable_voice() -> Tuple[bool, str]:
+    """Explicitly enables persistent voice mode (/voice on)."""
+    global _persistent_voice, _voice_state
+    with _voice_state_lock:
+        _persistent_voice = True
+        _voice_state = VOICE_STATE_ENABLED
+        return True, "Voice mode explicitly enabled (VOICE_ENABLED). Z.A.I.N.E will speak responses."
+
+
+def disable_voice() -> Tuple[bool, str]:
+    """Explicitly disables voice mode (/voice off)."""
+    global _persistent_voice, _voice_state
+    with _voice_state_lock:
+        _persistent_voice = False
+        stop_speaking()
+        _voice_state = VOICE_STATE_DISABLED
+        return True, "Voice mode disabled (VOICE_DISABLED). Operating in text-only mode."
+
+
+def get_voice_status() -> dict:
+    """Detailed telemetry and capabilities for /voice status."""
+    return {
+        "state": get_voice_state(),
+        "enabled": is_voice_enabled(),
+        "persistent": _persistent_voice,
+        "active_voice": EDGE_VOICE,
+        "edge_tts_available": bool(edge_tts and av),
+        "piper_available": bool(os.path.exists(MODEL_PATH) and os.path.exists(CONFIG_PATH)),
+    }
+
 
 # --- TTS setup (Hybrid: Edge-TTS Ultra-Realistic Neural Voice + Piper Offline Fallback) ---
 # Edge-TTS options: 'en-GB-RyanNeural' (Jarvis British), 'en-US-ChristopherNeural' (Ultron Dark Baritone)
@@ -72,8 +139,33 @@ def _ensure_voice_downloaded():
     )
 
 
-_ensure_voice_downloaded()
-_piper_voice = PiperVoice.load(MODEL_PATH, config_path=CONFIG_PATH)
+def get_whisper_model():
+    """Lazy-loads faster-whisper base model on first actual speech recognition request."""
+    global _whisper_model
+    if _whisper_model is None:
+        try:
+            from faster_whisper import WhisperModel
+            _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+        except Exception as e:
+            print(f"[WhisperModel init notice]: {e}")
+            return None
+    return _whisper_model
+
+
+def get_piper_voice():
+    """Lazy-loads Piper offline TTS model on first actual fallback synthesis request."""
+    global _piper_voice, _syn_config
+    if _piper_voice is None:
+        try:
+            _ensure_voice_downloaded()
+            from piper import PiperVoice
+            from piper.config import SynthesisConfig
+            _piper_voice = PiperVoice.load(MODEL_PATH, config_path=CONFIG_PATH)
+            _syn_config = SynthesisConfig(length_scale=0.92)
+        except Exception as e:
+            print(f"[PiperVoice init notice]: {e}")
+            return None
+    return _piper_voice
 
 
 def set_voice(voice_name: str) -> str:
@@ -189,12 +281,14 @@ def synthesize_to_file(text: str, output_path: str) -> bool:
 
     # 2. Offline Fallback to Local Piper Voice
     if audio is None or len(audio) == 0:
-        chunks = []
-        for chunk in _piper_voice.synthesize(clean, syn_config=_syn_config):
-            chunks.append(chunk)
-        if chunks:
-            sr = chunks[0].sample_rate
-            audio = np.concatenate([c.audio_int16_array for c in chunks])
+        pv = get_piper_voice()
+        if pv:
+            chunks = []
+            for chunk in pv.synthesize(clean, syn_config=_syn_config):
+                chunks.append(chunk)
+            if chunks:
+                sr = chunks[0].sample_rate
+                audio = np.concatenate([c.audio_int16_array for c in chunks])
 
     if audio is None or len(audio) == 0 or sr == 0:
         return False
@@ -358,7 +452,10 @@ def transcribe(audio: np.ndarray) -> str:
     else:
         audio_f32 = audio.flatten().astype(np.float32)
 
-    segments, _ = _whisper_model.transcribe(audio_f32, language=None)
+    wm = get_whisper_model()
+    if wm is None:
+        return ""
+    segments, _ = wm.transcribe(audio_f32, language=None)
     return " ".join(seg.text.strip() for seg in segments).strip()
 
 
@@ -368,8 +465,26 @@ def listen(duration: int = RECORD_SECONDS) -> str:
     return transcribe(audio)
 
 
-# Default synthesis config for energetic, punchy delivery
-_syn_config = SynthesisConfig(length_scale=0.92)
+def one_shot_listen(duration: int = RECORD_SECONDS) -> str:
+    """
+    Executes a one-shot voice command:
+    VOICE_DISABLED -> LISTENING -> PROCESSING -> returns text -> restores prior state.
+    """
+    prior_state = get_voice_state()
+    try:
+        set_voice_state(VOICE_STATE_LISTENING)
+        audio = record_audio(duration, use_vad=True)
+        set_voice_state(VOICE_STATE_PROCESSING)
+        text = transcribe(audio)
+        return text
+    except Exception as e:
+        print(f"[Voice One-Shot Notice]: Microphone or STT error: {e}")
+        return ""
+    finally:
+        if _persistent_voice:
+            set_voice_state(VOICE_STATE_ENABLED)
+        else:
+            set_voice_state(VOICE_STATE_DISABLED)
 
 
 def _clean_for_speech(text: str) -> str:
@@ -552,13 +667,15 @@ def _barge_in_monitor_thread(stop_event: threading.Event):
                         combined = np.concatenate(speech_buffer)
                         audio_f32 = combined.flatten().astype(np.float32) / 32768.0
                         try:
-                            segments, _ = _whisper_model.transcribe(audio_f32, language="en")
-                            detected = " ".join(s.text.lower() for s in segments)
-                            cleaned = re.sub(r"[^\w\s]", " ", detected).split()
-                            if any(w in BARGE_IN_KEYWORDS for w in cleaned):
-                                print(f"\n[Barge-In: Spoken keyword detected ('{detected.strip()}') -> Halting speech]")
-                                stop_speaking()
-                                break
+                            wm = get_whisper_model()
+                            if wm:
+                                segments, _ = wm.transcribe(audio_f32, language="en")
+                                detected = " ".join(s.text.lower() for s in segments)
+                                cleaned = re.sub(r"[^\w\s]", " ", detected).split()
+                                if any(w in BARGE_IN_KEYWORDS for w in cleaned):
+                                    print(f"\n[Barge-In: Spoken keyword detected ('{detected.strip()}') -> Halting speech]")
+                                    stop_speaking()
+                                    break
                         except Exception:
                             pass
                         speech_buffer = speech_buffer[-1:]
@@ -587,6 +704,10 @@ def speak_sentence(text: str, allow_barge_in: bool = True) -> bool:
     Synthesizes and speaks a single sentence immediately.
     Returns True if completed normally, False if interrupted by user barge-in.
     """
+    # 0. HARD GATE: Voice must be explicitly enabled! Normal operation is text-only.
+    if not is_voice_enabled():
+        return True
+
     # If Zaine is muted, skip speech synthesis entirely
     if is_muted():
         return True
@@ -596,6 +717,7 @@ def speak_sentence(text: str, allow_barge_in: bool = True) -> bool:
     if not clean:
         return True
 
+    set_voice_state(VOICE_STATE_SPEAKING)
     _interrupt_event.clear()
     monitor_stop = threading.Event()
     monitor_thread = None
@@ -623,20 +745,22 @@ def speak_sentence(text: str, allow_barge_in: bool = True) -> bool:
                 monitor_stop.set()
                 return False
 
-            chunks = []
-            for chunk in _piper_voice.synthesize(clean, syn_config=_syn_config):
-                if _interrupt_event.is_set():
-                    _is_speaking_now = False
+            pv = get_piper_voice()
+            if pv:
+                chunks = []
+                for chunk in pv.synthesize(clean, syn_config=_syn_config):
+                    if _interrupt_event.is_set():
+                        _is_speaking_now = False
+                        monitor_stop.set()
+                        return False
+                    chunks.append(chunk)
+
+                if not chunks:
                     monitor_stop.set()
-                    return False
-                chunks.append(chunk)
+                    return True
 
-            if not chunks:
-                monitor_stop.set()
-                return True
-
-            sr = chunks[0].sample_rate
-            audio = np.concatenate([c.audio_int16_array for c in chunks])
+                sr = chunks[0].sample_rate
+                audio = np.concatenate([c.audio_int16_array for c in chunks])
 
         if _interrupt_event.is_set():
             _is_speaking_now = False
@@ -691,6 +815,10 @@ def speak_sentence(text: str, allow_barge_in: bool = True) -> bool:
         return True
     finally:
         monitor_stop.set()
+        if _persistent_voice:
+            set_voice_state(VOICE_STATE_ENABLED)
+        else:
+            set_voice_state(VOICE_STATE_DISABLED)
 
 
 def speak(text: str, allow_barge_in: bool = True) -> bool:

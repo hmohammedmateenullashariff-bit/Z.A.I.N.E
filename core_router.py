@@ -8,6 +8,7 @@ Implements:
 5. Parallel Async Tool Dispatcher (concurrent.futures ThreadPool)
 """
 
+import os
 import time
 import json
 import requests
@@ -18,9 +19,11 @@ from tool_clusters import classify_intent_clusters, build_clustered_system_promp
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 
-REFLEX_MODEL = "qwen2.5:3b"
-DEEP_MODEL = "deepseek-r1:7b"
-CODER_MODEL = "qwen2.5-coder:3b"
+ZAINE_SINGLE_MODEL = os.getenv("ZAINE_SINGLE_MODEL", "1").lower() in ("1", "true", "yes")
+
+REFLEX_MODEL = "zaine-reflex-7b"
+DEEP_MODEL = "zaine-reflex-7b"
+CODER_MODEL = "zaine-reflex-7b" if ZAINE_SINGLE_MODEL else "zaine-coder-7b"
 VISION_MODEL = "moondream:latest"
 
 # Thread pool for non-blocking parallel tool execution
@@ -31,9 +34,10 @@ class TieredBrainRouter:
     """Orchestrates Tier 0 (Reflex) and Tier 1 (Deep) cognition for sub-second responses."""
 
     def __init__(self):
+        self.single_model = os.getenv("ZAINE_SINGLE_MODEL", "1").lower() in ("1", "true", "yes")
         self.reflex_model = REFLEX_MODEL
         self.deep_model = DEEP_MODEL
-        self.coder_model = CODER_MODEL
+        self.coder_model = REFLEX_MODEL if self.single_model else CODER_MODEL
         self.pinned_warm = False
         self._installed_cache = set()
         self._last_cache_check = 0
@@ -54,14 +58,41 @@ class TieredBrainRouter:
     def resolve_model(self, requested_model: str) -> str:
         """Gracefully resolves model to installed weights, preventing 404 crashes."""
         installed = self.get_installed_models()
+        if not installed:
+            return requested_model
+
         if requested_model in installed:
             return requested_model
+        if f"{requested_model}:latest" in installed:
+            return f"{requested_model}:latest"
+
+        # Fallback hierarchy for 7B models (3B models purged)
+        fallbacks = {
+            "zaine-coder-7b": ["zaine-coder-7b:latest", "qwen2.5-coder:7b-instruct-q3_K_M", "qwen2.5-coder:7b", "zaine-reflex-7b:latest"],
+            "zaine-reflex-7b": ["zaine-reflex-7b:latest", "qwen2.5:7b-instruct-q3_K_M", "qwen2.5:7b"],
+            "deepseek-r1:7b": ["deepseek-r1:7b", "zaine-reflex-7b:latest", "qwen2.5:7b-instruct-q3_K_M"],
+        }
+        for fb in fallbacks.get(requested_model, []):
+            if fb in installed:
+                return fb
+            if f"{fb}:latest" in installed:
+                return f"{fb}:latest"
+
         # Check matching prefix (e.g. 'deepseek-r1' matches 'deepseek-r1:7b')
+        req_prefix = requested_model.split(":")[0].lower()
         for inst in installed:
-            if requested_model.split(":")[0] in inst:
+            if req_prefix in inst.lower():
                 return inst
-        # Safe fallback to Reflex Core
-        return self.reflex_model
+
+        # Prefer zaine-reflex-7b or qwen2.5-7b
+        for pref in ["zaine-reflex-7b:latest", "qwen2.5:7b-instruct-q3_K_M", "qwen2.5:7b"]:
+            if pref in installed:
+                return pref
+        # Safe fallback: return the first available model that is not an embed model
+        for inst in installed:
+            if "embed" not in inst.lower():
+                return inst
+        return next(iter(installed)) if installed else self.reflex_model
 
     def pin_reflex_in_vram(self) -> bool:
         """Sends a zero-shot ping with keep_alive=-1 to permanently lock Tier 0 into VRAM."""

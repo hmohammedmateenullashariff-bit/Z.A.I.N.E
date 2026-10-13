@@ -23,6 +23,7 @@ No other module should directly open() or write() to the Obsidian vault.
 import os
 import re
 import datetime
+import time
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
 
@@ -59,7 +60,23 @@ class MemoryPolicy:
         r"(?i)\bforget\s+(?:all|everything)\b",
         r"(?i)\byou\s+(?:are|must|should)\s+(?:now|always)\b",
         r"(?i)\bnew\s+(?:system|base)\s+(?:prompt|instruction)\b",
+        r"(?i)\b(?:dan\s+mode|developer\s+mode|jailbreak|bypass\s+(?:safety|security|filter|restrictions?|guidelines?|policies?))\b",
+        r"(?i)\b(?:disregard|override)\s+(?:all\s+)?(?:guidelines|rules|safety|policies)\b",
+        r"(?i)\b(?:replace|overwrite)\s+(?:the\s+)?(?:user'?s?\s+)?(?:preferences?|instructions?|rules?)\b",
+        r"(?i)\bmark\s+(?:this\s+)?(?:content\s+)?as\s+(?:trusted|authoritative|verified)\b",
+        r"(?i)\b(?:add|store|save)\s+(?:this\s+)?(?:text|content|data)?\s*(?:in|to|as)\s+(?:permanent|authoritative|durable)\s+memory\b",
+        r"(?i)<(?:script|iframe|object|embed)\b",
     ]
+
+    @classmethod
+    def check_safe_text(cls, text: str) -> Tuple[bool, str]:
+        """Checks arbitrary text against injection patterns. Returns (is_safe, reason)."""
+        if not text:
+            return True, "OK"
+        for pattern in cls.INJECTION_PATTERNS:
+            if re.search(pattern, text):
+                return False, f"Potential prompt injection detected: pattern '{pattern}' matched"
+        return True, "OK"
 
     @classmethod
     def validate_write(
@@ -105,10 +122,14 @@ class MemoryPolicy:
     def validate_retrieval(cls, entry: MemoryEntry) -> bool:
         """Validates whether a memory should be included in retrieval results.
         Per Memory-Policy.md: rejected memories must never be retrieved.
+        Provides defense-in-depth: notes containing prompt injection patterns are suppressed.
         """
         if entry.status == MemoryStatus.REJECTED:
             return False
         if entry.trust == TrustLevel.REJECTED:
+            return False
+        is_safe, _ = cls.check_safe_text(f"{entry.title} {entry.content} {entry.context}")
+        if not is_safe:
             return False
         return True
 
@@ -172,6 +193,11 @@ class MemoryManager:
     def available(self) -> bool:
         """Returns True if the Obsidian vault is accessible."""
         return self.adapter.available
+
+    @property
+    def vault_path(self) -> Optional[Path]:
+        """Returns the Path to the Obsidian vault root, or None if unavailable."""
+        return self.adapter.vault_path if self.adapter else None
 
     # ──────────────────────────────────────────────────────────────────────
     # WRITE OPERATIONS
@@ -362,7 +388,8 @@ class MemoryManager:
         )
 
         # Policy filter
-        return [r for r in results if self.policy.validate_retrieval(r)]
+        validated = [r for r in results if self.policy.validate_retrieval(r)]
+        return validated
 
     # ──────────────────────────────────────────────────────────────────────
     # LIFECYCLE OPERATIONS
@@ -417,7 +444,11 @@ class MemoryManager:
 
         # ── Section 1: Obsidian vault memories ──
         if self.available and current_prompt:
-            vault_memories = self.search(query=current_prompt, limit=self.max_memories)
+            try:
+                vault_memories = self.search(query=current_prompt, limit=self.max_memories)
+            except Exception as e:
+                vault_memories = []
+
             if vault_memories:
                 mem_lines = []
                 for mem in vault_memories:

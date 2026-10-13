@@ -20,28 +20,45 @@ THERMAL_BENCHMARK_SAFE = 68.0       # Resume normal operations
 MAX_COOLDOWN_SECONDS = 300          # 5 minutes maximum cooldown
 
 
+_cached_cpu_temp: Optional[float] = None
+_cached_cpu_temp_time: float = 0.0
+_TEMP_CACHE_TTL: float = 15.0
+
+
 def get_cpu_temperature_celsius() -> Optional[float]:
     """
     Reads hardware temperature in Celsius via Windows ACPI ThermalZone counters.
+    Cached with a 15-second TTL to avoid blocking requests with slow PowerShell invocations.
     Returns None if hardware counters are unavailable.
     """
+    global _cached_cpu_temp, _cached_cpu_temp_time
+    now = time.time()
+    if _cached_cpu_temp is not None and (now - _cached_cpu_temp_time) < _TEMP_CACHE_TTL:
+        return _cached_cpu_temp
+
     try:
         cmd = [
             "powershell", "-NoProfile", "-Command",
             "Get-CimInstance Win32_PerfFormattedData_Counters_ThermalZoneInformation -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Temperature"
         ]
-        res = subprocess.check_output(cmd, text=True, timeout=5).strip()
+        res = subprocess.check_output(cmd, text=True, timeout=2.5).strip()
         if res:
             first_val = float(res.split()[0])
             # Values around 300-400 are in Kelvin
             if first_val > 200:
                 celsius = round(first_val - 273.15, 1)
-                return celsius
             elif first_val > 0:
-                return round(first_val, 1)
+                celsius = round(first_val, 1)
+            else:
+                celsius = None
+
+            if celsius is not None:
+                _cached_cpu_temp = celsius
+                _cached_cpu_temp_time = now
+                return celsius
     except Exception:
         pass
-    return None
+    return _cached_cpu_temp
 
 
 def get_thermal_telemetry() -> Dict[str, Any]:

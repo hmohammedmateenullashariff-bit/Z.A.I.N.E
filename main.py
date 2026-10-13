@@ -1,14 +1,16 @@
 """
-Z.A.I.N.E Agent v1 — Main Entry (Wake Word + Visual Screen)
+Z.A.I.N.E. — Sovereign Autonomous AI Assistant
+Primary Entry Point: Terminal-First / Agentic TUI Architecture
 
-- Say "Zaine" out loud to wake it up, then speak your command.
-- After it responds, it listens again for 10 seconds without needing the wake
-  word — say something and it keeps going; stay silent and it drops back to idle.
-- Or just type in this console at any time — both work together.
-- Type 'exit' or 'quit' in the console to stop.
+Architecture:
+- The Terminal / TUI is the authoritative, primary interface for Z.A.I.N.E.
+- Headless Core Service runs in background hosting ZaineAgent, memory, and tools.
+- External integrations (Telegram bridge, Heartbeat sentinel) run headlessly.
+- Voice is strictly command-driven and DISABLED by default (/voice on, /speak).
+- Desktop GUI / Electron / browser windows have been permanently retired.
 
-A small screen window opens showing Z.A.I.N.E's current state:
-idle / listening / thinking / speaking.
+Usage:
+    python main.py
 """
 
 import os
@@ -16,215 +18,144 @@ import sys
 import time
 import threading
 import requests
+from pathlib import Path
 from dotenv import load_dotenv
 
+# Reconfigure stdout/stderr for full UTF-8 Unicode support on Windows 11
 if sys.platform == "win32":
+    try:
+        os.system("")  # Enable Virtual Terminal Processing in Windows Console
+    except Exception:
+        pass
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
 
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 load_dotenv()
 
-from colorama import init, Fore, Style
 from agent import ZaineAgent
-from voice import listen, speak_sentence
-from wakeword import wait_for_wake_word
-from ui import ZaineUI
+from core_service import CoreService, set_active_core_service
 from heartbeat import heartbeat_daemon
-
-init(autoreset=True)  # makes ANSI colors work correctly on Windows terminals
-ZAINE_NAME = f"{Fore.RED}{Style.BRIGHT}Z.A.I.N.E{Style.RESET_ALL}"
-
-FOLLOW_UP_SECONDS = 10  # how long to keep listening after a response before going idle
-
-agent = ZaineAgent()
-ui = ZaineUI(agent=agent)
-_lock = threading.Lock()  # prevents voice and typed input from talking to the agent at the same time
+from terminal_ui import run_terminal_cli
+import voice
 
 
-def handle_message(user_text: str, source: str = "text") -> bool:
-    clean_text = user_text.strip()
-    if not clean_text:
-        return False
+def ensure_ollama_ready():
+    """Verifies Ollama is responsive; auto-launches with correct OLLAMA_MODELS if offline."""
+    models_dir = r"D:\ollama\models" if Path(r"D:\ollama\models").exists() else None
+    if models_dir and "OLLAMA_MODELS" not in os.environ:
+        os.environ["OLLAMA_MODELS"] = models_dir
 
-    # 1. Check for voice/text shutdown intent
-    lower_check = clean_text.lower().strip()
-    if lower_check in ("exit", "quit", "shutdown", "shut down", "power down", "goodbye zaine", "bye zaine") or "shut down" in lower_check and len(clean_text) < 25:
-        print(f"\nYou ({source}): {clean_text}")
-        print(f"{ZAINE_NAME}: Shutting down systems. Goodbye, Sir.\n")
-        try:
-            speak_sentence("Shutting down systems. Goodbye, Sir.")
-        except Exception:
-            pass
-        os._exit(0)
+    try:
+        r = requests.get("http://127.0.0.1:11434/api/tags", timeout=1.5)
+        if r.status_code == 200:
+            return True
+    except Exception:
+        pass
 
-    # 2. Check for explicit "go idle / sleep / quiet" intent
-    idle_triggers = ["go idle", "go to sleep", "sleep", "be quiet", "stop listening", "stand down", "rest", "don't respond", "dont respond", "quiet"]
-    if any(phrase in lower_check for phrase in idle_triggers):
-        print(f"\nYou ({source}): {clean_text}")
-        ack = "Understood, Sir. Going idle now. Say my name when you need me."
-        print(f"{ZAINE_NAME}: {ack}\n")
-        try:
-            speak_sentence(ack)
-        except Exception:
-            pass
-        ui.set_status("idle")
-        return False  # Immediately skip follow-up and wait for wake word
-
-    # 3. Process normal or tool message
-    heartbeat_daemon.record_activity()
-    with _lock:
-        print(f"\nYou ({source}): {clean_text}")
-        ui.append_message("user", clean_text)
-        ui.set_status("thinking")
-        print(f"{ZAINE_NAME}: ", end="", flush=True)
-
-        first_sentence = True
-        interrupted = False
-        full_assistant_reply = []
-        for sentence in agent.chat_stream(clean_text):
-            if first_sentence:
-                ui.set_status("speaking")
-                first_sentence = False
-            print(f"{sentence}", end=" ", flush=True)
-            full_assistant_reply.append(sentence)
-            completed = speak_sentence(sentence, allow_barge_in=(source == "voice"))
-            if not completed:
-                print(f"\n[{Fore.YELLOW}Barge-In: Speech interrupted by user{Style.RESET_ALL}]")
-                interrupted = True
-                break
-
-        print("\n")
-        if full_assistant_reply:
-            ui.append_message(
-                "assistant",
-                " ".join(full_assistant_reply),
-                tool=getattr(agent, "last_tool_called", None)
-            )
-
-        if interrupted:
-            ui.set_status("idle")
-            return False
-
-    # 4. If a media or playback tool was called, immediately go idle so we don't listen to the music
-    if getattr(agent, "last_tool_called", None) in ("play_on_youtube", "media_control"):
-        print("[Media playing: Dropping to idle to prevent audio interference. Say 'Zaine' to wake]\n")
-        ui.set_status("idle")
-        return False
-
-    return True
-
-
-def voice_loop():
-    while True:
-        # 1. Idle, waiting for the wake word
-        ui.set_status("idle")
-        wait_for_wake_word("zaine")
-
-        # 2. Wake word heard -> check identity (cached if session is fresh < 5m)
-        try:
-            from face_id import check_and_greet
-            ident = check_and_greet()
-            if ident.get("status") == "recognized":
-                print(f"\n[Face-ID Verified]: {ident['name']} ({ident['role'].upper()})")
-            elif ident.get("status") == "unknown":
-                print(f"\n[Face-ID Alert]: Unrecognized visitor -> Operating in Guest Mode")
-        except Exception:
-            pass
-
-        # 3. Listen for the actual command
-        ui.set_status("listening")
-        user_text = listen()
-
-        # 3. Keep cycling: respond, then listen again for a follow-up (no wake word needed)
-        while user_text.strip():
-            should_follow_up = handle_message(user_text, source="voice")
-            if not should_follow_up:
-                break
-            ui.set_status("listening")
-            user_text = listen(duration=FOLLOW_UP_SECONDS)
-
-        # 4. Nothing said in the follow-up window -> drop back to idle / wake-word waiting
-        print("[Going idle, waiting for wake word]\n")
-
-
-def text_loop():
-    print(f"{ZAINE_NAME} is online. Say 'Zaine' or type here. (type 'exit' to quit)\n")
-    while True:
-        try:
-            user_text = input().strip()
-        except (EOFError, KeyboardInterrupt):
-            print(f"\n{ZAINE_NAME}: Shutting down. Bye!")
-            os._exit(0)
-
-        if user_text.lower() in ("exit", "quit"):
-            print(f"{ZAINE_NAME}: Bye!")
-            os._exit(0)
-
-        if user_text.startswith("/"):
+    print("[Z.A.I.N.E]: Local Ollama service offline. Initializing daemon with local models...")
+    try:
+        import subprocess
+        env = os.environ.copy()
+        if models_dir:
+            env["OLLAMA_MODELS"] = models_dir
+        cmd = ["ollama", "serve"]
+        subprocess.Popen(
+            cmd,
+            env=env,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "DETACHED_PROCESS", 0x00000008),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        for _ in range(15):
+            time.sleep(0.5)
             try:
-                from terminal_ui import handle_slash_command
-                handle_slash_command(user_text)
-                continue
+                r = requests.get("http://127.0.0.1:11434/api/tags", timeout=1.0)
+                if r.status_code == 200:
+                    print("[Z.A.I.N.E]: Ollama neural daemon connected and online.")
+                    return True
             except Exception:
-                pass
+                continue
+    except Exception as e:
+        print(f"[Z.A.I.N.E Warning]: Could not auto-launch Ollama: {e}")
+    return False
 
-        if user_text:
-            handle_message(user_text, source="text")
-            ui.set_status("idle")
 
+def main():
+    print("\n[Z.A.I.N.E]: Initializing autonomous neural core...")
 
-if __name__ == "__main__":
-    # 1. Start Core HTTP Service Server
-    print("[Z.A.I.N.E Core]: Starting multi-threaded HTTP server...")
-    ui.start_server()
+    # 0. Ensure Ollama neural backend is online and configured
+    ensure_ollama_ready()
 
-    # 2. Health-check Gate: Poll GET /api/health until confirmed listening (up to 15s bounded window)
-    health_url = f"http://127.0.0.1:{ui.port}/api/health"
+    # 1. Instantiate Core Agent
+    agent = ZaineAgent()
+
+    # 2. Start Headless Core HTTP Service (hosts port 7860 for thin clients)
+    core_service = CoreService(agent=agent, port=7860)
+    core_service.start_server()
+    set_active_core_service(core_service)
+
+    # 3. Fast health verification gate (bounded 3s check)
+    health_url = f"http://127.0.0.1:{core_service.port}/api/health"
     healthy = False
-    max_attempts = 50
-    for attempt in range(1, max_attempts + 1):
+    for _ in range(15):
         try:
-            resp = requests.get(health_url, timeout=1.0)
-            if resp.status_code == 200 and resp.json().get("ok"):
+            r = requests.get(health_url, timeout=0.5)
+            if r.status_code == 200 and r.json().get("ok"):
                 healthy = True
-                print(f"[Z.A.I.N.E Core]: HTTP server verified healthy and listening on port {ui.port} (attempt {attempt}).")
                 break
         except Exception:
-            time.sleep(0.3)
+            time.sleep(0.2)
 
     if not healthy:
-        err_msg = f"[FATAL]: Core HTTP server failed to respond healthy on {health_url} after {max_attempts * 0.3:.1f}s. Halting startup to prevent split-brain state."
-        print(err_msg)
-        ui.stop()
-        raise RuntimeError(err_msg)
+        print(f"[Z.A.I.N.E Warning]: Core service health gate warning on {health_url}. Proceeding with in-process binding.")
 
-    # 3. Start Telegram Bridge in background if configured in .env
-    telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    if telegram_token:
+    # 4. Start Telegram Bridge in background if token is configured
+    tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    if tg_token:
         try:
             from telegram_bridge import TelegramBridge
             bridge = TelegramBridge()
-            threading.Thread(target=bridge.run_polling, daemon=True).start()
+            threading.Thread(target=bridge.run_polling, daemon=True, name="TelegramBridgeThread").start()
             print("[Pocket Zaine]: Telegram background bridge activated.")
         except Exception as e:
             print(f"[Pocket Zaine]: Failed to start Telegram bridge: {e}")
 
-    # 4. Start Proactive Heartbeat Daemon in background
-    heartbeat_daemon.start()
-
-    # 5. Start Voice and Text interaction loops
-    threading.Thread(target=voice_loop, daemon=True).start()
-    threading.Thread(target=text_loop, daemon=True).start()
-
-    # 6. Launch Desktop Window / HUD interface
-    ui.launch_window()
-
-    # Keep main thread alive
+    # 5. Start Proactive Heartbeat Daemon in background
     try:
-        while not ui.stop_event.is_set():
-            time.sleep(0.5)
-    except (KeyboardInterrupt, SystemExit):
-        ui.stop()
+        heartbeat_daemon.start()
+    except Exception as e:
+        print(f"[Heartbeat Sentinel Notice]: {e}")
+
+    # 6. Voice Safety Verification: Voice MUST be explicitly OFF by default
+    voice.disable_voice()
+
+    # 7. Hand over to Terminal / TUI (Primary Authoritative User Interface)
+    try:
+        run_terminal_cli(core_service=core_service)
+    finally:
+        # Graceful Shutdown
+        print("\n[Z.A.I.N.E Core]: Shutting down systems gracefully...")
+        try:
+            voice.disable_voice()
+        except Exception:
+            pass
+        try:
+            heartbeat_daemon.stop()
+        except Exception:
+            pass
+        try:
+            core_service.stop()
+        except Exception:
+            pass
+        print("[Z.A.I.N.E Core]: All systems powered down safely. Standby, Sir.\n")
+
+
+if __name__ == "__main__":
+    main()

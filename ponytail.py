@@ -96,7 +96,7 @@ def extract_ponytail_thinking(response_text: str) -> tuple[str, str]:
 def run_ponytail_coder(
     prompt: str,
     context_code: str = "",
-    model: str = "qwen2.5-coder:3b",
+    model: str = "zaine-coder-7b",
     timeout: int = 120,
 ) -> dict:
     """

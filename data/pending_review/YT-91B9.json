@@ -1,0 +1,39 @@
+{
+  "proposal_id": "YT-91B9",
+  "slot_id": "forced_anime",
+  "slot_label": "Forced (anime)",
+  "genre": "anime",
+  "title": "Rengoku vs Akaza: Set Your Heart Ablaze \ud83d\udd25\ud83d\udca5 #shorts #demonslayer #anime #edit",
+  "description": "The Flame That Never Dies: Kyojuro Rengoku vs Upper Moon 3 Akaza.\n\nCould any other Hashira have survived? Drop your vote! \ud83d\udc47\n\n#demonslayer #rengoku #akaza #kimetsunoyaiba #anime #amv #darkedit #zaineeditz #shorts",
+  "tags": [
+    "Demon Slayer",
+    "Rengoku",
+    "Akaza",
+    "Kimetsu no Yaiba",
+    "Anime Edit",
+    "AMV",
+    "Shorts",
+    "ZaineEditz"
+  ],
+  "category_id": "1",
+  "engagement_question": "Could any other Hashira have held Akaza till sunrise? Drop your thoughts! \ud83d\udd25\ud83d\udc47",
+  "video_path": "C:\\Users\\Mohemad Mateen ullah\\Documents\\projects\\Project-Z\\workspace\\youtube_shorts\\anime_amv_tanjiro_and_rengoku_vs_akaza_dark_phonk_impact_1658.mp4",
+  "metadata_path": "C:\\Users\\Mohemad Mateen ullah\\Documents\\projects\\Project-Z\\workspace\\youtube_shorts\\short_20261011_000127.json",
+  "duration_sec": 45.0,
+  "file_size_mb": 139.95,
+  "optical_flow_climaxes": [
+    5.0,
+    20.0,
+    30.0
+  ],
+  "audio_stems": "Demucs master: drums_of_liberation_ep1071.webm (Phonk bass/drums boosted, dialogue clarity curve)",
+  "editorial_rationale": "Topic 'Tanjiro and Rengoku vs Akaza' selected for peak algorithmic search volume and high viewer retention on anime combat choreography. Farneback dense optical flow detected 3 kinetic climax spikes at [5.0s, 20.0s, 30.0s], used to anchor split-screen transition cuts and rhythm beat drops.",
+  "created_at": "2026-10-11T00:08:10.418524",
+  "created_timestamp": 1791657490.4185247,
+  "status": "PENDING_REVIEW",
+  "reminder_3h_sent": true,
+  "reminder_6h_sent": true,
+  "video_sent": true,
+  "retry_count": 0,
+  "last_retry_timestamp": 1791657490.4185247
+}

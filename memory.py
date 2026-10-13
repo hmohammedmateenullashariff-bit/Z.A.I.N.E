@@ -4,6 +4,7 @@ Combines an in-session sliding window buffer with persistent SQLite storage
 for long-term memories (user profile, preferences, key facts across restarts).
 """
 
+import os
 import sqlite3
 import datetime
 import threading
@@ -58,12 +59,38 @@ def _get_memory_conn():
 
 
 
-def save_memory(key: str, value: str) -> str:
-    """Saves or updates a permanent fact or user preference."""
+def save_memory(
+    key: str,
+    value: str,
+    source: Optional[Any] = None,
+    trust: Optional[Any] = None
+) -> str:
+    """Saves or updates a permanent fact or user preference after policy validation."""
     key = key.strip().lower()
     value = value.strip()
     if not key or not value:
         return "Error: key and value cannot be empty."
+
+    # Policy check: Prevent prompt injection and memory poisoning before SQLite commit
+    try:
+        from memory_manager import MemoryPolicy
+        is_safe, reason = MemoryPolicy.check_safe_text(f"{key} {value}")
+        if not is_safe:
+            print(f"\n[MemoryPolicy Alert]: Blocked malicious memory write ({key}): {reason}")
+            return f"Security Error: Memory write rejected by policy ({reason})."
+    except Exception:
+        pass
+
+    # Resolve source and trust
+    try:
+        from memory_types import MemorySource, TrustLevel
+        if source is None:
+            source = MemorySource.USER
+        if trust is None:
+            trust = TrustLevel.AUTHORITATIVE if source == MemorySource.USER else TrustLevel.PROVISIONAL
+    except ImportError:
+        source = "user"
+        trust = "authoritative"
 
     conn = _get_memory_conn()
     conn.execute(
@@ -76,6 +103,26 @@ def save_memory(key: str, value: str) -> str:
     )
     conn.commit()
     conn.close()
+
+    # Mirror into Obsidian vault via MemoryManager
+    try:
+        from memory_manager import get_memory_manager
+        from memory_types import MemoryType, MemorySource, TrustLevel
+        mm = get_memory_manager()
+        if mm.available:
+            is_pref = any(w in key for w in ["pref", "favorite", "like", "setting", "theme"])
+            mm.create(
+                title=key.replace('_', ' ').title(),
+                content=value,
+                mem_type=MemoryType.PREFERENCE if is_pref else MemoryType.FACT,
+                source=source if isinstance(source, MemorySource) else MemorySource.USER,
+                trust=trust if isinstance(trust, TrustLevel) else TrustLevel.AUTHORITATIVE,
+                tags=[key.replace('_', '-')],
+                source_ref=f"sqlite_memories_{key}",
+            )
+    except Exception:
+        pass
+
     return f"Remembered: '{key}' = '{value}'"
 
 
@@ -109,12 +156,22 @@ def get_all_memories() -> dict:
 
 
 def record_task_learning(task_summary: str, status: str, lesson_learned: str, keywords: str) -> str:
-    """Saves an acquired lesson, pattern, or technical insight from a task execution."""
+    """Saves an acquired lesson, pattern, or technical insight from a task execution after policy validation."""
     task_summary = task_summary.strip()
     lesson_learned = lesson_learned.strip()
     keywords = keywords.strip().lower()
     if not lesson_learned:
         return "Error: lesson_learned cannot be empty."
+
+    # Policy check: Prevent prompt injection and memory poisoning before SQLite commit
+    try:
+        from memory_manager import MemoryPolicy
+        is_safe, reason = MemoryPolicy.check_safe_text(f"{task_summary} {lesson_learned} {keywords}")
+        if not is_safe:
+            print(f"\n[MemoryPolicy Alert]: Blocked malicious lesson ({task_summary}): {reason}")
+            return f"Security Error: Lesson rejected by policy ({reason})."
+    except Exception:
+        pass
 
     conn = _get_memory_conn()
     conn.execute(
@@ -126,6 +183,27 @@ def record_task_learning(task_summary: str, status: str, lesson_learned: str, ke
     )
     conn.commit()
     conn.close()
+
+    # Mirror to Obsidian vault as provisional lesson
+    try:
+        from memory_manager import get_memory_manager
+        from memory_types import MemoryType, MemorySource, TrustLevel
+        mm = get_memory_manager()
+        if mm.available:
+            tags = [k.strip() for k in keywords.split(",") if k.strip()] if keywords else ["lesson"]
+            mm.create(
+                title=f"Lesson: {lesson_learned[:50]}",
+                content=lesson_learned,
+                mem_type=MemoryType.LESSON,
+                source=MemorySource.AGENT_INFERENCE,
+                trust=TrustLevel.PROVISIONAL,
+                tags=tags,
+                context=f"Task: {task_summary[:200]}",
+                evidence=f"Status: {status}",
+            )
+    except Exception:
+        pass
+
     return f"Learned lesson saved: {lesson_learned}"
 
 
@@ -162,11 +240,23 @@ def get_all_learnings(limit: int = 10) -> list:
     return rows
 
 
-def reflect_on_task_async(user_prompt: str, tool_history: list, outcome: str, model_name: str = "qwen2.5:3b"):
+def reflect_on_task_async(user_prompt: str, tool_history: list, outcome: str, model_name: Optional[str] = None):
     """
     Runs in a background thread with an idle grace delay to analyze if an insight
-    or user preference should be permanently committed, without blocking active voice conversation.
+    or user preference should be permanently committed.
+    Guarded by ZAINE_REFLECT flag (default OFF: ZAINE_REFLECT=0).
+    When enabled, runs only after >=10s idle with the reflex model.
     """
+    if os.getenv("ZAINE_REFLECT", "0").lower() not in ("1", "true", "yes"):
+        return
+
+    if not model_name:
+        try:
+            from core_router import router
+            model_name = router.resolve_model(router.reflex_model)
+        except Exception:
+            model_name = "zaine-reflex-7b:latest"
+
     import threading
     import requests
     import json
@@ -181,8 +271,8 @@ def reflect_on_task_async(user_prompt: str, tool_history: list, outcome: str, mo
             if not tool_history or all("system_status" in str(t) for t in tool_history):
                 return
 
-        # Idle grace delay: wait 2.0s so we never collide with immediate follow-up user speech
-        time.sleep(2.0)
+        # Idle grace delay: wait >= 10.0s so we never collide with immediate follow-up user speech or tasks
+        time.sleep(10.0)
 
         prompt = (
             f"Analyze this completed assistant interaction:\n"
@@ -212,13 +302,52 @@ def reflect_on_task_async(user_prompt: str, tool_history: list, outcome: str, mo
                         elif line.startswith("KEYWORDS:"):
                             kw_line = line.replace("KEYWORDS:", "").strip()
                     if lesson_line and "none" not in lesson_line.lower():
+                        # Security gate: validate against prompt injection and memory poisoning
+                        try:
+                            from memory_manager import MemoryPolicy, get_memory_manager
+                            from memory_types import MemoryType, MemorySource, TrustLevel
+                            
+                            is_safe, reason = MemoryPolicy.check_safe_text(f"{lesson_line} {kw_line}")
+                            if not is_safe:
+                                print(f"\n[MemoryPolicy Alert]: Blocked malicious lesson reflection: {reason}")
+                                return
+                            p_safe, p_reason = MemoryPolicy.check_safe_text(user_prompt)
+                            if not p_safe:
+                                print(f"\n[MemoryPolicy Alert]: Blocked reflection due to prompt injection: {p_reason}")
+                                return
+                        except Exception:
+                            pass
+
+                        # Record to SQLite legacy store
                         record_task_learning(
                             task_summary=user_prompt[:150],
                             status="success",
                             lesson_learned=lesson_line,
                             keywords=kw_line or user_prompt[:50],
                         )
-                        print(f"\n[Z.A.I.N.E learned a new lesson]: {lesson_line}")
+                        try:
+                            from terminal_ui import render_learned_notification
+                            render_learned_notification(lesson_line)
+                        except Exception:
+                            pass
+
+                        # Mirror to Obsidian vault as provisional lesson
+                        try:
+                            mm = get_memory_manager()
+                            if mm.available:
+                                tags = [k.strip() for k in kw_line.split(",") if k.strip()] if kw_line else ["reflection"]
+                                mm.create(
+                                    title=f"Lesson: {lesson_line[:50]}",
+                                    content=lesson_line,
+                                    mem_type=MemoryType.LESSON,
+                                    source=MemorySource.AGENT_INFERENCE,
+                                    trust=TrustLevel.PROVISIONAL,
+                                    tags=tags,
+                                    context=f"Triggered by task: {user_prompt[:200]}",
+                                    evidence=f"Outcome: {outcome[:200]}",
+                                )
+                        except Exception:
+                            pass
         except Exception:
             pass
 
@@ -232,7 +361,7 @@ def record_conversation_episode(
     key_points: str,
     keywords: str
 ) -> str:
-    """Inserts a structured episodic narrative summary into conversation_episodes."""
+    """Inserts a structured episodic narrative summary into conversation_episodes and Obsidian vault."""
     topic_summary = topic_summary.strip()
     key_points = key_points.strip()
     keywords = keywords.strip().lower()
@@ -249,6 +378,26 @@ def record_conversation_episode(
     )
     conn.commit()
     conn.close()
+
+    # Mirror to Obsidian vault as derived episode
+    try:
+        from memory_manager import get_memory_manager
+        from memory_types import MemoryType, MemorySource, TrustLevel
+        mm = get_memory_manager()
+        if mm.available:
+            tags = [k.strip() for k in keywords.split(",") if k.strip()] if keywords else ["conversation"]
+            mm.create(
+                title=f"Episode: {topic_summary[:50]}",
+                content=f"Summary: {topic_summary}\n\nKey Points:\n{key_points}",
+                mem_type=MemoryType.EPISODE,
+                source=MemorySource.CONVERSATION,
+                trust=TrustLevel.DERIVED,
+                tags=tags,
+                context=f"Session from {session_start} to {session_end}",
+            )
+    except Exception:
+        pass
+
     return f"Episode recorded: {topic_summary}"
 
 
@@ -370,13 +519,23 @@ def summarize_and_store_episode_async(
     dropped_turns: list,
     session_start: str = "",
     session_end: str = "",
-    model_name: str = "qwen2.5:3b"
+    model_name: Optional[str] = None
 ):
     """
     Asynchronously summarizes outgoing conversation turns pruned on FIFO trim.
-    Applies casual-chat filter to reject trivial exchanges.
+    Reflection default OFF (ZAINE_REFLECT=0). When enabled, runs only after >=10s idle with the reflex model.
     Guarded by a module-level lock and queue to prevent concurrent thread stampedes on Ollama.
     """
+    if os.getenv("ZAINE_REFLECT", "0").lower() not in ("1", "true", "yes"):
+        return
+
+    if not model_name:
+        try:
+            from core_router import router
+            model_name = router.resolve_model(router.reflex_model)
+        except Exception:
+            model_name = "zaine-reflex-7b:latest"
+
     global _EPISODE_THREAD_ACTIVE
 
     with _EPISODE_QUEUE_LOCK:
@@ -419,8 +578,8 @@ def summarize_and_store_episode_async(
                 if all_trivial:
                     continue
 
-                # 2. Idle grace delay: 2.5s to avoid colliding with active speech/turn
-                time.sleep(2.5)
+                # 2. Idle grace delay: >=10s to avoid colliding with active speech or tasks
+                time.sleep(10.0)
 
                 # 3. Build dialogue representation
                 dialogue_lines = []
@@ -532,7 +691,26 @@ class ConversationMemory:
         return [{"role": m["role"], "content": m["content"]} for m in self.history]
 
     def get_persistent_context(self, current_prompt: str = "") -> str:
-        """Formats long-term memories, user profile, relevant task learnings, and episodic conversation history."""
+        """Formats long-term memories, user profile, relevant task learnings, and episodic conversation history.
+        Enforces Memory-Policy.md context budgets and trust annotations via MemoryManager.
+        """
+        try:
+            from memory_manager import get_memory_manager
+            mm = get_memory_manager()
+            if mm.available:
+                context = mm.build_memory_context(current_prompt=current_prompt, include_legacy=True)
+                # First-turn Last Session Recall (Narrative continuity)
+                if not self.session_recalled:
+                    last_ep = get_last_session_episode()
+                    if last_ep and last_ep.get("topic_summary"):
+                        recall_block = f"<narrative_recall>\nLast time we talked about: {last_ep['topic_summary']}\n</narrative_recall>"
+                        context = f"{context}\n\n{recall_block}" if context else recall_block
+                    self.session_recalled = True
+                return context
+        except Exception:
+            pass
+
+        # Fallback to pure SQLite legacy flow if MemoryManager unavailable
         sections = []
 
         # 1. User Profile & Master Directives

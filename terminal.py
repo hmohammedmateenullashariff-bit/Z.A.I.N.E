@@ -13,8 +13,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from terminal_ui import run_terminal_cli, state
+from main import ensure_ollama_ready
 
 if __name__ == "__main__":
+    ensure_ollama_ready()
     # Check for CLI flags e.g. --code, --ultron, --verbose
     args = sys.argv[1:]
     if "--code" in args:
@@ -25,5 +27,8 @@ if __name__ == "__main__":
         state.verbosity = "verbose"
     elif "--compact" in args:
         state.verbosity = "compact"
+    if "--no-animation" in args or "--no-anim" in args:
+        import os
+        os.environ["ZAINE_NO_ANIMATION"] = "1"
 
     run_terminal_cli()

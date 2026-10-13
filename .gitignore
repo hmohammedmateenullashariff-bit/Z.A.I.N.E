@@ -28,6 +28,7 @@ data/youtube_analytics_history.json
 *.db
 *.sqlite3
 *.bak
+*.db.bak
 
 # Voice & Model Weights (Large binary files)
 voices/*.onnx
@@ -43,19 +44,27 @@ models/
 *.pt
 *.task
 *.blend
+*.gguf
 custom_tools/IronHands/
 
 # Runtime Process State
 .zaine_core.json
 
-# Workspace Scratchpad
+# Workspace Scratchpad & Audit
 workspace/
-
-# Large Model Tasks & Weights
-data/youtube_playlists.json
 scratch/
+scratch_audit/*
+!scratch_audit/test_presentation_dry_run.py
+
+# Large Media & Archives
+*.mp4
+*.wav
+*.mp3
+*.zip
+*.tar.gz
 
 # Logs & IDE
+logs/
 .vscode/
 .idea/
 *.log

@@ -93,14 +93,6 @@ class HeartbeatDaemon:
                     except Exception:
                         pass
 
-                # 4. Dispatch to Holographic HUD UI if running
-                try:
-                    import ui
-                    active_ui = ui.get_ui()
-                    if active_ui:
-                        active_ui.append_message("system", f"⏰ REMINDER: {msg}")
-                except Exception:
-                    pass
 
                 mark_reminder_triggered(rid)
                 delivered.append(msg)
@@ -380,13 +372,6 @@ class HeartbeatDaemon:
             except Exception:
                 pass
 
-        try:
-            import ui
-            active_ui = ui.get_ui()
-            if active_ui:
-                active_ui.append_message("system", f"💭 OBSERVATION: Still thinking about {clean_topic}...")
-        except Exception:
-            pass
 
         self.last_proactive_observation_date = today_str
         self.last_proactive_observation_time = now_ts
