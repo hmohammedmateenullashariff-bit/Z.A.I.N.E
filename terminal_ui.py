@@ -14,6 +14,7 @@ Design Rules:
 
 import os
 import sys
+from zaine_env import running_under_tests
 import time
 import json
 import uuid
@@ -141,7 +142,7 @@ def is_animation_enabled() -> bool:
         return True
     if os.environ.get("ZAINE_NO_ANIMATION", "").strip().lower() in ("1", "true", "yes", "on"):
         return False
-    if "unittest" in sys.modules or "pytest" in sys.modules:
+    if running_under_tests():
         return False
     try:
         if not sys.stdout.isatty():
@@ -351,7 +352,7 @@ def sync_core_state(target_url: Optional[str] = None):
         state.core_url = get_core_service_url()
 
     online, _ = check_core_service_health(state.core_url)
-    if not online and not ("unittest" in sys.modules or "pytest" in sys.modules):
+    if not online and not running_under_tests():
         # Auto-boot headless CoreService in-process so standalone CLI is always functional
         try:
             from core_service import get_core_service, CoreService, set_active_core_service

@@ -9,9 +9,20 @@ from textual.app import ComposeResult
 
 from tui.theme import COLOR_EMERALD, COLOR_AMBER, COLOR_TEXT_MUTED, COLOR_TEXT_DIM
 
+IDLE_HINTS = "MODE: HITL guardrails on  ·  /help  /status  /memory  /new  /clear  ·  F2 HUD  ·  F3 graph"
+BUSY_HINTS = "GENERATING  ·  Esc cancels the reply  ·  approvals: y / n or the card buttons  ·  F3 live graph"
+IDLE_PROMPT = "Z.A.I.N.E >> "
+BUSY_PROMPT = "Z.A.I.N.E ·· "
+IDLE_PLACEHOLDER = "Type a prompt or /command (e.g. /help, /status, write a function that…)"
+BUSY_PLACEHOLDER = "Generating… press Esc to cancel"
+
 
 class InputWell(Widget):
-    """Bottom input well with mode hints and prompt field."""
+    """Bottom input well with mode hints and prompt field.
+
+    Hints and prompt are plain text (markup off): with markup on, "[F2]" and "[Esc]" were parsed as
+    style tags and silently disappeared.
+    """
 
     DEFAULT_CSS = """
     InputWell {
@@ -29,14 +40,10 @@ class InputWell(Widget):
         self.is_generating = False
 
     def compose(self) -> ComposeResult:
-        hints_text = "HINTS: /help  /memory  /status  /clear  /exit  ·  [F2] Toggle HUD  ·  [Esc] Clear Focus"
-        yield Static(hints_text, id="input-hints")
+        yield Static(IDLE_HINTS, id="input-hints", markup=False)
         with Horizontal(id="prompt-row"):
-            yield Static("$ zaine > ", id="prompt-label")
-            yield Input(
-                placeholder="Type prompt or /command (e.g. /help, /status, refactor code)...",
-                id="user-input",
-            )
+            yield Static(IDLE_PROMPT, id="prompt-label", markup=False)
+            yield Input(placeholder=IDLE_PLACEHOLDER, id="user-input")
 
     @property
     def input_field(self) -> Input:
@@ -49,14 +56,9 @@ class InputWell(Widget):
             hints = self.query_one("#input-hints", Static)
             label = self.query_one("#prompt-label", Static)
             field = self.query_one("#user-input", Input)
-
-            if generating:
-                hints.update("STREAMING IN PROGRESS · Press [Esc] to cancel stream · [F2] Toggle HUD")
-                label.update("$ zaine [BUSY] > ")
-                field.placeholder = "[GENERATING...] Press Esc to cancel response stream..."
-            else:
-                hints.update("HINTS: /help  /memory  /status  /clear  /exit  ·  [F2] Toggle HUD  ·  [Esc] Clear Focus")
-                label.update("$ zaine > ")
-                field.placeholder = "Type prompt or /command (e.g. /help, /status, refactor code)..."
+            hints.update(BUSY_HINTS if generating else IDLE_HINTS)
+            label.update(BUSY_PROMPT if generating else IDLE_PROMPT)
+            label.styles.color = COLOR_AMBER if generating else COLOR_EMERALD
+            field.placeholder = BUSY_PLACEHOLDER if generating else IDLE_PLACEHOLDER
         except Exception:
             pass

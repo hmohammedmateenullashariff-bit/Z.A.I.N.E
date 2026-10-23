@@ -8,6 +8,8 @@ preventing over-engineering, bloat, and premature abstractions by sequentially
 climbing the 7-Rung Ponytail Decision Ladder.
 """
 
+import os
+import time
 import re
 import requests
 
@@ -112,29 +114,55 @@ def run_ponytail_coder(
     """
     user_content = format_ponytail_user_prompt(prompt, context_code)
 
+    single_model = os.getenv("ZAINE_SINGLE_MODEL", "1").lower() in ("1", "true", "yes")
+    try:
+        from core_router import router
+        effective_model = router.resolve_model(router.reflex_model) if single_model else router.resolve_model(model)
+    except Exception:
+        effective_model = "zaine-reflex-7b:latest" if single_model else model
+    keep_alive_val = -1 if single_model else "5m"
+
     payload = {
-        "model": model,
+        "model": effective_model,
         "messages": [
             {"role": "system", "content": PONYTAIL_SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ],
         "stream": False,
+        "keep_alive": keep_alive_val,
         "options": {
+            "num_ctx": int(os.environ.get("ZAINE_NUM_CTX", "4096")),
             "temperature": 0.2,
             "num_predict": 2048,
         },
     }
 
     try:
+        t0 = time.perf_counter()
         resp = requests.post("http://localhost:11434/api/chat", json=payload, timeout=timeout)
+        wall_time = time.perf_counter() - t0
+        raw_json = resp.json() if resp.status_code == 200 else {}
+        try:
+            from ollama_profiler import log_ollama_call
+            log_ollama_call(
+                caller="ponytail.run_ponytail_coder",
+                model=effective_model,
+                options=payload.get("options"),
+                response_data=raw_json,
+                wall_time_s=wall_time,
+                keep_alive=keep_alive_val,
+            )
+        except Exception:
+            pass
+
         if resp.status_code == 200:
-            content = resp.json().get("message", {}).get("content", "").strip()
+            content = raw_json.get("message", {}).get("content", "").strip()
             thinking, code = extract_ponytail_thinking(content)
             return {
                 "thinking": thinking,
                 "code": code,
                 "full_text": content,
-                "model": model,
+                "model": effective_model,
                 "status": "ok",
             }
         else:

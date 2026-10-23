@@ -260,10 +260,56 @@ def delete_task(task_id: int) -> str:
     return f"Task {task_id} deleted."
 
 
-def get_datetime() -> str:
-    """Return the current date and time, and day of week."""
+_TZ_ALIASES = {
+    "india": "Asia/Kolkata", "mumbai": "Asia/Kolkata", "delhi": "Asia/Kolkata", "new delhi": "Asia/Kolkata",
+    "bangalore": "Asia/Kolkata", "bengaluru": "Asia/Kolkata", "hyderabad": "Asia/Kolkata", "chennai": "Asia/Kolkata",
+    "uae": "Asia/Dubai", "abu dhabi": "Asia/Dubai", "saudi": "Asia/Riyadh", "saudi arabia": "Asia/Riyadh",
+    "mecca": "Asia/Riyadh", "makkah": "Asia/Riyadh", "uk": "Europe/London", "england": "Europe/London",
+    "usa": "America/New_York", "us": "America/New_York", "new york": "America/New_York",
+    "san francisco": "America/Los_Angeles", "california": "America/Los_Angeles", "japan": "Asia/Tokyo",
+    "china": "Asia/Shanghai", "beijing": "Asia/Shanghai", "germany": "Europe/Berlin", "france": "Europe/Paris",
+    "pakistan": "Asia/Karachi", "utc": "UTC", "gmt": "UTC",
+}
+
+
+def _resolve_timezone(place: str):
+    """City, country alias or IANA name -> ZoneInfo (None if unknown)."""
+    import zoneinfo
+    key = " ".join(str(place).strip().lower().replace("_", " ").split())
+    if not key:
+        return None
+    candidates = [_TZ_ALIASES.get(key), str(place).strip()]
+    city = key.replace(" ", "_")
+    candidates += [z for z in zoneinfo.available_timezones() if z.lower().rsplit("/", 1)[-1] == city]
+    for name in candidates:
+        if not name:
+            continue
+        try:
+            return zoneinfo.ZoneInfo(name)
+        except Exception:
+            continue
+    return None
+
+
+def get_datetime(location: str = "", timezone: str = "", locations=None) -> str:
+    """Current date and time (local), plus the time in any requested city, country or IANA time zone."""
     now = datetime.datetime.now()
-    return now.strftime("%A, %Y-%m-%d %H:%M")
+    lines = [f"Local: {now.strftime('%A, %Y-%m-%d %H:%M')}"]
+    places = []
+    for value in (location, timezone):
+        if value:
+            places.append(value)
+    if locations:
+        places.extend(locations if isinstance(locations, (list, tuple)) else [locations])
+    for place in places:
+        tz = _resolve_timezone(str(place))
+        if tz is None:
+            lines.append(f"{place}: unknown location (use a city name or a zone like Asia/Dubai)")
+            continue
+        there = datetime.datetime.now(tz)
+        offset = there.strftime("%z")
+        lines.append(f"{place} ({tz.key}): {there.strftime('%A, %Y-%m-%d %H:%M')} (UTC{offset[:3]}:{offset[3:]})")
+    return "\n".join(lines)
 
 
 def search_web(query: str) -> str:
@@ -337,21 +383,38 @@ def learn_lesson(lesson: str, keywords: str = "") -> str:
 
 # --- Phase 2: Vibe Coding & Desktop Automation Tools ---
 
-WORKSPACE_DIR = (Path(__file__).parent / "workspace").resolve()
+def get_workspace_dir() -> Path:
+    """Returns the active workspace directory, respecting ZAINE_WORKSPACE if configured."""
+    env_ws = os.getenv("ZAINE_WORKSPACE", "").strip()
+    if env_ws:
+        p = Path(env_ws).resolve()
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+    return (Path(__file__).parent / "workspace").resolve()
+
+WORKSPACE_DIR = get_workspace_dir()
 
 
 def _resolve_workspace_path(filepath: str) -> Path:
-    """Safely resolves a filepath inside WORKSPACE_DIR, preventing sandbox escapes and handling redundant workspace prefixes."""
+    """Safely resolves a filepath inside active workspace root, preventing sandbox escapes."""
+    ws = get_workspace_dir()
     clean = str(filepath).strip().replace("\\", "/")
-    if clean.startswith("workspace/"):
+    ws_name = ws.name
+    if clean.startswith(f"{ws_name}/"):
+        clean = clean[len(f"{ws_name}/"):]
+    elif clean.startswith(f"./{ws_name}/"):
+        clean = clean[len(f"./{ws_name}/"):]
+    elif clean.startswith("workspace/"):
         clean = clean[len("workspace/"):]
     elif clean.startswith("./workspace/"):
         clean = clean[len("./workspace/"):]
     elif clean.startswith("./"):
         clean = clean[2:]
 
-    resolved = (WORKSPACE_DIR / clean).resolve()
-    if not str(resolved).startswith(str(WORKSPACE_DIR)):
+    resolved = (ws / clean).resolve()
+    try:
+        resolved.relative_to(ws)
+    except ValueError:
         raise ValueError(f"Access denied: '{filepath}' attempts to leave the workspace sandbox.")
     return resolved
 
@@ -386,13 +449,14 @@ def write_workspace_file(filepath: str, content: str) -> str:
 def list_workspace_files(subfolder: str = "") -> str:
     """Lists all files and folders currently inside the workspace."""
     try:
-        target = _resolve_workspace_path(subfolder) if subfolder else WORKSPACE_DIR
+        ws = get_workspace_dir()
+        target = _resolve_workspace_path(subfolder) if subfolder else ws
         if not target.exists() or not target.is_dir():
             return f"Error: Folder '{subfolder}' does not exist in workspace."
         items = []
         for item in sorted(target.iterdir()):
             suffix = "/" if item.is_dir() else ""
-            rel = item.relative_to(WORKSPACE_DIR)
+            rel = item.relative_to(ws)
             items.append(f"- {rel}{suffix}")
         if not items:
             return "Workspace is empty."
@@ -407,7 +471,7 @@ def run_python_script(script_path: str, args: str = "") -> str:
     import subprocess
     try:
         path = _resolve_workspace_path(script_path)
-        cwd_dir = WORKSPACE_DIR
+        cwd_dir = get_workspace_dir()
         if not path.exists():
             # Check project root fallback
             candidate = (Path(__file__).parent / script_path).resolve()
@@ -515,11 +579,26 @@ def execute_command(command: str) -> str:
         if not ok:
             return f"Security Authorization Failed: {msg}"
 
+    # In ZAINE_DEMO mode, require human approval for EVERY command execution
+    if os.getenv("ZAINE_DEMO", "0").lower() in ("1", "true", "yes"):
+        from approval import require_approval
+        ok, msg = require_approval(
+            action_type="COMMAND",
+            title=f"Execute Command: {cmd[:60]}",
+            description=f"Command execution in demo mode: {cmd}",
+            code_or_cmd=cmd,
+            explanation="Under seminar demonstration mode (ZAINE_DEMO=1), all shell commands require explicit operator authorization.",
+            risk_level="Moderate",
+            tool_name="execute_command",
+        )
+        if not ok:
+            return f"Security Authorization Failed: {msg}"
+
     try:
         res = subprocess.run(
             cmd,
             shell=True,
-            cwd=str(WORKSPACE_DIR),
+            cwd=str(get_workspace_dir()),
             capture_output=True,
             text=True,
             timeout=30,
@@ -580,14 +659,19 @@ def code_assistant(prompt: str, context_code: str = "", use_ponytail: bool = Tru
     """
     if use_ponytail:
         try:
+            import os
+            from core_router import router
             from ponytail import run_ponytail_coder, format_ponytail_output
-            res = run_ponytail_coder(prompt, context_code=context_code)
+            coder_target = router.resolve_model(router.coder_model)
+            res = run_ponytail_coder(prompt, context_code=context_code, model=coder_target)
             if res.get("status") == "ok":
                 return format_ponytail_output(res.get("thinking", ""), res.get("code", ""), include_thinking=show_thinking)
         except Exception as e:
             print(f"[Ponytail Coder Notice]: Falling back to standard coder prompt: {e}")
 
     # Fallback standard coder prompt
+    import os
+    import time
     import requests
     full_prompt = (
         "You are an expert software engineer. Write clean, production-grade code adhering strictly to the user prompt.\n"
@@ -600,17 +684,38 @@ def code_assistant(prompt: str, context_code: str = "", use_ponytail: bool = Tru
     try:
         from core_router import router
         coder_target = router.resolve_model(router.coder_model)
+        single_model = os.getenv("ZAINE_SINGLE_MODEL", "1").lower() in ("1", "true", "yes")
+        keep_alive_val = -1 if single_model else "5m"
+        options_dict = {"num_ctx": int(os.environ.get("ZAINE_NUM_CTX", "4096"))}
+        t0 = time.perf_counter()
         resp = requests.post(
             "http://localhost:11434/api/generate",
             json={
                 "model": coder_target,
                 "prompt": full_prompt,
                 "stream": False,
+                "keep_alive": keep_alive_val,
+                "options": options_dict,
             },
             timeout=120,
         )
+        wall_time = time.perf_counter() - t0
+        raw_json = resp.json() if resp.status_code == 200 else {}
+        try:
+            from ollama_profiler import log_ollama_call
+            log_ollama_call(
+                caller="tools.code_assistant",
+                model=coder_target,
+                options=options_dict,
+                response_data=raw_json,
+                wall_time_s=wall_time,
+                keep_alive=keep_alive_val,
+            )
+        except Exception:
+            pass
+
         if resp.status_code == 200:
-            return resp.json().get("response", "").strip()
+            return raw_json.get("response", "").strip()
         return f"Error from coder engine: {resp.text}"
     except Exception as e:
         return f"Coder engine error: {e}"
@@ -755,6 +860,20 @@ def open_application(app_name: str) -> str:
         else:
             # 3. Windows Shell generic start
             target = f'cmd /c start "" "{app}"'
+
+    # Guardian Protocol: Launching host desktop applications requires human approval
+    from approval import require_approval
+    ok, msg = require_approval(
+        action_type="APP_LAUNCH",
+        title=f"Launch Application: {app_name}",
+        description=f"Desktop application launch request: {app_name}",
+        code_or_cmd=target,
+        explanation=f"Launching application '{app_name}' interacts directly with the desktop host environment.",
+        risk_level="Moderate",
+        tool_name="open_application",
+    )
+    if not ok:
+        return f"Security Authorization Failed: {msg}"
 
     try:
         subprocess.Popen(target, shell=True)
@@ -1656,7 +1775,7 @@ Available tools:
 - get_random_joke() -> tells a witty programmer or general joke
 - get_inspirational_quote() -> shares an inspiring philosophical quote
 - query_public_api(endpoint_url: str, params: dict = None) -> queries any public REST API endpoint from https://github.com/public-apis/public-apis
-- get_datetime() -> returns current date/time
+- get_datetime(location: str = "") -> current local date/time, plus the time in a city/country/time zone if given
 - search_web(query: str) -> searches the web for live facts, current news, names, or info
 - remember(key: str, value: str) -> saves a fact/preference to long-term memory
 - recall(query: str = "") -> recalls saved facts or preferences from long-term memory

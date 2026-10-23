@@ -25,6 +25,26 @@ from typing import Optional, Dict, Tuple, Any
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def _env_flag(name: str, default: str = "0") -> bool:
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes")
+
+
+def core_runtime_config() -> dict:
+    """Settings this core process actually runs with, read from its own environment.
+
+    Launchers compare this with what they asked for: a core started earlier with other settings
+    would otherwise be silently reused (e.g. 7B instead of fast 3B, no demo approvals).
+    """
+    from tools import get_workspace_dir
+    return {
+        "fast": _env_flag("ZAINE_FAST"),
+        "demo": _env_flag("ZAINE_DEMO"),
+        "single_model": _env_flag("ZAINE_SINGLE_MODEL", "1"),
+        "num_ctx": int(os.getenv("ZAINE_NUM_CTX", "4096") or 4096),
+        "workspace": str(get_workspace_dir()),
+    }
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -821,7 +841,11 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
             telem["status"] = status_val
             telem["mode"] = self.core_service.current_mode if self.core_service else "jarvis"
             telem["active_model"] = active_model
+            telem["model_loaded"] = bool(self.core_service.model_loaded) if self.core_service else False
+            telem["warming"] = bool(self.core_service.warming) if self.core_service else False
             telem["port"] = self.core_service.port if self.core_service else 7860
+            telem["pid"] = os.getpid()
+            telem["config"] = core_runtime_config()
             self._send_json(200, telem)
             return
 
@@ -1028,6 +1052,9 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
                     return
                 waited_seconds = round(time.time() - m_req.queued_at, 3)
 
+            if self.core_service and self.core_service.warming:
+                self.core_service.warming_event.wait(timeout=120.0)
+
             if self.core_service:
                 self.core_service.set_status("thinking")
             agent = self.core_service.agent if self.core_service else None
@@ -1134,6 +1161,21 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
                     self.wfile.flush()
                     return
                 waited_seconds = round(time.time() - m_req.queued_at, 3)
+
+            if self.core_service and self.core_service.warming:
+                warming_evt = {
+                    "type": "warming",
+                    "status": "warming",
+                    "request_id": request_id,
+                    "message": "Neural reflex model is warming up...",
+                }
+                self.wfile.write(f"data: {json.dumps(warming_evt)}\n\n".encode("utf-8"))
+                self.wfile.flush()
+                while self.core_service.warming and not self.core_service.stop_event.is_set():
+                    self.wfile.write(b": ping\n\n")
+                    self.wfile.flush()
+                    if self.core_service.warming_event.wait(timeout=2.0):
+                        break
 
             run_evt = {
                 "type": "running",
@@ -1243,6 +1285,7 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
                 "request_id": request_id,
                 "queued": was_queued,
                 "waited_seconds": waited_seconds,
+                "model_calls": getattr(agent, "last_turn_calls", []),
             }
             _coordinator.complete_request(request_id, final_dict)
 
@@ -1280,6 +1323,56 @@ class CoreService:
         self.current_mode: str = "jarvis"
         self.auth_token: str = uuid.uuid4().hex
         self.stop_event = threading.Event()
+        self.model_loaded: bool = False
+        self.warming: bool = False
+        self.warming_event = threading.Event()
+        self.warming_event.set()
+
+    def _start_prewarm(self):
+        """Pre-warms zaine-reflex-7b with keep_alive -1 and empty prompt."""
+        self.warming = True
+        self.model_loaded = False
+        self.warming_event.clear()
+
+        def _worker():
+            try:
+                import time
+                import requests
+                from core_router import router
+                raw_name = getattr(self.agent, "model", None) or router.reflex_model
+                model_name = router.resolve_model(raw_name)
+                options_dict = {"num_ctx": int(os.environ.get("ZAINE_NUM_CTX", "4096"))}
+                payload = {"model": model_name, "prompt": "", "keep_alive": -1, "options": options_dict}
+                t0 = time.perf_counter()
+                resp = requests.post(
+                    "http://127.0.0.1:11434/api/generate",
+                    json=payload,
+                    timeout=120,
+                )
+                wall_time = time.perf_counter() - t0
+                raw_json = resp.json() if resp.status_code == 200 else {}
+                try:
+                    from ollama_profiler import log_ollama_call
+                    log_ollama_call(
+                        caller="core_service.pre_warm",
+                        model=model_name,
+                        options=options_dict,
+                        response_data=raw_json,
+                        wall_time_s=wall_time,
+                        keep_alive=-1,
+                    )
+                except Exception:
+                    pass
+
+                if resp.status_code == 200:
+                    self.model_loaded = True
+            except Exception as e:
+                pass
+            finally:
+                self.warming = False
+                self.warming_event.set()
+
+        threading.Thread(target=_worker, name="ZaineModelPrewarm", daemon=True).start()
 
     def set_status(self, status: str):
         self.current_status = status
@@ -1325,6 +1418,38 @@ class CoreService:
         )
         self.server_thread.start()
         self._write_core_info(status="online")
+        self._start_prewarm()
+        self._start_telegram_bridge()
+
+    def _start_telegram_bridge(self):
+        """Polls Telegram in the background so phone approvals and chats reach this service.
+        approval.py sends approval cards whenever a bot token is set, so without a poller the
+        buttons would never be answered. A socket lock keeps a single poller across processes."""
+        if os.getenv("ZAINE_TELEGRAM", "1").strip().lower() in ("0", "false", "no"):
+            return
+        from zaine_env import running_under_tests
+        if running_under_tests():
+            return
+
+        log_path = PROJECT_ROOT / "data" / "telegram_bridge.log"
+
+        def _log(*args, **kwargs):
+            # The bridge prints on every update; keep that out of the console the TUI draws on.
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + " ".join(str(a) for a in args) + "\n")
+            except Exception:
+                pass
+
+        def _worker():
+            try:
+                import telegram_bridge
+                telegram_bridge.print = _log
+                telegram_bridge.TelegramBridge().run_polling()
+            except Exception as e:
+                _log(f"[CoreService Telegram Notice]: {e}")
+
+        threading.Thread(target=_worker, name="ZaineTelegramBridge", daemon=True).start()
 
     def stop(self):
         """Cleanly shuts down the server and updates .zaine_core.json."""
@@ -1350,3 +1475,17 @@ def set_active_core_service(service: CoreService):
     """Sets the globally active CoreService instance."""
     global _active_core_service
     _active_core_service = service
+
+
+if __name__ == "__main__":
+    svc = CoreService(port=7860)
+    svc.start_server()
+    set_active_core_service(svc)
+    print(f"[CoreService] Running headless daemon on http://127.0.0.1:{svc.port}. Press Ctrl+C to terminate.")
+    try:
+        while not svc.stop_event.is_set():
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n[CoreService] Shutting down...")
+        svc.stop()
+

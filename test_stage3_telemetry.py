@@ -31,6 +31,12 @@ from tui.widgets import AgentStateHUD, InputWell, ChatLog
 class TestStage3Telemetry(unittest.TestCase):
     """Test suite for Stage 3 telemetry, sparklines, and visual sanitization."""
 
+    def setUp(self):
+        import tui.telemetry as tm
+        with tm._lock:
+            tm._throughput_history.clear()
+            tm._throughput_history.extend([0.0] * 8)
+
     def test_01_sparkline_generator_levels(self):
         """Verify make_sparkline accurately maps numeric levels to block characters."""
         # Empty input pads to requested length
@@ -79,12 +85,17 @@ class TestStage3Telemetry(unittest.TestCase):
 
         self.assertIn("AGENT STATE HUD", raw_str)
         self.assertIn("ACTIVE PERSONA", raw_str)
-        self.assertIn("zaine-reflex-7b", raw_str)
-        self.assertIn("INFERENCE & STREAM RATE", raw_str)
-        self.assertIn("Throughput:", raw_str)
-        self.assertIn("HARDWARE TELEMETRY", raw_str)
-        self.assertIn("CPU:", raw_str)
-        self.assertIn("GPU VRAM:", raw_str)
+        # Model is unknown until the core reports it; the HUD must not invent one.
+        self.assertIn("n/a", raw_str)
+        self.assertNotIn("zaine-reflex-7b", raw_str)
+        hud.update_metrics(model="zaine-fast-3b")
+        self.assertIn("zaine-fast-3b", hud.render().plain)
+        self.assertIn("INFERENCE", raw_str)
+        self.assertIn("Throughput", raw_str)
+        self.assertIn("LIVE TRACE", raw_str)
+        self.assertIn("HARDWARE", raw_str)
+        self.assertIn("CPU", raw_str)
+        self.assertIn("VRAM", raw_str)
 
     def test_05_visual_ui_sanitization_audit(self):
         """Verify zero visual occurrences of 'zara' across all tui/ code and widgets."""

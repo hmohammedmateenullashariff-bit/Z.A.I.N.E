@@ -1,0 +1,4 @@
+Z.A.I.N.E Seminar Demonstration Notes:
+1. Low-latency edge inference on RTX 2050 4GB.
+2. Verified Guardian Protocol human-in-the-loop approvals.
+3. Durable vault memory with automatic episodic consolidation.

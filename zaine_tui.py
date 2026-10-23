@@ -4,7 +4,9 @@ Stage 1: Full-screen Textual TUI Skeleton & UI/UX Layout
 Usage: python zaine_tui.py
 """
 
+import os
 import sys
+from zaine_env import running_under_tests
 from pathlib import Path
 
 # Ensure UTF-8 console output on Windows
@@ -36,7 +38,7 @@ def ensure_core_service():
     except Exception:
         online = False
 
-    if not online and not ("unittest" in sys.modules or "pytest" in sys.modules):
+    if not online and not running_under_tests():
         try:
             from core_service import get_core_service, CoreService, set_active_core_service
             active = get_core_service()
@@ -51,9 +53,41 @@ def ensure_core_service():
     return None
 
 
+def wait_for_readiness(timeout: float = 120.0) -> bool:
+    """Waits for CoreService and model pre-warm to complete, printing visible message while waiting."""
+    import time
+    import httpx
+    url = get_core_service_url()
+    start_t = time.time()
+    msg_printed = False
+    while time.time() - start_t < timeout:
+        try:
+            resp = httpx.get(f"{url}/api/status", timeout=2.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                warming = data.get("warming", False)
+                model_loaded = data.get("model_loaded", False)
+                if warming or not model_loaded:
+                    if not msg_printed:
+                        model_label = "zaine-fast-3b" if os.getenv("ZAINE_FAST", "0").lower() in ("1", "true", "yes") else "zaine-reflex-7b"
+                        print(f"[Z.A.I.N.E] Pre-warming reflex model ({model_label})... Waiting for readiness...")
+                        msg_printed = True
+                    time.sleep(0.5)
+                    continue
+                if msg_printed:
+                    print("[Z.A.I.N.E] Reflex model ready.")
+                return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+
 def main() -> None:
     """Launch the Z.A.I.N.E Textual TUI Application."""
     core_svc = ensure_core_service()
+    if not running_under_tests():
+        wait_for_readiness()
     try:
         app = ZaineTUI()
         app.run()

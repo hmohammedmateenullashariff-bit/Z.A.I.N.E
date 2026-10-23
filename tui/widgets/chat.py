@@ -72,7 +72,7 @@ class AssistantTurnCard(Widget):
         self,
         markdown_text: str = "",
         model: str = "zaine-reflex-7b",
-        latency: str = "0.42s",
+        latency: str = "n/a",
         throughput: str = "",
         timestamp: str = "",
         **kwargs
@@ -193,9 +193,16 @@ class ApprovalCard(Widget):
     ApprovalCard {
         height: auto;
         margin: 1 0;
-        background: #0b0f19;
-        border: heavy #f59e0b;
+        background: #111622;
+        border: round #f59e0b;
+        border-title-color: #f59e0b;
+        border-title-style: bold;
         padding: 0 1;
+    }
+    /* Containers default to height 1fr; inside an auto-height card that stretched the card past the
+       viewport and pushed the command and buttons off-screen. */
+    ApprovalCard Vertical, ApprovalCard Horizontal {
+        height: auto;
     }
     ApprovalCard .approval-header {
         color: #f59e0b;
@@ -204,35 +211,44 @@ class ApprovalCard(Widget):
     ApprovalCard .approval-cmd {
         color: #00d2ff;
         text-style: bold;
+        background: #030712;
+        padding: 0 1;
+        margin: 1 0 0 0;
     }
     ApprovalCard .approval-meta {
         color: #64748b;
     }
     ApprovalCard .approval-actions {
-        height: auto;
         layout: horizontal;
         margin-top: 1;
     }
+    ApprovalCard .approval-hint {
+        width: auto;
+        color: #64748b;
+        padding: 1 0 0 1;
+    }
     ApprovalCard Button {
         margin-right: 2;
-        min-width: 14;
+        min-width: 16;
         height: 3;
     }
     ApprovalCard Button#btn-approve {
-        background: #064e3b;
-        color: #00f5a0;
+        background: #00f5a0;
+        color: #030712;
+        text-style: bold;
         border: tall #00f5a0;
     }
     ApprovalCard Button#btn-approve:hover {
-        background: #047857;
+        background: #50ffaf;
     }
     ApprovalCard Button#btn-deny {
-        background: #4c0519;
-        color: #f43f5e;
-        border: tall #f43f5e;
+        background: #0b0f19;
+        color: #f0fdf4;
+        border: tall #475569;
     }
     ApprovalCard Button#btn-deny:hover {
-        background: #9f1239;
+        color: #f43f5e;
+        border: tall #f43f5e;
     }
     ApprovalCard .resolved-badge {
         text-style: bold;
@@ -253,6 +269,7 @@ class ApprovalCard(Widget):
         reason: str = "",
         tool_name: str = "execute_command",
         timestamp: str = "",
+        risk_level: str = "",
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -260,21 +277,26 @@ class ApprovalCard(Widget):
         self.command = command
         self.reason = reason
         self.tool_name = tool_name
+        self.risk_level = risk_level
         self.timestamp = timestamp or datetime.now().strftime("%H:%M:%S")
         self.status = "PENDING"
+        self.border_title = "⛨ EXECUTION GUARDRAIL INTERCEPT"
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Static(f"⚠️ SECURITY APPROVAL REQUIRED: {self.command or self.tool_name}", classes="approval-header")
-            if self.command:
-                yield Static(f"Payload: {self.command}", classes="approval-cmd")
-            if self.reason:
-                yield Static(f"Reason: {self.reason}", classes="approval-meta")
-            yield Static(f"Proposal ID: [bold]{self.proposal_id}[/bold] · Tool: {self.tool_name} [{self.timestamp}]", classes="approval-meta")
+            # Command, reason and tool name come from the model or tool arguments. Render them literally:
+            # with markup on, "[Environment]::..." loses text and "[/]" raises MarkupError.
+            risk = f" · risk {self.risk_level}" if self.risk_level else ""
+            yield Static(f"Z.A.I.N.E requests permission to run {self.tool_name}{risk}", classes="approval-header", markup=False)
+            yield Static(f"$ {self.command}" if self.command else f"$ {self.tool_name}", classes="approval-cmd", markup=False)
+            if self.reason and self.reason != self.command:
+                yield Static(f"Why: {self.reason}", classes="approval-meta", markup=False)
+            yield Static(f"{self.proposal_id} · {self.timestamp} · the same request is on Telegram; first answer wins",
+                         classes="approval-meta", markup=False)
             with Horizontal(classes="approval-actions", id="action-row"):
-                yield Button("[Y] Approve", id="btn-approve", variant="success")
-                yield Button("[N] Deny", id="btn-deny", variant="error")
-                yield Static("Shortcuts: [bold][Y][/bold] / [bold][N][/bold] or type /approve or /deny", classes="approval-meta")
+                yield Button(Text("[Y] Execute"), id="btn-approve", variant="success")
+                yield Button(Text("[N] Reject"), id="btn-deny", variant="error")
+                yield Static("or type y / n", classes="approval-hint", markup=False)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if self.status != "PENDING":
@@ -285,16 +307,21 @@ class ApprovalCard(Widget):
             self.post_message(self.Decision(self.proposal_id, "deny"))
 
     def set_resolved(self, decision: str, note: str = "") -> None:
-        self.status = decision.upper()
+        # Callers pass "approve"/"deny" or a final status such as APPROVED, DENIED, EXPIRED.
+        status = decision.upper()
+        self.status = {"APPROVE": "APPROVED", "DENY": "DENIED"}.get(status, status)
         try:
             row = self.query_one("#action-row")
             row.remove_children()
             if self.status == "APPROVED":
-                badge = Static(f"✓ APPROVED by Operator [{self.proposal_id}] - {note or 'Executing...'}", classes="resolved-badge")
+                badge = Static(f"✓ APPROVED by Operator [{self.proposal_id}] - {note or 'Executing...'}", classes="resolved-badge", markup=False)
                 badge.styles.color = COLOR_EMERALD
-            else:
-                badge = Static(f"✗ DENIED by Operator [{self.proposal_id}] - {note or 'Action Aborted.'}", classes="resolved-badge")
+            elif self.status == "DENIED":
+                badge = Static(f"✗ DENIED by Operator [{self.proposal_id}] - {note or 'Action Aborted.'}", classes="resolved-badge", markup=False)
                 badge.styles.color = COLOR_ROSE
+            else:
+                badge = Static(f"⌛ {self.status} [{self.proposal_id}] - {note or 'Action not executed.'}", classes="resolved-badge", markup=False)
+                badge.styles.color = COLOR_AMBER
             row.mount(badge)
         except Exception:
             pass
@@ -316,42 +343,15 @@ class ChatLog(VerticalScroll):
     def __init__(self, **kwargs):
         super().__init__(id="chat-log", **kwargs)
 
+    WELCOME = (
+        "Type a prompt or a /command. Live state (model, tokens, VRAM) is in the HUD on the right.\n"
+        "F2 toggles the HUD · F3 opens the live execution graph · Esc cancels a reply · /help lists commands."
+    )
+
     def compose(self) -> ComposeResult:
-        # Initial Neural Banner
         yield NeuralBanner()
-
-        # Initial Welcome Demonstration Turn (Diagnostic / Architecture Briefing)
-        yield UserTurnCard(text="system diagnostic status", timestamp="12:00:01")
-
-        yield ReasoningBlock(
-            reasoning_text=(
-                "Deliberating query: 'system diagnostic status'\n"
-                "1. Telemetry Subsystem: Inspecting neural cognitive router and model cluster...\n"
-                "2. Hardware State: NVIDIA GeForce RTX 2050 (4GB VRAM active, thermal guard nominal).\n"
-                "3. Verification: Upgraded Tier 0 Reflex (zaine-reflex-7b) and Tier 1 Coder (zaine-coder-7b) online.\n"
-                "4. Synthesizing system health and architectural briefing card for operator."
-            ),
-            collapsed=False,
-            complete=True
-        )
-
-        yield ToolLine(
-            tool_name="system_status",
-            args_summary="scope='hardware, models, memory'",
-            duration_s=0.03,
-            status="COMPLETED"
-        )
-
-        sample_response = (
-            "**Z.A.I.N.E Neural Engine** is fully operational and synchronized in offline local-first companion mode.\n\n"
-            "### Architecture Overview:\n"
-            "- **Reflex Brain**: `zaine-reflex-7b` (4096 context, optimized low-latency quantized weights)\n"
-            "- **Code Engine**: `zaine-coder-7b` (Ponytail ladder deliberation co-processor)\n"
-            "- **Local Vault**: Persistent Markdown RAG & SQLite smart memories connected\n"
-            "- **Hardware Telemetry**: NVIDIA GeForce RTX 2050 (4GB VRAM active, thermal guard nominal)\n\n"
-            "*All cognitive operations execute 100% locally on your machine with zero external data transmission.*"
-        )
-        yield AssistantTurnCard(markdown_text=sample_response, latency="0.42s", throughput="38.5 tok/s", timestamp="12:00:02")
+        # Real, static guidance only: no simulated turns or invented status claims.
+        yield SystemCard(title="SESSION READY", message=self.WELCOME, level="info")
 
     def add_user_message(self, text: str) -> UserTurnCard:
         """Add a user message card and scroll to bottom."""
@@ -407,14 +407,16 @@ class ChatLog(VerticalScroll):
         proposal_id: str,
         command: str = "",
         reason: str = "",
-        tool_name: str = "execute_command"
+        tool_name: str = "execute_command",
+        risk_level: str = "",
     ) -> ApprovalCard:
         """Add an interactive security approval card and scroll to bottom."""
         card = ApprovalCard(
             proposal_id=proposal_id,
             command=command,
             reason=reason,
-            tool_name=tool_name
+            tool_name=tool_name,
+            risk_level=risk_level,
         )
         self.mount(card)
         self.scroll_end(animate=False)
@@ -424,4 +426,5 @@ class ChatLog(VerticalScroll):
         """Clear chat messages and remount banner."""
         self.remove_children()
         self.mount(NeuralBanner())
+        self.mount(SystemCard(title="SESSION READY", message=self.WELCOME, level="info"))
         self.scroll_home(animate=False)

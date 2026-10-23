@@ -19,11 +19,12 @@ from tool_clusters import classify_intent_clusters, build_clustered_system_promp
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 
+ZAINE_FAST = os.getenv("ZAINE_FAST", "0").lower() in ("1", "true", "yes")
 ZAINE_SINGLE_MODEL = os.getenv("ZAINE_SINGLE_MODEL", "1").lower() in ("1", "true", "yes")
 
-REFLEX_MODEL = "zaine-reflex-7b"
-DEEP_MODEL = "zaine-reflex-7b"
-CODER_MODEL = "zaine-reflex-7b" if ZAINE_SINGLE_MODEL else "zaine-coder-7b"
+REFLEX_MODEL = "zaine-fast-3b" if ZAINE_FAST else "zaine-reflex-7b"
+DEEP_MODEL = "zaine-fast-3b" if ZAINE_FAST else "zaine-reflex-7b"
+CODER_MODEL = "zaine-fast-3b" if ZAINE_FAST else ("zaine-reflex-7b" if ZAINE_SINGLE_MODEL else "zaine-coder-7b")
 VISION_MODEL = "moondream:latest"
 
 # Thread pool for non-blocking parallel tool execution
@@ -34,13 +35,31 @@ class TieredBrainRouter:
     """Orchestrates Tier 0 (Reflex) and Tier 1 (Deep) cognition for sub-second responses."""
 
     def __init__(self):
-        self.single_model = os.getenv("ZAINE_SINGLE_MODEL", "1").lower() in ("1", "true", "yes")
-        self.reflex_model = REFLEX_MODEL
-        self.deep_model = DEEP_MODEL
-        self.coder_model = REFLEX_MODEL if self.single_model else CODER_MODEL
         self.pinned_warm = False
         self._installed_cache = set()
         self._last_cache_check = 0
+
+    @property
+    def fast_mode(self) -> bool:
+        return os.getenv("ZAINE_FAST", "0").lower() in ("1", "true", "yes")
+
+    @property
+    def single_model(self) -> bool:
+        return os.getenv("ZAINE_SINGLE_MODEL", "1").lower() in ("1", "true", "yes")
+
+    @property
+    def reflex_model(self) -> str:
+        return "zaine-fast-3b" if self.fast_mode else REFLEX_MODEL
+
+    @property
+    def deep_model(self) -> str:
+        return "zaine-fast-3b" if self.fast_mode else DEEP_MODEL
+
+    @property
+    def coder_model(self) -> str:
+        if self.fast_mode:
+            return "zaine-fast-3b"
+        return REFLEX_MODEL if self.single_model else CODER_MODEL
 
     def get_installed_models(self) -> set:
         """Fetches installed Ollama models with a 15-second cache to prevent spamming."""
@@ -68,6 +87,7 @@ class TieredBrainRouter:
 
         # Fallback hierarchy for 7B models (3B models purged)
         fallbacks = {
+            "zaine-fast-3b": ["zaine-fast-3b:latest", "qwen2.5:3b"],
             "zaine-coder-7b": ["zaine-coder-7b:latest", "qwen2.5-coder:7b-instruct-q3_K_M", "qwen2.5-coder:7b", "zaine-reflex-7b:latest"],
             "zaine-reflex-7b": ["zaine-reflex-7b:latest", "qwen2.5:7b-instruct-q3_K_M", "qwen2.5:7b"],
             "deepseek-r1:7b": ["deepseek-r1:7b", "zaine-reflex-7b:latest", "qwen2.5:7b-instruct-q3_K_M"],
@@ -97,14 +117,32 @@ class TieredBrainRouter:
     def pin_reflex_in_vram(self) -> bool:
         """Sends a zero-shot ping with keep_alive=-1 to permanently lock Tier 0 into VRAM."""
         try:
+            num_ctx_val = int(os.environ.get("ZAINE_NUM_CTX", "4096"))
+            options_dict = {"num_ctx": num_ctx_val, "num_predict": 1}
+            effective_model = self.resolve_model(self.reflex_model)
             payload = {
-                "model": self.reflex_model,
+                "model": effective_model,
                 "messages": [{"role": "system", "content": "system online"}],
                 "stream": False,
                 "keep_alive": -1,
-                "options": {"num_predict": 1}
+                "options": options_dict
             }
+            t0 = time.perf_counter()
             resp = requests.post(OLLAMA_URL, json=payload, timeout=10)
+            wall_time = time.perf_counter() - t0
+            raw_json = resp.json() if resp.status_code == 200 else {}
+            try:
+                from ollama_profiler import log_ollama_call
+                log_ollama_call(
+                    caller="core_router.pin_reflex_in_vram",
+                    model=self.reflex_model,
+                    options=options_dict,
+                    response_data=raw_json,
+                    wall_time_s=wall_time,
+                    keep_alive=-1,
+                )
+            except Exception:
+                pass
             self.pinned_warm = (resp.status_code == 200)
             return self.pinned_warm
         except Exception:

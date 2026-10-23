@@ -194,13 +194,23 @@ def get_vault_stats() -> Dict[str, Any]:
         }
 
 
+_tool_count_cache: Optional[Any] = None
+
+
 def get_tool_registry_count() -> Any:
-    """Returns real count of registered tools, or 'n/a' if unavailable."""
-    try:
-        from tools import TOOL_REGISTRY
-        return len(TOOL_REGISTRY)
-    except Exception:
-        return "n/a"
+    """Count of tools the agent can be offered (unique names across tool_clusters).
+
+    Read from tool_clusters rather than importing tools.py: that import loads custom tools and
+    pyautogui into the TUI process, and footer/HUD call this on every render.
+    """
+    global _tool_count_cache
+    if _tool_count_cache is None:
+        try:
+            from tool_clusters import TOOL_CLUSTERS
+            _tool_count_cache = len({t for c in TOOL_CLUSTERS.values() for t in c.get("tools", [])})
+        except Exception:
+            return "n/a"
+    return _tool_count_cache
 
 
 def poll_hardware_telemetry() -> TelemetrySnapshot:

@@ -8,6 +8,7 @@ dynamic long-term memory injection, and self-healing tool calling.
 import os
 import json
 import re
+import inspect
 import threading
 import requests
 import time
@@ -57,6 +58,58 @@ def is_coding_intent(prompt: str) -> bool:
     ]
     prompt_lower = prompt.lower()
     return any(kw in prompt_lower for kw in coding_keywords)
+
+
+def is_plain_code_request(prompt: str) -> bool:
+    """Detects if the user prompt is asking to write a standalone function or snippet directly in conversation."""
+    p = prompt.strip().lower()
+    triggers = [
+        "write a function",
+        "write a python function",
+        "write python function",
+        "create a function",
+        "implement a function",
+        "write an algorithm",
+        "write code to",
+        "write a script to",
+        "generate a function",
+        "how to write a function",
+        "write a program to",
+    ]
+    return any(trig in p for trig in triggers)
+
+
+def derive_model_display_name(model_name: str) -> str:
+    """Derives human-readable model name and parameter size from active model identifier."""
+    if not model_name:
+        return "Qwen2.5 (3B)"
+    m_lower = model_name.lower().split(":")[0]
+    full_lower = model_name.lower()
+
+    # Extract parameter size: e.g. 0.5b, 1.5b, 3b, 7b, 8b, 14b, 32b, 70b
+    size_match = re.search(r'(\d+(?:\.\d+)?b)', full_lower)
+    size_str = size_match.group(1).upper() if size_match else ""
+
+    # Derive architecture / family
+    if "coder" in full_lower:
+        family = "Qwen2.5-Coder"
+    elif "deepseek-r1" in full_lower or "r1" in full_lower:
+        family = "DeepSeek-R1"
+    elif "qwen2.5" in full_lower or "zaine-fast" in full_lower or "zaine-reflex" in full_lower:
+        family = "Qwen2.5"
+    elif "qwen" in full_lower:
+        family = "Qwen"
+    elif "llama" in full_lower:
+        family = "Llama"
+    elif "mistral" in full_lower:
+        family = "Mistral"
+    else:
+        base = m_lower.replace("zaine-", "")
+        family = base.capitalize()
+
+    if size_str:
+        return f"{family} ({size_str})"
+    return family
 
 
 def is_biometric_identity_intent(prompt: str) -> bool:
@@ -332,6 +385,7 @@ class ZaineAgent:
         self.memory = ConversationMemory()
         self.last_tool_called = None
         self.ultron_mode = False
+        self.last_turn_calls = []
         # Pre-warm and permanently pin Tier 0 Reflex Core into GPU VRAM
         try:
             router.pin_reflex_in_vram()
@@ -925,10 +979,25 @@ class ZaineAgent:
         fn = TOOL_REGISTRY.get(name)
         if fn is None:
             return f"Error: unknown tool '{raw_name}'"
+
+        # Local models often add arguments a tool does not take (e.g. get_datetime(locations=[...])),
+        # which used to crash the call with a TypeError. Drop them and say so in the result, so the
+        # model sees what was ignored; missing required arguments still fail as before.
+        ignored = []
         try:
-            return str(fn(**args))
+            params = inspect.signature(fn).parameters
+            if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+                ignored = [k for k in args if k not in params]
+                args = {k: v for k, v in args.items() if k in params}
+        except (TypeError, ValueError):
+            pass
+        try:
+            result = str(fn(**args))
         except Exception as e:
             return f"Error running tool '{name}': {e}"
+        if ignored:
+            result += f"\n[note: ignored unsupported argument(s) for {name}: {', '.join(ignored)}]"
+        return result
 
     def chat_stream(self, user_message: str, on_tool_event=None):
         """
@@ -1013,15 +1082,14 @@ class ZaineAgent:
         except Exception:
             active_user = None
 
+        self.last_turn_calls = []
+        is_demo = os.getenv("ZAINE_DEMO", "0").strip().lower() in ("1", "true", "yes")
+        is_plain_code = is_demo and is_plain_code_request(user_message)
+
         # Dynamic lean tool clustering (reduces prompt from 2500 -> 350 tokens)
         active_clusters = classify_intent_clusters(user_message)
-        system_prompt = build_clustered_system_prompt(
-            self.memory.get_persistent_context(current_prompt=user_message),
-            ultron_mode=self.ultron_mode,
-            active_clusters=active_clusters,
-            active_user=active_user
-        )
-        messages = [{"role": "system", "content": system_prompt}] + self.memory.get_messages()
+        if is_plain_code:
+            active_clusters = [c for c in active_clusters if c != "DEV_CODE"]
 
         # Route to appropriate cognitive tier with dynamic installation resolver
         if task_tier == "DEEP_CODE":
@@ -1037,21 +1105,41 @@ class ZaineAgent:
             except Exception:
                 pass
 
+        system_prompt = build_clustered_system_prompt(
+            self.memory.get_persistent_context(current_prompt=user_message),
+            ultron_mode=self.ultron_mode,
+            active_clusters=active_clusters,
+            active_user=active_user
+        )
+        if is_demo:
+            model_display = derive_model_display_name(active_model)
+            system_prompt += "\nAnswer concisely and directly within 1-2 paragraphs without conversational filler."
+            system_prompt += f"\nYou run locally on {model_display} through Ollama on an NVIDIA RTX 2050 4GB laptop."
+        if is_plain_code:
+            system_prompt += "\nProvide the requested code implementation directly in a clean markdown code block with minimal essential docstrings. Do NOT call external tools."
+
+        messages = [{"role": "system", "content": system_prompt}] + self.memory.get_messages()
+
         max_tool_hops = 6  # Allows write -> run -> debug -> verify loops
         hops = 0
         executed_tool_history = []
 
         while hops < max_tool_hops:
+            num_predict_val = 300 if is_demo else (2048 if self.ultron_mode else 1024)
+            keep_alive_val = -1 if (is_demo or ZAINE_SINGLE_MODEL or active_model == router.reflex_model or "reflex" in active_model.lower()) else "5m"
+            num_ctx_val = int(os.environ.get("ZAINE_NUM_CTX", "4096"))
             payload = {
                 "model": active_model,
                 "messages": messages,
                 "stream": True,
-                "keep_alive": -1 if active_model == router.reflex_model else "5m",
+                "keep_alive": keep_alive_val,
                 "options": {
-                    "num_predict": 2048 if self.ultron_mode else 1024,
+                    "num_ctx": num_ctx_val,
+                    "num_predict": num_predict_val,
                     "temperature": 0.4 if self.ultron_mode else 0.55,
                 },
             }
+            t_call_start = time.perf_counter()
             try:
                 resp = requests.post(OLLAMA_URL, json=payload, stream=True, timeout=60)
                 resp.raise_for_status()
@@ -1060,6 +1148,7 @@ class ZaineAgent:
                 if active_model != MODEL_NAME:
                     try:
                         payload["model"] = MODEL_NAME
+                        t_call_start = time.perf_counter()
                         resp = requests.post(OLLAMA_URL, json=payload, stream=True, timeout=120)
                         resp.raise_for_status()
                         active_model = MODEL_NAME
@@ -1091,6 +1180,43 @@ class ZaineAgent:
                     chunk = json.loads(line)
                 except Exception:
                     continue
+
+                if chunk.get("done"):
+                    call_wall = time.perf_counter() - t_call_start
+                    call_metrics = {
+                        "model": active_model,
+                        "hop": hops,
+                        "load_duration": chunk.get("load_duration", 0),
+                        "load_duration_s": round(chunk.get("load_duration", 0) / 1e9, 3),
+                        "prompt_eval_count": chunk.get("prompt_eval_count", 0),
+                        "prompt_eval_duration": chunk.get("prompt_eval_duration", 0),
+                        "prompt_eval_duration_s": round(chunk.get("prompt_eval_duration", 0) / 1e9, 3),
+                        "eval_count": chunk.get("eval_count", 0),
+                        "eval_duration": chunk.get("eval_duration", 0),
+                        "eval_duration_s": round(chunk.get("eval_duration", 0) / 1e9, 3),
+                        "total_duration": chunk.get("total_duration", 0),
+                        "total_duration_s": round(chunk.get("total_duration", 0) / 1e9, 3),
+                        "wall_time_s": round(call_wall, 2),
+                    }
+                    self.last_turn_calls.append(call_metrics)
+                    try:
+                        from ollama_profiler import log_ollama_call
+                        log_ollama_call(
+                            caller=f"agent.chat_stream(hop_{hops})",
+                            model=active_model,
+                            options=payload.get("options"),
+                            response_data=chunk,
+                            wall_time_s=call_wall,
+                            keep_alive=keep_alive_val,
+                        )
+                    except Exception:
+                        pass
+                    if on_tool_event:
+                        try:
+                            on_tool_event("profiler", active_model, call_metrics)
+                        except Exception:
+                            pass
+
                 token = chunk.get("message", {}).get("content", "")
                 if not token:
                     continue

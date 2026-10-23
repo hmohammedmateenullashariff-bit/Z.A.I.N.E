@@ -49,9 +49,9 @@ class ToolLine(Widget):
 
         if self.status == "COMPLETED":
             status_color = COLOR_EMERALD
-        elif self.status == "RUNNING":
+        elif self.status in ("RUNNING", "AWAITING APPROVAL", "CANCELLED"):
             status_color = COLOR_AMBER
-        elif self.status == "FAILED":
+        elif self.status in ("FAILED", "BLOCKED"):
             status_color = COLOR_ROSE
         else:
             status_color = COLOR_CYAN
@@ -60,7 +60,7 @@ class ToolLine(Widget):
 
         return Panel(
             t,
-            border_style=COLOR_CYAN,
+            border_style=status_color if self.status in ("FAILED", "BLOCKED") else COLOR_CYAN,
             style=f"on {COLOR_SURFACE}",
             padding=(0, 1)
         )

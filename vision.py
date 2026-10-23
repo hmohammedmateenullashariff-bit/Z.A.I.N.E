@@ -129,9 +129,24 @@ def analyze_image_with_ollama(base64_image: str, prompt: str = "Describe what yo
     }
 
     try:
+        t0 = time.perf_counter()
         resp = requests.post(OLLAMA_GENERATE_URL, json=payload, timeout=60)
+        wall_time = time.perf_counter() - t0
+        data = resp.json() if resp.status_code == 200 else {}
+        try:
+            from ollama_profiler import log_ollama_call
+            log_ollama_call(
+                caller="vision.analyze_image",
+                model=VISION_MODEL,
+                options=payload.get("options"),
+                response_data=data,
+                wall_time_s=wall_time,
+                keep_alive=payload.get("keep_alive"),
+            )
+        except Exception:
+            pass
+
         if resp.status_code == 200:
-            data = resp.json()
             return data.get("response", "").strip()
         else:
             return f"Ollama Vision API error: {resp.status_code} - {resp.text}"

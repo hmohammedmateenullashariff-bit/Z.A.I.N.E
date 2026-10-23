@@ -70,9 +70,25 @@ def get_cpu_embedding(text: str) -> Optional[List[float]]:
         }
     }
     try:
+        t0 = time.perf_counter()
         resp = requests.post(url, json=payload, timeout=15)
+        wall_time = time.perf_counter() - t0
+        raw_json = resp.json() if resp.status_code == 200 else {}
+        try:
+            from ollama_profiler import log_ollama_call
+            log_ollama_call(
+                caller="embeddings.get_cpu_embedding",
+                model=EMBEDDING_MODEL,
+                options=payload.get("options"),
+                response_data=raw_json,
+                wall_time_s=wall_time,
+                keep_alive=payload.get("keep_alive"),
+            )
+        except Exception:
+            pass
+
         if resp.status_code == 200:
-            emb = resp.json().get("embedding", [])
+            emb = raw_json.get("embedding", [])
             if emb:
                 return emb
     except Exception as e:

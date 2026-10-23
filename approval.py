@@ -303,12 +303,17 @@ class ApprovalRegistry:
         now = time.time()
         with _lock:
             conn = _get_db()
-            conn.execute(
-                "UPDATE proposals SET status='APPROVED', resolved_at=?, resolution_note=? WHERE id=?",
+            # Re-check PENDING inside the UPDATE: the waiter may have expired/cancelled it, or the
+            # TUI and Telegram may approve at the same moment. Only the first write wins.
+            cur = conn.execute(
+                "UPDATE proposals SET status='APPROVED', resolved_at=?, resolution_note=? WHERE id=? AND status='PENDING'",
                 (now, note, clean_id),
             )
             conn.commit()
             conn.close()
+            if cur.rowcount == 0:
+                current = ApprovalRegistry.get_proposal(clean_id)
+                return False, f"Proposal '{clean_id}' is already {current['status'] if current else 'gone'}."
 
             cb = _action_callbacks.pop(clean_id, None)
 
@@ -336,15 +341,32 @@ class ApprovalRegistry:
         now = time.time()
         with _lock:
             conn = _get_db()
-            conn.execute(
-                "UPDATE proposals SET status='DENIED', resolved_at=?, resolution_note=? WHERE id=?",
+            cur = conn.execute(
+                "UPDATE proposals SET status='DENIED', resolved_at=?, resolution_note=? WHERE id=? AND status='PENDING'",
                 (now, note, clean_id),
             )
             conn.commit()
             conn.close()
+            if cur.rowcount == 0:
+                current = ApprovalRegistry.get_proposal(clean_id)
+                return False, f"Proposal '{clean_id}' is already {current['status'] if current else 'gone'}."
             _action_callbacks.pop(clean_id, None)
 
         return True, f"[DENIED] Proposal {clean_id} ('{prop['title']}') denied per Sir's directive. Action aborted."
+
+    @staticmethod
+    def _close_if_pending(clean_id: str, status: str, note: str) -> None:
+        """Marks a still-PENDING proposal EXPIRED/CANCELLED once its waiter has given up,
+        so a late Approve tap reports the real outcome instead of a success that runs nothing."""
+        with _lock:
+            conn = _get_db()
+            conn.execute(
+                "UPDATE proposals SET status=?, resolved_at=?, resolution_note=? WHERE id=? AND status='PENDING'",
+                (status, time.time(), note, clean_id),
+            )
+            conn.commit()
+            conn.close()
+            _action_callbacks.pop(clean_id, None)
 
     @staticmethod
     def wait_for_decision(
@@ -372,6 +394,7 @@ class ApprovalRegistry:
                     from coordinator import get_request_coordinator
                     coord = get_request_coordinator()
                     if coord.is_request_cancelled(req_id):
+                        ApprovalRegistry._close_if_pending(clean_id, "CANCELLED", "Request cancelled before a decision")
                         return "CANCELLED", f"Request {req_id} cancelled by coordinator."
                 except Exception:
                     pass
@@ -396,15 +419,22 @@ class ApprovalRegistry:
                             "waited": round(now - start_time, 1),
                         })
                         if keep_going is False:
+                            ApprovalRegistry._close_if_pending(clean_id, "CANCELLED", "Client disconnected before a decision")
                             return "CANCELLED", "Client disconnected during approval wait."
                     except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError, OSError):
+                        ApprovalRegistry._close_if_pending(clean_id, "CANCELLED", "Client disconnected before a decision")
                         return "CANCELLED", "Client socket disconnected."
                     except Exception:
                         pass
 
             time.sleep(poll_interval)
 
-        return "TIMEOUT", f"Approval request for {clean_id} timed out after {timeout_seconds}s. Action remains PENDING."
+        ApprovalRegistry._close_if_pending(clean_id, "EXPIRED", f"No decision within {timeout_seconds}s")
+        # A decision may have landed between the last poll and the expiry write.
+        final = ApprovalRegistry.get_proposal(clean_id)
+        if final and final["status"] in ("APPROVED", "DENIED"):
+            return final["status"], final["resolution_note"]
+        return "TIMEOUT", f"Approval request for {clean_id} expired after {timeout_seconds}s without a decision."
 
 
 def require_approval(
@@ -441,5 +471,5 @@ def require_approval(
     elif status == "CANCELLED":
         return False, f"Cancelled: {msg}"
     else:
-        return False, f"Pending authorization (ID: {action_id}). Awaiting Sir's response."
+        return False, f"Expired: no decision on {action_id} within {timeout_seconds}s. Action not executed."
 

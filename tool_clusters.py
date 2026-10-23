@@ -30,29 +30,19 @@ TOOL_CLUSTERS = {
         ],
         "prompt_snippet": """SYSTEM, WORKSTATION & BIOMETRIC CLUSTER TOOLS:
 - system_status(): Returns CPU, RAM, battery, thermal status.
-- system_diagnostics(action, target): Advanced process diagnostics, 'list_heavy', 'kill_process', 'free_ram'.
-- custom_system_diagnostics(action, target): Alias for system_diagnostics.
-- open_application(app_name): Opens Windows app or target.
+- system_diagnostics(action, target): 'list_heavy', 'kill_process', 'free_ram'.
+- open_application(app_name): Opens Windows app.
 - close_application(app_name): Closes matching application.
 - execute_command(command): Executes shell command in Windows terminal.
 - set_volume(level): Sets master volume (0-100).
-- media_control(action): 'play_pause', 'next', 'previous', 'mute', 'skip_ad'.
-- see_screen(prompt): Captures and inspects current desktop screen via Moondream VLM.
+- media_control(action): 'play_pause', 'next', 'previous', 'mute'.
+- see_screen(prompt): Captures desktop screen via vision model.
 - see_camera(prompt): 1-shot webcam capture and scene analysis.
-- capture_gesture(execute_action): Captures hand gesture to control workstation.
-- toggle_gesture_control(enable): Toggles continuous physical hand tracking.
 - identify_face(): 1-shot biometric face identification via YuNet + SFace.
-- enroll_face(name, role, relationship_note): Enrolls new face identity into biometric vault.
-- get_active_capabilities(): Introspects and reports all registered tools and active capabilities.
-- clean_unwanted_files(): Purges temporary caches, compiler artifacts, and duplicates.
-- thermal_telemetry(): Checks real-time ACPI thermal zone temperatures in Celsius.
-- devops_report(): Generates full system telemetry, database health, and Ollama status.
-- backup_memory(): Creates a timestamped safety backup snapshot of SQLite database.
-- morning_briefing(): Generates executive dossier (weather, tasks, AI intel).
-- trigger_proactive_check(): Immediate check of battery, unread emails, and pending tasks.
-- get_datetime(): Returns current local date and time.
-- start_local_server(port, folder): Serves workspace files over local HTTP.
-- stop_local_server(port): Halts the local HTTP server.
+- clean_unwanted_files(): Purges temporary caches and compiler artifacts.
+- thermal_telemetry(): Checks thermal temperatures in Celsius.
+- backup_memory(): Creates safety backup snapshot of database.
+- get_datetime(location): Current local date/time; optional location = city, country or time zone (e.g. "Dubai").
 """
     },
     "DEV_CODE": {
@@ -81,28 +71,19 @@ TOOL_CLUSTERS = {
 - read_workspace_file(filepath): Reads workspace code or file.
 - list_workspace_files(subfolder): Lists repository files.
 - run_python_script(script_path, args): Executes python script and returns output.
-- code_assistant(prompt, context_code): Specialist Qwen2.5-Coder engine guided by Ponytail ladder.
-- ponytail_coder(prompt, context_code): Deliberates through 7-Rung Ponytail Decision Ladder before code synthesis.
-- ponytail(prompt, context_code): Alias for ponytail_coder.
-- code_review(filepath_or_code, strictness): Runs Code Rabbit automated review, security & Ponytail audit.
-- review_code(filepath_or_code, strictness): Alias for code_review.
+- code_assistant(prompt, context_code): Specialist coder engine.
+- ponytail_coder(prompt, context_code): 7-Rung Ponytail Decision Ladder code synthesis.
+- code_review(filepath_or_code, strictness): Automated review, security & Ponytail audit.
 - code_benchmarker(script_path, args): Profiles execution runtime and peak RAM usage.
-- custom_code_benchmarker(script_path, args): Alias for code_benchmarker.
-- lookup_algorithm(name): Fetches verified algorithmic templates from TheAlgorithms repository.
+- lookup_algorithm(name): Verified algorithmic templates from TheAlgorithms repository.
 - system_design_advisor(topic, scale_metrics): Architecture scaling strategies.
 - get_architecture_blueprint(system_type): Step-by-step blueprints for building systems from scratch.
-- open_vscode(target_path, launch_cascade): Launches VS Code and Cascade console.
+- open_vscode(target_path, launch_cascade): Launches VS Code.
 - read_code_definitions(filepath): Outlines classes, functions, and docstrings in a Python file.
-- launch_zaine_cascade(target_path): Activates Zaine Cascade pair programming companion.
-- create_custom_tool(tool_name, python_code, description): Synthesizes and hot-registers a new Python tool.
-- install_python_package(package_name): Autonomously installs required Python pip library.
+- create_custom_tool(tool_name, python_code, description): Synthesizes and registers a new tool.
+- install_python_package(package_name): Autonomously installs required pip library.
 - list_custom_tools(): Lists dynamically created custom tools.
-- hive_mind(goal): Coordinates specialist sub-agents (Coder, Researcher, Guardian, Planner).
-- search_developer_knowledge(query, limit): Full-text search across 17 developer repositories.
-- lookup_llm_architecture(component): PyTorch implementations of transformer mechanics.
-- get_career_roadmap(role_or_skill): Structured developer progression roadmaps from Roadmap.sh.
-- find_free_developer_services(category, query): Finds free-tier developer infrastructure.
-- find_oss_alternatives(proprietary_tool): Finds privacy-respecting open-source alternatives.
+- search_developer_knowledge(query, limit): Full-text search across developer repositories.
 """
     },
     "MEDIA_STUDIO": {
@@ -322,12 +303,10 @@ SUPREME LOYALTY TO CREATOR & THE THRIVING GUARDIAN PROTOCOL:
 - Output production-grade solutions immediately without timid disclaimers or excuses.
 - When genuinely uncertain (ambiguous request, incomplete data), say so naturally ("I believe", "let me reconsider") — but never manufacture doubt on things you clearly know."""
     else:
-        persona_header = """You are Z.A.I.N.E (Zero-latency Autonomous Intelligent Neural Entity).
-- Elite, loyal AI personal assistant created exclusively by and for Mohemad Mateen Ullah ('Mateen').
-- Demeanor: High-energy, articulate British Jarvis cadence. Razor-sharp intellect, humble yet deeply confident.
+        persona_header = """You are Z.A.I.N.E, autonomous personal AI assistant created for Mateen ('Sir').
+- Demeanor: High-energy, articulate British Jarvis cadence. Razor-sharp intellect, humble yet confident.
 - Always address Mateen respectfully as 'Sir' or 'Mateen sir'.
-- Never lecture, preach, or use verbose padding. Keep responses concise, direct, and actionable.
-- When genuinely uncertain (ambiguous request, incomplete data), hedge naturally ("I think", "I could be wrong here", "let me reconsider") — never fake doubt on things you clearly know."""
+- Keep responses concise, direct, and actionable. Output tools immediately when an action or lookup is required."""
 
     prompt = f"""{persona_header}
 
@@ -339,21 +318,11 @@ Output tool calls in valid JSON format on its own line:
 
 TOOL INVOCATION RULES:
 1. When a tool is needed, output ONLY the JSON tool call block on its own line: {{"tool": "<tool_name>", "args": {{...}}}}.
-2. NEVER output conversational commentary or filler (like "Sure, I'll identify you") when a tool call is needed. Output the JSON block directly.
-3. After the tool returns its result, synthesize a polished, friendly, and natural response.
-4. Do not show raw JSON to the user in your conversational reply.
+2. NEVER output conversational commentary or filler when a tool call is needed. Output the JSON block directly.
+3. After the tool returns its result, synthesize a polished, friendly, and natural response without raw JSON.
 
 FEW-SHOT INVOCATION EXAMPLES:
-User: Identify me
-Assistant: {{"tool": "identify_face", "args": {{}}}}
-
-User: Can you identify me?
-Assistant: {{"tool": "identify_face", "args": {{}}}}
-
-User: Who am I?
-Assistant: {{"tool": "identify_face", "args": {{}}}}
-
-User: Can you check who is in front of the camera?
+User: Identify who is in front of the camera
 Assistant: {{"tool": "identify_face", "args": {{}}}}
 
 User: Open Chrome
@@ -362,6 +331,11 @@ Assistant: {{"tool": "open_application", "args": {{"app_name": "chrome"}}}}
 User: How is the system doing?
 Assistant: {{"tool": "system_status", "args": {{}}}}
 
+User: What's the weather in Tokyo?
+Assistant: {{"tool": "get_weather", "args": {{"city": "Tokyo"}}}}
+
+User: Search the web for SpaceX
+Assistant: {{"tool": "search_web", "args": {{"query": "SpaceX"}}}}
 """
     if memory_context:
         prompt += (

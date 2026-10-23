@@ -197,7 +197,12 @@ OBSIDIAN_VAULT_PATH="D:\Z.A.I.N.E vault"
 └── tests/
     ├── test_cli_architecture.py   # CLI decoupling & voice isolation tests (18 tests)
     └── test_memory_subsystem.py    # Memory security, migration & vault tests (27 tests)
-```
+---
+
+## 🚀 Seminar Demo Mode (`ZAINE_DEMO=1`)
+Set environment variable `ZAINE_DEMO=1` (default OFF) for low-latency live demonstrations.
+This caps `num_predict` around 300, enforces concise answers, disables background reflection,
+and keeps neural model weights permanently pinned in GPU VRAM (`keep_alive: -1`).
 
 ---
 

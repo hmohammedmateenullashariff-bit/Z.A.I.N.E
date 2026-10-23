@@ -65,6 +65,12 @@ except Exception:
 
 
 class TestTerminalAnimationSuite(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import tools
+        from memory_manager import get_memory_manager
+        get_memory_manager()
+
     def setUp(self):
         # Reset state before each test
         state.persona = "jarvis"

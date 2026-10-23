@@ -4,6 +4,8 @@ Stage 2: Wired to Core Service SSE Endpoint with Live Streaming, CoT, Tool Event
 """
 
 import sys
+from zaine_env import running_under_tests
+import json
 import time
 import uuid
 import asyncio
@@ -53,6 +55,8 @@ from tui.telemetry import (
     record_throughput_sample,
     TelemetrySnapshot,
 )
+from tui.exec_graph import ExecGraph, classify_tool_result, OK as NODE_OK, FAILED as NODE_FAILED, CANCELLED as NODE_CANCELLED
+from tui.system_graph import collect_system_graph
 from tui.client import (
     get_core_service_url,
     stream_chat_events,
@@ -77,10 +81,14 @@ class ZaineTUI(App):
 
     BINDINGS = [
         Binding("f2", "toggle_hud", "Toggle HUD", show=False),
-        Binding("f3", "toggle_workspace", "Toggle 3D Workspace", show=False),
+        Binding("f3", "toggle_workspace", "Toggle graph workspace", show=False),
         Binding("escape", "clear_focus", "Clear / Cancel", show=False),
-        Binding("ctrl+c", "quit_app", "Quit", show=False),
+        # priority: the focused Input otherwise swallows Ctrl+C as "copy"
+        Binding("ctrl+c", "quit_app", "Cancel / Quit", show=False, priority=True),
+        Binding("ctrl+q", "quit_now", "Quit", show=False, priority=True),
     ]
+
+    SYSTEM_POLL_EVERY = 3  # telemetry ticks (2s each) between system-topology collections
 
     def __init__(self, core_url: Optional[str] = None, **kwargs):
         super().__init__(**kwargs)
@@ -92,6 +100,8 @@ class ZaineTUI(App):
         self.current_session_id = f"SES-{datetime.now().strftime('%m%d')}-{self._session_counter:02d}"
         self.active_approval_card: Optional[ApprovalCard] = None
         self.active_request_id: Optional[str] = None
+        self.exec_graph = ExecGraph()
+        self.system_facts: Dict[str, Any] = {}
 
     def compose(self) -> ComposeResult:
         """Compose layout matching DESIGN.md and multi-workspace architecture."""
@@ -120,27 +130,88 @@ class ZaineTUI(App):
             footer.session_id = self.current_session_id
             input_box = self.query_one("#user-input", Input)
             input_box.focus()
+            self.query_one(AgentStateHUD).exec_graph = self.exec_graph
+            self.query_one(TopologyWorkspace).set_exec_graph(self.exec_graph)
         except Exception:
             pass
 
-        # Start non-blocking 2s hardware telemetry poller (skipped in unit test runs)
-        if not ("unittest" in sys.modules or "pytest" in sys.modules):
+        # Telemetry + core/system status run in a thread (blocking HTTP stays off the UI loop).
+        if not running_under_tests():
             self.poll_telemetry_loop()
 
     def on_unmount(self) -> None:
         """Clean shutdown of background threads."""
         self._telemetry_stop_event.set()
 
-    @work(thread=True, name="telemetry_polling_worker")
+    @work(thread=True, name="telemetry_polling_worker", group="telemetry")
     def poll_telemetry_loop(self) -> None:
-        """Non-blocking background polling worker for CPU, RAM, and VRAM (2s interval)."""
+        """Hardware telemetry every 2s; core/Ollama/system topology every SYSTEM_POLL_EVERY ticks."""
+        tick = 0
         while not self._telemetry_stop_event.is_set():
             try:
                 snapshot = poll_hardware_telemetry()
                 self.call_from_thread(self._apply_telemetry_update, snapshot)
             except Exception:
                 pass
+            if tick % self.SYSTEM_POLL_EVERY == 0:
+                try:
+                    graph = collect_system_graph(self.core_url)
+                    self.call_from_thread(self._apply_system_graph, graph)
+                except Exception:
+                    pass
+            tick += 1
             self._telemetry_stop_event.wait(2.0)
+
+    def _idle_status(self) -> str:
+        """Status label when no turn is running, from the last real core poll (READY until the first poll)."""
+        facts = self.system_facts
+        if not facts:
+            return "READY"
+        status = facts.get("core_status") or {}
+        if not facts.get("core_up"):
+            return "OFFLINE"
+        if status.get("warming"):
+            return "WARMING UP"
+        return "READY" if status.get("model_loaded") else "NO MODEL"
+
+    def _apply_system_graph(self, graph: Any) -> None:
+        """Pushes the real system topology to the graph view and derives the idle status line from it."""
+        facts = getattr(graph, "facts", {}) or {}
+        self.system_facts = facts
+        try:
+            self.query_one(TopologyWorkspace).set_system_graph(graph)
+            hud = self.query_one(AgentStateHUD)
+            hud.core_online = bool(facts.get("core_up"))
+            header = self.query_one(HeaderBar)
+            footer = self.query_one(FooterBar)
+            status = facts.get("core_status") or {}
+            cfg = status.get("config") or {}
+            flags = [name for name, on in (("DEMO", cfg.get("demo")), ("FAST 3B", cfg.get("fast"))) if on]
+            header.core_flags = " · ".join(flags) if facts.get("core_up") else ""
+            if not self.is_streaming:
+                label = self._idle_status()
+                header.status_label = label
+                footer.status = label
+                model = status.get("active_model")
+                if model:
+                    footer.model = model
+                    if hud.active_model == "n/a":
+                        hud.update_metrics(model=model)
+                mode = status.get("mode")
+                if mode:
+                    header.persona = footer.persona = mode.upper()
+                    hud.update_metrics(persona=mode.upper())
+            hud.refresh()
+        except Exception:
+            pass
+
+    def _refresh_graph_views(self) -> None:
+        """Repaints the live trace (HUD) and, when visible, the execution DAG."""
+        try:
+            self.query_one(AgentStateHUD).refresh()
+            self.query_one(TopologyWorkspace).refresh_exec()
+        except Exception:
+            pass
 
     def _apply_telemetry_update(self, snapshot: TelemetrySnapshot) -> None:
         """Dispatches telemetry updates to the UI thread without blocking the chat loop."""
@@ -151,13 +222,12 @@ class ZaineTUI(App):
             pass
 
     def action_toggle_workspace(self) -> None:
-        """Toggle between Command Chat Workspace and 3D Topology Workspace (F2)."""
+        """Toggle between the command view and the graph workspace (F3)."""
         chat_ws = self.query_one("#chat-workspace")
-        topo_ws = self.query_one("#topology-workspace")
+        topo_ws = self.query_one(TopologyWorkspace)
         header = self.query_one(HeaderBar)
 
         if topo_ws.display:
-            # Switch back to Chat Workspace
             topo_ws.display = False
             chat_ws.display = True
             header.view_mode = "COMMAND"
@@ -166,19 +236,16 @@ class ZaineTUI(App):
             except Exception:
                 pass
             try:
-                input_box = self.query_one("#user-input", Input)
-                input_box.focus()
+                self.query_one("#user-input", Input).focus()
             except Exception:
                 pass
         else:
-            # Switch to 3D Topology Workspace
             chat_ws.display = False
             topo_ws.display = True
-            header.view_mode = "3D TOPOLOGY"
+            header.view_mode = "GRAPH"
             try:
                 topo_ws.resume_animation()
-                canvas = topo_ws.query_one(NeuralGraph3D)
-                canvas.focus()
+                topo_ws.focus_canvas()
             except Exception:
                 pass
 
@@ -206,21 +273,23 @@ class ZaineTUI(App):
             pass
 
     def action_quit_app(self) -> None:
-        """Cancel stream or perform clean exit (Ctrl+C)."""
-        self._is_quitting = True
+        """Ctrl+C: cancel the reply if one is streaming, otherwise exit."""
         if self.is_streaming:
             self.cancel_active_stream()
             return
         self.exit()
 
+    def action_quit_now(self) -> None:
+        """Ctrl+Q: cancel anything running and exit."""
+        if self.is_streaming:
+            self.cancel_active_stream()
+        self.exit()
+
     def cancel_active_stream(self) -> None:
-        """Cancels any running response stream worker and informs coordinator."""
+        """Cancels the running stream worker; the worker itself records the interruption card."""
         if self.active_request_id:
-            try:
-                import asyncio
-                asyncio.create_task(cancel_chat_request(self.active_request_id, base_url=self.core_url))
-            except Exception:
-                pass
+            # Keep a reference so the cancel request is not garbage-collected mid-flight.
+            self._cancel_task = asyncio.create_task(cancel_chat_request(self.active_request_id, base_url=self.core_url))
 
         if self.current_stream_worker and not self.current_stream_worker.is_finished:
             try:
@@ -230,19 +299,9 @@ class ZaineTUI(App):
 
         self.is_streaming = False
         try:
-            chat_log = self.query_one(ChatLog)
-            chat_log.add_system_card(
-                title="STREAM INTERRUPTED",
-                message="Response generation was cancelled by the operator [Esc].",
-                level="cancelled"
-            )
-            input_well = self.query_one(InputWell)
-            input_well.set_generating(False)
-
-            header = self.query_one(HeaderBar)
-            footer = self.query_one(FooterBar)
-            header.status_label = "READY"
-            footer.status = "READY"
+            self.query_one(InputWell).set_generating(False)
+            self.query_one(HeaderBar).status_label = self._idle_status()
+            self.query_one(FooterBar).status = self._idle_status()
         except Exception:
             pass
 
@@ -260,13 +319,18 @@ class ZaineTUI(App):
         """Forwards user decision to POST /api/approval/respond."""
         res = await respond_to_approval(proposal_id=proposal_id, decision=decision, base_url=self.core_url)
         note = res.get("message", f"Turn updated: {decision}")
+        # Show what the server actually recorded; a decision on an expired or already-decided
+        # proposal comes back ok=False and must not be drawn as approved/denied.
+        if res.get("ok"):
+            status_txt = "APPROVED" if decision == "approve" else "DENIED"
+        else:
+            status_txt = "NOT APPLIED"
         if self.active_approval_card and self.active_approval_card.proposal_id == proposal_id:
-            self.active_approval_card.set_resolved(decision, note=note)
+            self.active_approval_card.set_resolved(status_txt, note=note)
             self.active_approval_card = None
 
         header = self.query_one(HeaderBar)
         footer = self.query_one(FooterBar)
-        status_txt = "APPROVED" if decision == "approve" else "DENIED"
         header.status_label = status_txt
         footer.status = status_txt
 
@@ -288,6 +352,10 @@ class ZaineTUI(App):
                 or cmd.startswith("/deny ")
             )
             if not is_approval_cmd:
+                return
+            # A bare y/n with no pending card would otherwise start a new turn and cancel this stream.
+            card_pending = self.active_approval_card and self.active_approval_card.status == "PENDING"
+            if cmd in ("y", "n", "yes", "no") and not card_pending:
                 return
 
         # Process commands / queries
@@ -380,9 +448,12 @@ class ZaineTUI(App):
             "| `/history` | View episodic memory session summaries |\n"
             "| `/models` | Inspect cognitive model tier configurations |\n"
             "| `/clear` | Clear chat viewport back to initial banner |\n"
-            "| `/hud` or `[F2]` | Toggle Agent State HUD sidebar |\n"
-            "| `[Esc]` | Cancel live stream / Clear prompt field |\n"
-            "| `[Ctrl+C]` or `/exit` | Graceful application shutdown |\n"
+            "| `/hud` or `F2` | Toggle Agent State HUD sidebar |\n"
+            "| `F3` | Graph workspace: `1` live execution DAG · `2` system topology · `3` 3D orbit |\n"
+            "| `Esc` | Cancel live stream / clear prompt field |\n"
+            "| `y` / `n` | Approve / reject the pending guardrail card |\n"
+            "| `Ctrl+C` | Cancel the reply; exits when nothing is running |\n"
+            "| `Ctrl+Q` or `/exit` | Quit |\n"
         )
         chat_log.add_assistant_message(help_md, latency="0.01s")
 
@@ -427,7 +498,7 @@ class ZaineTUI(App):
             core_status = "error (timeout/offline)"
         else:
             core_status = core_raw
-        active_model = res.get("active_model", "zaine-reflex-7b")
+        active_model = res.get("active_model") or "n/a (core offline)"
 
         status_md = (
             "### Live Telemetry & Core Status\n\n"
@@ -435,10 +506,16 @@ class ZaineTUI(App):
             f"- **CPU Utilization**: `{hw['cpu']}`\n"
             f"- **System RAM**: `{hw['ram']}`\n"
             f"- **GPU / VRAM**: `{vram['display']}`\n"
-            f"- **Registered Tools**: `{tool_count}` operational units\n"
+            f"- **Clustered Tools**: `{tool_count}`\n"
             f"- **Active Model**: `{active_model}`\n"
-            f"- **Coordinator Queue**: `0 in-flight`\n"
         )
+        loaded = self.system_facts.get("loaded_models") or []
+        if loaded:
+            status_md += "- **Resident in VRAM**: " + ", ".join(f"`{n}` ({v:.1f} GB)" for n, v in loaded) + "\n"
+        pending = self.system_facts.get("pending_approvals")
+        if pending is not None:
+            status_md += f"- **Pending approvals**: `{pending}`\n"
+        status_md += f"- **Telegram poller**: `{'online' if self.system_facts.get('telegram_online') else 'off'}`\n"
         chat_log.add_assistant_message(status_md, latency=f"{time.perf_counter() - t_start:.2f}s")
 
     @work
@@ -484,6 +561,10 @@ class ZaineTUI(App):
         enabled = res.get("enabled", False)
         header = self.query_one(HeaderBar)
         header.voice_enabled = enabled
+        self.query_one(FooterBar).voice_enabled = enabled
+        hud = self.query_one(AgentStateHUD)
+        hud.voice_enabled = enabled
+        hud.refresh()
 
         state_str = "ENABLED (Speech Active)" if enabled else "DISABLED (Text-Only Mode)"
         chat_log.add_system_card(
@@ -520,24 +601,31 @@ class ZaineTUI(App):
             "### Memory Subsystem & Obsidian Vault\n\n"
             f"- **Vault Connection**: `{v_stats['status']}`\n"
             f"- **Indexed Markdown Files**: `{v_stats['total_notes']}` notes\n"
-            f"- **Context Budget**: `{v_stats['max_chars']}` characters\n"
-            f"- **Security Policy**: Entity isolation & Prompt Injection boundaries active.\n"
+            f"- **Context Budget**: `{v_stats['max_chars']}` characters per turn\n"
         )
+        folders = {k: v for k, v in (v_stats.get("folders") or {}).items() if v}
+        if folders:
+            mem_md += "- **Folders**: " + ", ".join(f"`{k}` {v}" for k, v in sorted(folders.items())) + "\n"
         chat_log.add_assistant_message(mem_md, latency="0.02s")
 
     def handle_models_command(self, user_text: str) -> None:
         chat_log = self.query_one(ChatLog)
         chat_log.add_user_message(user_text)
 
-        models_md = (
-            "### Cognitive Neural Models & Tiers\n\n"
-            "| Tier | Target Model | Purpose |\n"
-            "| :--- | :--- | :--- |\n"
-            "| **Tier 0 (Reflex)** | `zaine-reflex-7b` | Conversational intent, fast routing & companionship |\n"
-            "| **Tier 1 (Coder)** | `zaine-coder-7b` | Autonomous code synthesis & test generation |\n"
-            "| **Tier 2 (Reasoning)** | `zaine-reflex-7b` | Chain-of-Thought multi-step analytical reasoning |\n"
-            "| **Tier 3 (Vision)** | `moondream:latest` | Multimodal screen diagnostics & image inspection |\n"
-        )
+        # Routing comes from core_router (the same rules the core uses); residency is from Ollama /api/ps.
+        try:
+            from core_router import router
+            tiers = [("Reflex (chat, tools)", router.reflex_model), ("Deep reasoning", router.deep_model),
+                     ("Coder", router.coder_model), ("Vision", "moondream:latest")]
+        except Exception:
+            tiers = []
+        loaded = {n for n, _ in (self.system_facts.get("loaded_models") or [])}
+        models_md = "### Model Routing\n\n| Tier | Model | In VRAM now |\n| :--- | :--- | :--- |\n"
+        for tier, model in tiers:
+            short = model.replace(":latest", "")
+            models_md += f"| {tier} | `{model}` | {'yes' if short in loaded else 'no'} |\n"
+        if not tiers:
+            models_md += "| n/a | router unavailable | |\n"
         chat_log.add_assistant_message(models_md, latency="0.01s")
 
     # --- SSE Stream Chat Turn Runner ---
@@ -554,8 +642,10 @@ class ZaineTUI(App):
         hud = self.query_one(AgentStateHUD)
         input_well = self.query_one(InputWell)
 
-        # 1. Mount User Turn Card
+        # 1. Mount User Turn Card and start this turn's execution graph
         chat_log.add_user_message(prompt)
+        self.exec_graph.start_turn(prompt)
+        self._refresh_graph_views()
 
         # 2. Update visual status
         header.status_label = "THINKING"
@@ -571,7 +661,8 @@ class ZaineTUI(App):
         self.active_request_id = req_id
 
         active_reasoning_block: Optional[ReasoningBlock] = None
-        active_tool_lines: Dict[str, Tuple[ToolLine, float]] = {}
+        # tool name -> running lines in start order (the same tool can run twice in one turn)
+        active_tool_lines: Dict[str, list] = {}
         active_assistant_card: Optional[AssistantTurnCard] = None
 
         try:
@@ -588,9 +679,16 @@ class ZaineTUI(App):
                     break
 
                 ev_type = event.get("type")
+                self.exec_graph.apply(event)
+                self._refresh_graph_views()
+
+                # Pre-warm event
+                if ev_type == "warming":
+                    header.status_label = "WARMING UP"
+                    footer.status = "WARMING UP"
 
                 # A. Queued in Coordinator
-                if ev_type == "queued":
+                elif ev_type == "queued":
                     pos = event.get("position", 1)
                     header.status_label = f"QUEUED #{pos}"
                     footer.status = f"QUEUED #{pos}"
@@ -614,6 +712,19 @@ class ZaineTUI(App):
                             footer.model = m
                             hud.update_metrics(model=m, tier=tier)
 
+                    elif stage == "profiler":
+                        # Ollama's own counters for the call that just finished: the real tok/s.
+                        info = data if isinstance(data, dict) else {}
+                        eval_count = int(info.get("eval_count") or 0)
+                        eval_s = float(info.get("eval_duration_s") or 0.0)
+                        if eval_count and eval_s > 0:
+                            rate = eval_count / eval_s
+                            record_throughput_sample(rate)
+                            hud.update_metrics(
+                                throughput=f"{rate:.1f} tok/s",
+                                eval_counts=f"{eval_count} out · {int(info.get('prompt_eval_count') or 0)} prompt",
+                            )
+
                     elif stage == "think":
                         if active_reasoning_block is None:
                             active_reasoning_block = chat_log.start_reasoning_block()
@@ -628,9 +739,12 @@ class ZaineTUI(App):
                         footer.status = "THINKING"
 
                     elif stage == "start":
-                        args_sum = str(data)[:60] if data else ""
+                        if isinstance(data, dict):
+                            args_sum = ", ".join(f"{k}={v}" for k, v in data.items())[:60]
+                        else:
+                            args_sum = str(data)[:60] if data else ""
                         tool_line = chat_log.start_tool_line(tool_name, args_sum)
-                        active_tool_lines[tool_name] = (tool_line, time.perf_counter())
+                        active_tool_lines.setdefault(tool_name, []).append((tool_line, time.perf_counter()))
                         header.status_label = f"TOOL: {tool_name}"
                         footer.status = f"TOOL: {tool_name}"
 
@@ -644,7 +758,10 @@ class ZaineTUI(App):
                             command=cmd_str,
                             reason=reason_str,
                             tool_name=tool_name,
+                            risk_level=str(prop_data.get("risk_level", "")),
                         )
+                        for line, _t in active_tool_lines.get(tool_name, [])[:1]:
+                            line.set_done(status="AWAITING APPROVAL")
                         self.active_approval_card = card
                         header.status_label = "APPROVAL REQ"
                         footer.status = "APPROVAL REQ"
@@ -654,14 +771,20 @@ class ZaineTUI(App):
                         footer.status = "AWAITING APPROVAL"
 
                     elif stage == "done":
-                        if self.active_approval_card:
-                            self.active_approval_card.set_resolved("APPROVED", "Action executed")
-                            self.active_approval_card = None
-                        if tool_name in active_tool_lines:
-                            tool_line, t_tstart = active_tool_lines[tool_name]
+                        # The outcome comes from the tool's own result string: approvals may have been
+                        # answered on Telegram or expired, and tools can fail.
+                        tool_status, outcome = classify_tool_result(data)
+                        if self.active_approval_card and self.active_approval_card.status == "PENDING":
+                            note = "Action executed" if outcome == "APPROVED" else str(data)[:160]
+                            self.active_approval_card.set_resolved(outcome, note)
+                        self.active_approval_card = None
+                        lines = active_tool_lines.get(tool_name) or []
+                        if lines:
+                            tool_line, t_tstart = lines.pop(0)
                             dur = time.perf_counter() - t_tstart
-                            tool_line.set_done(duration_s=dur, status="COMPLETED")
-                            hud.add_tool_run(tool_name, duration_s=dur, status="COMPLETED")
+                            line_status = {"ok": "COMPLETED", "failed": "FAILED", "blocked": "BLOCKED"}.get(tool_status, "COMPLETED")
+                            tool_line.set_done(duration_s=dur, status=line_status)
+                            hud.add_tool_run(tool_name, duration_s=dur, status=line_status)
                         header.status_label = "THINKING"
                         footer.status = "THINKING"
 
@@ -674,18 +797,11 @@ class ZaineTUI(App):
                         hud.update_metrics(ttft=f"{ttft_ms:.0f}ms", stream_active=True)
 
                     token_count += 1
-                    header.status_label = "STREAMING"
-                    footer.status = "STREAMING"
-
-                    # Live throughput sparkline updates
-                    if token_count % 3 == 0:
-                        stream_elapsed = max(time.perf_counter() - (t_first_token or t_start), 0.001)
-                        inst_rate = token_count / stream_elapsed
-                        record_throughput_sample(inst_rate)
-                        hud.update_metrics(
-                            throughput=f"{inst_rate:.1f} tok/s",
-                            stream_active=True
-                        )
+                    if header.status_label != "STREAMING":
+                        header.status_label = "STREAMING"
+                        footer.status = "STREAMING"
+                    # Token events carry sentence chunks, not tokens; the real tok/s arrives with the
+                    # `profiler` event from Ollama's eval counters.
 
                     if active_assistant_card is None:
                         active_assistant_card = chat_log.start_assistant_turn(model=footer.model)
@@ -697,13 +813,9 @@ class ZaineTUI(App):
                 elif ev_type == "done":
                     t_end = time.perf_counter()
                     total_dur = t_end - t_start
-                    stream_span = max(t_end - (t_first_token or t_start), 0.001)
-                    tok_sec = token_count / stream_span if token_count > 0 else 0.0
-                    th_str = f"{tok_sec:.1f} tok/s" if tok_sec > 0 else "n/a"
-
-                    if tok_sec > 0:
-                        record_throughput_sample(tok_sec)
-                    hud.update_metrics(throughput=th_str, stream_active=False)
+                    summary = self.exec_graph.summary()
+                    th_str = f"{summary['tok_s']:.1f} tok/s" if summary["tok_s"] else "n/a"
+                    hud.update_metrics(stream_active=False)
 
                     mode = event.get("mode")
                     if mode:
@@ -712,6 +824,8 @@ class ZaineTUI(App):
                         hud.update_metrics(persona=mode.upper())
 
                     if active_assistant_card:
+                        if event.get("reply"):
+                            active_assistant_card.markdown_text = event.get("reply")
                         active_assistant_card.set_final(latency=f"{total_dur:.2f}s", throughput=th_str)
                     elif event.get("reply"):
                         # If completed without streaming token events (cached turn)
@@ -731,31 +845,50 @@ class ZaineTUI(App):
                     break
 
         except StreamTimeoutError as te:
+            self.exec_graph.abort(str(te))
             chat_log.add_system_card(title="Request Timeout", message=str(te), level="timeout")
 
         except (StreamCancelledError, asyncio.CancelledError):
+            self.exec_graph.abort("cancelled by operator", status=NODE_CANCELLED)
             chat_log.add_system_card(
                 title="STREAM INTERRUPTED",
-                message="Response generation was cancelled by the operator [Esc].",
+                message="Response generation was cancelled by the operator (Esc / Ctrl+C).",
                 level="cancelled"
             )
 
         except Exception as e:
+            self.exec_graph.abort(str(e))
             chat_log.add_system_card(title="Stream Transport Error", message=str(e), level="error")
 
         finally:
+            # Nothing may stay drawn as running once the turn is over.
+            if self.exec_graph.is_active:
+                self.exec_graph.abort("stream ended without a final event")
+            for lines in active_tool_lines.values():
+                for tool_line, _t in lines:
+                    tool_line.set_done(duration_s=time.perf_counter() - _t, status="CANCELLED")
+            if active_reasoning_block and not active_reasoning_block.is_complete:
+                active_reasoning_block.mark_complete()
+            if active_assistant_card and active_assistant_card.latency == "streaming...":
+                active_assistant_card.set_final(latency=f"{time.perf_counter() - t_start:.2f}s (incomplete)")
+            self._refresh_graph_views()
             hud.update_metrics(stream_active=False)
-            self.is_streaming = False
-            self.current_stream_worker = None
-            self.active_request_id = None
-            self.active_approval_card = None
-            header.status_label = "READY"
-            footer.status = "READY"
-            input_well.set_generating(False)
-            try:
-                input_well.input_field.focus()
-            except Exception:
-                pass
+            # A cancelled turn finishes after a new one may already have started: only reset shared
+            # state if it still belongs to this request.
+            if self.active_request_id == req_id:
+                if self.active_approval_card and self.active_approval_card.status == "PENDING":
+                    self.active_approval_card.set_resolved("NOT EXECUTED", "The turn ended before a decision.")
+                self.is_streaming = False
+                self.current_stream_worker = None
+                self.active_request_id = None
+                self.active_approval_card = None
+                header.status_label = self._idle_status()
+                footer.status = self._idle_status()
+                input_well.set_generating(False)
+                try:
+                    input_well.input_field.focus()
+                except Exception:
+                    pass
 
 
 def run() -> None:

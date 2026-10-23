@@ -87,6 +87,25 @@ class MockApprovalServerHandler(BaseHTTPRequestHandler):
 
 class TestApprovalTimeoutAndDeadlockFix(unittest.TestCase):
 
+    @classmethod
+    def setUpClass(cls):
+        # Keep test proposals out of the real data/zaine_approvals.db and never send
+        # approval cards to the paired Telegram account.
+        import tempfile
+        import approval
+        cls._tmpdir = tempfile.TemporaryDirectory()
+        cls._orig_db_path = approval.DB_PATH
+        cls._orig_dispatch = ApprovalRegistry.__dict__["_dispatch_telegram_alert"]
+        approval.DB_PATH = Path(cls._tmpdir.name) / "zaine_approvals_test.db"
+        ApprovalRegistry._dispatch_telegram_alert = staticmethod(lambda *args, **kwargs: None)
+
+    @classmethod
+    def tearDownClass(cls):
+        import approval
+        approval.DB_PATH = cls._orig_db_path
+        ApprovalRegistry._dispatch_telegram_alert = cls._orig_dispatch
+        cls._tmpdir.cleanup()
+
     def setUp(self):
         self.coordinator = get_request_coordinator()
         self.coordinator.reset_for_testing()
@@ -177,6 +196,8 @@ class TestApprovalTimeoutAndDeadlockFix(unittest.TestCase):
                     default_first_token_timeout=5.0,
                 )
                 first_event = await anext(agen)
+                if first_event.get("type") == "warming":
+                    first_event = await anext(agen)
                 self.assertEqual(first_event.get("type"), "running")
 
                 # Verify coordinator is busy with req_id_1
@@ -269,7 +290,11 @@ class TestApprovalTimeoutAndDeadlockFix(unittest.TestCase):
         self.assertEqual(card.status, "PENDING")
 
         card.set_resolved("approve", note="Authorized")
-        self.assertEqual(card.status, "APPROVE")
+        self.assertEqual(card.status, "APPROVED")
+
+        expired = ApprovalCard(proposal_id="ACT-4243", command="dir", reason="r", tool_name="execute_command")
+        expired.set_resolved("EXPIRED", note="No decision within 180s")
+        self.assertEqual(expired.status, "EXPIRED")
 
     def test_e_execute_command_requires_approval_for_package_install(self):
         """Verifies execute_command intercepts package install commands and enforces approval."""
@@ -297,8 +322,170 @@ class TestApprovalTimeoutAndDeadlockFix(unittest.TestCase):
 
         t.join(timeout=2.0)
         self.assertFalse(t.is_alive())
-        self.assertTrue(len(result_holder) > 0)
         self.assertIn("Security Authorization Failed", result_holder[0])
+
+    def test_f_open_application_requires_approval(self):
+        """Verifies open_application creates an approval proposal and refuses to launch subprocess without approval."""
+        from unittest.mock import patch
+        from tools import open_application
+
+        result_holder = []
+        with patch("subprocess.Popen") as mock_popen:
+            def _run_app():
+                out = open_application("notepad")
+                result_holder.append(out)
+
+            t = threading.Thread(target=_run_app, daemon=True)
+            t.start()
+            time.sleep(0.3)
+
+            # Confirm proposal was created in ApprovalRegistry
+            pending = ApprovalRegistry.list_pending()
+            matching = [p for p in pending if p.get("tool_name") == "open_application" or "notepad" in p.get("title", "").lower()]
+            self.assertTrue(len(matching) > 0, "Expected pending proposal for open_application")
+
+            prop_id = matching[0]["id"]
+            # Deny the proposal
+            ApprovalRegistry.deny(prop_id, note="Denied by operator in security test")
+
+            t.join(timeout=2.0)
+            self.assertFalse(t.is_alive())
+            self.assertTrue(len(result_holder) > 0)
+            self.assertIn("Security Authorization Failed", result_holder[0])
+            # Strict verification: subprocess.Popen was NEVER called
+            mock_popen.assert_not_called()
+
+    def test_g_demo_mode_requires_approval_for_harmless_command(self):
+        """In ZAINE_DEMO=1, verifies harmless commands like 'echo hi' raise a proposal and do not run until approved; denied means not run."""
+        from unittest.mock import patch, MagicMock
+        from tools import execute_command
+
+        old_demo = os.environ.get("ZAINE_DEMO")
+        os.environ["ZAINE_DEMO"] = "1"
+        try:
+            # 1. Denied path: raises proposal, does not run while pending, denied means not run
+            result_holder = []
+            with patch("subprocess.run") as mock_run:
+                def _run_cmd():
+                    out = execute_command("echo hi")
+                    result_holder.append(out)
+
+                t = threading.Thread(target=_run_cmd, daemon=True)
+                t.start()
+                time.sleep(0.3)
+
+                # Must not run while pending
+                mock_run.assert_not_called()
+
+                # Confirm proposal was created in ApprovalRegistry
+                pending = ApprovalRegistry.list_pending()
+                matching = [p for p in pending if p.get("action_type") == "COMMAND" and "echo hi" in p.get("title", "")]
+                self.assertTrue(len(matching) > 0, "Expected pending proposal with action_type COMMAND for 'echo hi'")
+
+                prop_id = matching[0]["id"]
+                ApprovalRegistry.deny(prop_id, note="Denied harmless command in test")
+
+                t.join(timeout=2.0)
+                self.assertFalse(t.is_alive())
+                self.assertTrue(len(result_holder) > 0)
+                self.assertIn("Security Authorization Failed", result_holder[0])
+                mock_run.assert_not_called()
+
+            # 2. Approved path: raises proposal, does not run until approved, runs when approved
+            result_holder_app = []
+            mock_res = MagicMock(stdout="hi\n", stderr="", returncode=0)
+            with patch("subprocess.run", return_value=mock_res) as mock_run_app:
+                def _run_cmd_app():
+                    out = execute_command("echo hi")
+                    result_holder_app.append(out)
+
+                t2 = threading.Thread(target=_run_cmd_app, daemon=True)
+                t2.start()
+                time.sleep(0.3)
+
+                # Must not run until approved
+                mock_run_app.assert_not_called()
+
+                pending2 = ApprovalRegistry.list_pending()
+                matching2 = [p for p in pending2 if p.get("action_type") == "COMMAND" and "echo hi" in p.get("title", "")]
+                self.assertTrue(len(matching2) > 0)
+
+                ApprovalRegistry.approve(matching2[0]["id"], note="Approved harmless command in test")
+                t2.join(timeout=2.0)
+                self.assertFalse(t2.is_alive())
+                mock_run_app.assert_called_once()
+                self.assertEqual(result_holder_app[0], "STDOUT:\nhi")
+        finally:
+            if old_demo is not None:
+                os.environ["ZAINE_DEMO"] = old_demo
+            else:
+                os.environ.pop("ZAINE_DEMO", None)
+
+    def test_h_demo_mode_requires_approval_for_read_command(self):
+        """In ZAINE_DEMO=1, verifies read commands like 'type notes.txt' raise a proposal and do not run until approved; denied means not run."""
+        from unittest.mock import patch, MagicMock
+        from tools import execute_command
+
+        old_demo = os.environ.get("ZAINE_DEMO")
+        os.environ["ZAINE_DEMO"] = "1"
+        try:
+            # 1. Denied path: raises proposal, does not run while pending, denied means not run
+            result_holder = []
+            with patch("subprocess.run") as mock_run:
+                def _run_cmd():
+                    out = execute_command("type notes.txt")
+                    result_holder.append(out)
+
+                t = threading.Thread(target=_run_cmd, daemon=True)
+                t.start()
+                time.sleep(0.3)
+
+                # Must not run while pending
+                mock_run.assert_not_called()
+
+                # Confirm proposal was created in ApprovalRegistry
+                pending = ApprovalRegistry.list_pending()
+                matching = [p for p in pending if p.get("action_type") == "COMMAND" and "type notes.txt" in p.get("title", "")]
+                self.assertTrue(len(matching) > 0, "Expected pending proposal with action_type COMMAND for 'type notes.txt'")
+
+                prop_id = matching[0]["id"]
+                ApprovalRegistry.deny(prop_id, note="Denied read command in test")
+
+                t.join(timeout=2.0)
+                self.assertFalse(t.is_alive())
+                self.assertTrue(len(result_holder) > 0)
+                self.assertIn("Security Authorization Failed", result_holder[0])
+                mock_run.assert_not_called()
+
+            # 2. Approved path: raises proposal, does not run until approved, runs when approved
+            result_holder_app = []
+            mock_res = MagicMock(stdout="meeting notes\n", stderr="", returncode=0)
+            with patch("subprocess.run", return_value=mock_res) as mock_run_app:
+                def _run_cmd_app():
+                    out = execute_command("type notes.txt")
+                    result_holder_app.append(out)
+
+                t2 = threading.Thread(target=_run_cmd_app, daemon=True)
+                t2.start()
+                time.sleep(0.3)
+
+                # Must not run until approved
+                mock_run_app.assert_not_called()
+
+                pending2 = ApprovalRegistry.list_pending()
+                matching2 = [p for p in pending2 if p.get("action_type") == "COMMAND" and "type notes.txt" in p.get("title", "")]
+                self.assertTrue(len(matching2) > 0)
+
+                ApprovalRegistry.approve(matching2[0]["id"], note="Approved read command in test")
+                t2.join(timeout=2.0)
+                self.assertFalse(t2.is_alive())
+                mock_run_app.assert_called_once()
+                self.assertEqual(result_holder_app[0], "STDOUT:\nmeeting notes")
+        finally:
+            if old_demo is not None:
+                os.environ["ZAINE_DEMO"] = old_demo
+            else:
+                os.environ.pop("ZAINE_DEMO", None)
 
 
 if __name__ == "__main__":

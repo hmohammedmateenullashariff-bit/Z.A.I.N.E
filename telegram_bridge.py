@@ -52,6 +52,19 @@ def get_core_service_url() -> str:
     return "http://127.0.0.1:7860"
 
 
+def get_core_auth_headers() -> Dict[str, str]:
+    """Returns the X-Zaine-Token header CoreService requires on POST requests."""
+    token = os.environ.get("ZAINE_AUTH_TOKEN", "")
+    if not token:
+        config_path = Path(__file__).parent / ".zaine_core.json"
+        if config_path.exists():
+            try:
+                token = json.loads(config_path.read_text(encoding="utf-8")).get("auth_token", "")
+            except Exception:
+                pass
+    return {"X-Zaine-Token": token} if token else {}
+
+
 def wait_for_core_service(max_retries: Optional[int] = None) -> bool:
     """Blocks and polls GET /api/health with exponential backoff until core service is online."""
     delay = 1.0
@@ -389,7 +402,7 @@ class TelegramBridge:
             "request_id": req_id
         }
         try:
-            resp = requests.post(url, json=payload, timeout=90)
+            resp = requests.post(url, json=payload, headers=get_core_auth_headers(), timeout=90)
             if resp.status_code == 200:
                 data = resp.json()
                 return data.get("reply", "No response received.")
@@ -615,8 +628,12 @@ class TelegramBridge:
                 data = resp.json()
                 if data.get("ok"):
                     return data.get("result", [])
-        except Exception:
-            pass
+            # 409 = another poller uses this token, 401 = token revoked, 429 = rate limited
+            print(f"[Pocket Zaine Polling Notice]: getUpdates HTTP {resp.status_code}: {resp.text[:200]}")
+        except Exception as e:
+            print(f"[Pocket Zaine Polling Notice]: getUpdates failed: {e}")
+        # Failures return instantly, so pause here or the polling loop spins at full CPU.
+        time.sleep(5)
         return []
 
     def download_file(self, file_id: str) -> bytes:
@@ -652,8 +669,8 @@ class TelegramBridge:
 
         if data.startswith("act_approve:"):
             action_id = data.split(":", 1)[1]
-            self.answer_callback_query(query_id, text="Action Authorized!")
             success, msg_text = ApprovalRegistry.approve(action_id, note="Approved via Telegram inline button")
+            self.answer_callback_query(query_id, text="Action Authorized!" if success else "Not applied: already decided or expired.")
             self.edit_message(
                 chat_id,
                 message_id,
@@ -663,8 +680,8 @@ class TelegramBridge:
 
         elif data.startswith("act_deny:"):
             action_id = data.split(":", 1)[1]
-            self.answer_callback_query(query_id, text="Action Denied.")
             success, msg_text = ApprovalRegistry.deny(action_id, note="Denied via Telegram inline button")
+            self.answer_callback_query(query_id, text="Action Denied." if success else "Not applied: already decided or expired.")
             self.edit_message(
                 chat_id,
                 message_id,
@@ -866,33 +883,29 @@ class TelegramBridge:
                 self.send_message(chat_id, "\n".join(lines), parse_mode="Markdown")
             return
 
-        elif lower_clean.startswith(("/approve", "approve")):
+        # Decisions require the exact slash command plus an explicit proposal ID, so ordinary
+        # chat or a transcribed voice note starting with "approve"/"deny" never acts on a proposal.
+        first_token = lower_clean.split()[0].split("@")[0] if lower_clean.split() else ""
+        if first_token in ("/approve", "/deny"):
             parts = clean.split()
             target_id = parts[1] if len(parts) > 1 else ""
             if not target_id:
-                latest = ApprovalRegistry.get_latest_pending()
-                if latest:
-                    target_id = latest["id"]
+                pending = ApprovalRegistry.list_pending()
+                if not pending:
+                    self.send_message(chat_id, "⚠️ No pending proposals.")
                 else:
-                    self.send_message(chat_id, "⚠️ No pending proposals to approve.")
-                    return
+                    ids = "\n".join(f"• `{p['id']}`: {p['title']}" for p in pending)
+                    self.send_message(
+                        chat_id,
+                        f"⚠️ Specify the proposal ID: `{first_token} <id>`\n\nPending:\n{ids}",
+                        parse_mode="Markdown",
+                    )
+                return
 
-            success, msg_text = ApprovalRegistry.approve(target_id, note="Approved via Telegram text")
-            self.send_message(chat_id, msg_text)
-            return
-
-        elif lower_clean.startswith(("/deny", "deny")):
-            parts = clean.split()
-            target_id = parts[1] if len(parts) > 1 else ""
-            if not target_id:
-                latest = ApprovalRegistry.get_latest_pending()
-                if latest:
-                    target_id = latest["id"]
-                else:
-                    self.send_message(chat_id, "⚠️ No pending proposals to deny.")
-                    return
-
-            success, msg_text = ApprovalRegistry.deny(target_id, note="Denied via Telegram text")
+            if first_token == "/approve":
+                success, msg_text = ApprovalRegistry.approve(target_id, note="Approved via Telegram text")
+            else:
+                success, msg_text = ApprovalRegistry.deny(target_id, note="Denied via Telegram text")
             self.send_message(chat_id, msg_text)
             return
 
@@ -1137,7 +1150,7 @@ class TelegramBridge:
                 self.agent.memory.clear()
             else:
                 try:
-                    requests.post(f"{get_core_service_url()}/api/context/clear", timeout=5)
+                    requests.post(f"{get_core_service_url()}/api/context/clear", headers=get_core_auth_headers(), timeout=5)
                 except Exception:
                     pass
             self.send_message(chat_id, "🧹 Shared conversation context cleared across all interfaces (HUD, Telegram, Cascade).")
@@ -1148,8 +1161,8 @@ class TelegramBridge:
                 r"⚡ *Z.A.I.N.E Pocket Commands:*" + "\n\n"
                 r"• `/status` — Live hardware telemetry" + "\n"
                 r"• `/pending` — View actions awaiting approval" + "\n"
-                r"• `/approve [id]` — Authorize pending implementation" + "\n"
-                r"• `/deny [id]` — Reject pending implementation" + "\n"
+                r"• `/approve <id>` — Authorize a pending implementation (ID required)" + "\n"
+                r"• `/deny <id>` — Reject a pending implementation (ID required)" + "\n"
                 r"• `/explain [id]` — Detailed technical breakdown" + "\n"
                 r"• `/voicemode [auto|on|off]` — Toggle voice note replies" + "\n"
                 r"• `/screen` — Live desktop screenshot" + "\n"
@@ -1227,19 +1240,24 @@ class TelegramBridge:
             print("[Pocket Zaine]: Standalone mode active. Verifying Core Service health...")
             wait_for_core_service()
 
-        # Verify bot identity
-        try:
-            me = requests.get(f"{API_BASE}/getMe", timeout=10).json()
-            if not me.get("ok"):
-                print(f"[Pocket Zaine Error]: Invalid Bot Token: {me.get('description')}")
-                return
-            bot_username = me["result"].get("username", "ZaineBot")
-            print(f"\n[Pocket Zaine Online]: Connected to @{bot_username}")
-            print(f"[Pocket Zaine Security]: Allowed User ID = '{TELEGRAM_ALLOWED_USER_ID or 'Not paired (send /pair <PIN>)'}'\n")
-            self.register_bot_commands()
-        except Exception as e:
-            print(f"[Pocket Zaine Error connecting]: {e}")
-            return
+        # Verify bot identity. Network errors (e.g. Wi-Fi not up yet at boot) are retried, because
+        # giving up here would leave approval buttons unanswered until the process restarts.
+        retry_delay = 5.0
+        while True:
+            try:
+                me = requests.get(f"{API_BASE}/getMe", timeout=10).json()
+                if not me.get("ok"):
+                    print(f"[Pocket Zaine Error]: Invalid Bot Token: {me.get('description')}")
+                    return
+                bot_username = me["result"].get("username", "ZaineBot")
+                print(f"\n[Pocket Zaine Online]: Connected to @{bot_username}")
+                print(f"[Pocket Zaine Security]: Allowed User ID = '{TELEGRAM_ALLOWED_USER_ID or 'Not paired (send /pair <PIN>)'}'\n")
+                self.register_bot_commands()
+                break
+            except Exception as e:
+                print(f"[Pocket Zaine Error connecting]: {e}. Retrying in {retry_delay:.0f}s...")
+                time.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 60.0)
 
         offset = None
         while True:

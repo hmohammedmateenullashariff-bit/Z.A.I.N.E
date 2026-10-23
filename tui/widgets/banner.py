@@ -33,15 +33,11 @@ class NeuralBanner(Widget):
         content.append(ASCII_LOGO, style=f"bold {COLOR_EMERALD}")
         content.append("\n\n")
 
-        # Telemetry metadata sub-line
-        content.append(" CORE: ", style=COLOR_TEXT_DIM)
-        content.append("v3.5.0-alpha ", style=f"bold {COLOR_CYAN}")
-        content.append("· SUB-SYSTEM: ", style=COLOR_TEXT_DIM)
-        content.append("Reflex-Core ", style=COLOR_TEXT_MUTED)
-        content.append("· HOST: ", style=COLOR_TEXT_DIM)
-        content.append("Local Workstation ", style=COLOR_TEXT_MUTED)
-        content.append("· PROTOCOL: ", style=COLOR_TEXT_DIM)
-        content.append("Jarvis-Guardian ", style=f"bold {COLOR_EMERALD}")
+        # Static identity line only; live state lives in the header, HUD and F3 graphs.
+        content.append(" Zenith Architecture Intelligence Neural Engine ", style=f"bold {COLOR_CYAN}")
+        content.append("· v3.5.0-alpha ", style=COLOR_TEXT_MUTED)
+        content.append("· local-first on Ollama ", style=COLOR_TEXT_MUTED)
+        content.append("· human-in-the-loop guardrails", style=f"bold {COLOR_EMERALD}")
 
         return Panel(
             content,

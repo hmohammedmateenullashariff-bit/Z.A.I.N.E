@@ -74,7 +74,7 @@ class TestStage2TUI(unittest.IsolatedAsyncioTestCase):
                 pass
 
         class MockClient:
-            def stream(self, method, url, json=None):
+            def stream(self, method, url, json=None, **kwargs):
                 return MockAsyncContext()
             async def aclose(self):
                 pass
@@ -117,7 +117,7 @@ class TestStage2TUI(unittest.IsolatedAsyncioTestCase):
                 pass
 
         class MockClient:
-            def stream(self, method, url, json=None):
+            def stream(self, method, url, json=None, **kwargs):
                 return MockAsyncContext()
             async def aclose(self):
                 pass
@@ -145,6 +145,8 @@ class TestStage2TUI(unittest.IsolatedAsyncioTestCase):
             {"type": "token", "content": "All"},
             {"type": "token", "content": "systems"},
             {"type": "token", "content": "nominal."},
+            {"type": "tool_event", "stage": "profiler", "tool": "qwen2.5:3b",
+             "data": {"model": "qwen2.5:3b", "eval_count": 50, "eval_duration_s": 1.0, "prompt_eval_count": 300}},
             {"type": "done", "ok": True, "reply": "All systems nominal.", "mode": "jarvis"},
         ]
 
@@ -169,28 +171,34 @@ class TestStage2TUI(unittest.IsolatedAsyncioTestCase):
 
                 # Check Reasoning block was mounted and completed
                 reasonings = list(chat_log.query(ReasoningBlock))
-                self.assertGreaterEqual(len(reasonings), 2)
+                self.assertGreaterEqual(len(reasonings), 1)
                 latest_reasoning = reasonings[-1]
                 self.assertIn("Evaluating query...", latest_reasoning.content)
                 self.assertTrue(latest_reasoning.is_complete)
 
                 # Check ToolLine was mounted and completed
                 tools = list(chat_log.query(ToolLine))
-                self.assertGreaterEqual(len(tools), 2)
+                self.assertGreaterEqual(len(tools), 1)
                 latest_tool = tools[-1]
                 self.assertEqual(latest_tool.tool_name, "system_status")
                 self.assertEqual(latest_tool.status, "COMPLETED")
 
                 # Check AssistantTurnCard was mounted with tokens
                 assistant_cards = list(chat_log.query(AssistantTurnCard))
-                self.assertGreaterEqual(len(assistant_cards), 2)
+                self.assertGreaterEqual(len(assistant_cards), 1)
                 latest_assistant = assistant_cards[-1]
                 self.assertIn("All systems nominal.", latest_assistant.markdown_text)
 
-                # Check HUD metrics updated
+                # HUD: TTFT measured client-side; throughput only from Ollama's eval counters (profiler)
                 hud = app.query_one(AgentStateHUD)
                 self.assertNotEqual(hud.last_ttft, "n/a")
-                self.assertNotEqual(hud.last_throughput, "n/a")
+                self.assertEqual(hud.last_throughput, "50.0 tok/s")
+
+                # The execution digraph was built from the same events: the model reasons (hop 1),
+                # calls the tool, then speaks again after it (hop 2) before the reply.
+                kinds = [n.kind for n in app.exec_graph.nodes.values()]
+                self.assertEqual(kinds, ["prompt", "router", "model", "tool", "model", "reply"])
+                self.assertFalse(app.exec_graph.is_active)
 
     async def test_04_textual_pilot_cancellation(self):
         """Verify pressing Esc cancels live streaming cleanly."""
@@ -237,7 +245,9 @@ class TestStage2TUI(unittest.IsolatedAsyncioTestCase):
             await inp.action_submit()
             await pilot.pause(0.05)
             assistant_cards = list(chat_log.query(AssistantTurnCard))
-            self.assertIn("Cognitive Neural Models & Tiers", assistant_cards[-1].markdown_text)
+            # Routing table comes from core_router, residency from the last Ollama poll.
+            self.assertIn("Model Routing", assistant_cards[-1].markdown_text)
+            self.assertIn("In VRAM now", assistant_cards[-1].markdown_text)
 
             # 3. /memory
             inp.focus()

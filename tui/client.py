@@ -116,7 +116,8 @@ async def stream_chat_events(
     first_token_timeout = default_first_token_timeout
     has_received_token = False
     stream_start_time = time.monotonic()
-    TOTAL_STREAM_CEILING = 120.0
+    last_progress_time = stream_start_time
+    total_ceiling_cfg = float(os.getenv("ZAINE_STREAM_CEILING", "300.0"))
 
     close_client_at_exit = False
     if client is None:
@@ -139,23 +140,37 @@ async def stream_chat_events(
 
                 line_iterator = response.aiter_lines()
                 is_approval_pending = False
+                last_progress_time = time.monotonic()
 
                 while True:
-                    # Enforce 120s total stream ceiling
+                    # Enforce configurable total stream ceiling (default 300s)
                     elapsed_total = time.monotonic() - stream_start_time
-                    remaining_ceiling = max(0.0, TOTAL_STREAM_CEILING - elapsed_total)
+                    remaining_ceiling = max(0.0, total_ceiling_cfg - elapsed_total)
                     if remaining_ceiling <= 0:
                         try:
                             await cancel_chat_request(req_id, base_url=root_url)
                         except Exception:
                             pass
-                        raise StreamTimeoutError("Total stream timeout ceiling (120s) exceeded.")
+                        raise StreamTimeoutError(f"Total stream timeout ceiling ({total_ceiling_cfg:.0f}s) exceeded.")
+
+                    # Calculate remaining silence until idle gap timeout
+                    elapsed_since_progress = time.monotonic() - last_progress_time
+                    silence_limit = idle_gap_timeout if has_received_token else first_token_timeout
+                    remaining_silence = max(0.0, silence_limit - elapsed_since_progress)
+                    if remaining_silence <= 0 and not is_approval_pending:
+                        try:
+                            await cancel_chat_request(req_id, base_url=root_url)
+                        except Exception:
+                            pass
+                        timeout_kind = "Idle gap" if has_received_token else "Silence (first token)"
+                        raise StreamTimeoutError(
+                            f"{timeout_kind} timeout ({silence_limit:.0f}s) exceeded while awaiting response."
+                        )
 
                     if is_approval_pending:
                         current_timeout = remaining_ceiling
                     else:
-                        silence_limit = idle_gap_timeout if has_received_token else first_token_timeout
-                        current_timeout = min(silence_limit, remaining_ceiling)
+                        current_timeout = min(remaining_silence, remaining_ceiling)
 
                     try:
                         line = await asyncio.wait_for(anext(line_iterator), timeout=current_timeout)
@@ -168,7 +183,7 @@ async def stream_chat_events(
                             pass
                         timeout_kind = "Idle gap" if has_received_token else "Silence (first token)"
                         raise StreamTimeoutError(
-                            f"{timeout_kind} timeout ({current_timeout:.0f}s) exceeded while awaiting response."
+                            f"{timeout_kind} timeout ({silence_limit:.0f}s) exceeded while awaiting response."
                         )
                     except asyncio.CancelledError:
                         try:
@@ -181,8 +196,12 @@ async def stream_chat_events(
                         continue
                     line_str = line.strip()
 
-                    # Handle heartbeat comments (: ping, : comment) which keep connection alive
+                    # Handle heartbeat comments (: ping, : comment)
+                    # Before first token, pings count as liveness.
+                    # After first token, pings must NOT reset the progress timer unless waiting for approval.
                     if line_str.startswith(":"):
+                        if not has_received_token or is_approval_pending:
+                            last_progress_time = time.monotonic()
                         continue
 
                     if not line_str.startswith("data: "):
@@ -207,14 +226,27 @@ async def stream_chat_events(
                                     first_token_timeout = 45.0
                         elif stage == "approval_required":
                             is_approval_pending = True
+                            last_progress_time = time.monotonic()
                         elif stage in ("approval_wait",):
-                            pass
+                            is_approval_pending = True
+                            last_progress_time = time.monotonic()
                         elif stage in ("done", "approved", "denied"):
                             is_approval_pending = False
+                            last_progress_time = time.monotonic()
 
+                    # Progress tracking:
+                    # After first token, ONLY token or tool_event count as progress.
+                    # Before first token, any event (including heartbeats/loading) counts.
                     if ev_type == "token":
                         has_received_token = True
                         is_approval_pending = False
+                        last_progress_time = time.monotonic()
+                    elif ev_type == "tool_event":
+                        if event.get("stage") not in ("approval_required", "approval_wait"):
+                            is_approval_pending = False
+                        last_progress_time = time.monotonic()
+                    elif not has_received_token or is_approval_pending:
+                        last_progress_time = time.monotonic()
 
                     yield event
 
@@ -312,7 +344,15 @@ async def respond_to_approval(
                 "decision": decision,
                 "note": note,
             }, headers=get_auth_headers())
-            return resp.json() if resp.status_code == 200 else {"ok": False, "message": resp.text}
+            # A 400 carries {"ok": false, "message": "...already EXPIRED"}; keep that message.
+            try:
+                data = resp.json()
+                if isinstance(data, dict):
+                    data.setdefault("ok", resp.status_code == 200)
+                    return data
+            except ValueError:
+                pass
+            return {"ok": resp.status_code == 200, "message": resp.text}
     except Exception as e:
         return {"ok": False, "message": str(e)}
 

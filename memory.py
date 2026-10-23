@@ -5,6 +5,7 @@ for long-term memories (user profile, preferences, key facts across restarts).
 """
 
 import os
+import time
 import sqlite3
 import datetime
 import threading
@@ -247,7 +248,7 @@ def reflect_on_task_async(user_prompt: str, tool_history: list, outcome: str, mo
     Guarded by ZAINE_REFLECT flag (default OFF: ZAINE_REFLECT=0).
     When enabled, runs only after >=10s idle with the reflex model.
     """
-    if os.getenv("ZAINE_REFLECT", "0").lower() not in ("1", "true", "yes"):
+    if os.getenv("ZAINE_DEMO", "0").lower() in ("1", "true", "yes") or os.getenv("ZAINE_REFLECT", "0").lower() not in ("1", "true", "yes"):
         return
 
     if not model_name:
@@ -285,14 +286,38 @@ def reflect_on_task_async(user_prompt: str, tool_history: list, outcome: str, mo
             f"KEYWORDS: <comma-separated keywords>\n"
             f"If NO new insight or standard query, respond with: NONE"
         )
+        options_dict = {"num_predict": 128, "num_ctx": int(os.environ.get("ZAINE_NUM_CTX", "4096"))}
+        keep_alive_val = -1
         try:
+            t0 = time.perf_counter()
             resp = requests.post(
                 "http://127.0.0.1:11434/api/generate",
-                json={"model": model_name, "prompt": prompt, "stream": False, "options": {"num_predict": 128}},
+                json={
+                    "model": model_name,
+                    "prompt": prompt,
+                    "stream": False,
+                    "keep_alive": keep_alive_val,
+                    "options": options_dict,
+                },
                 timeout=15,
             )
+            wall_time = time.perf_counter() - t0
+            raw_json = resp.json() if resp.status_code == 200 else {}
+            try:
+                from ollama_profiler import log_ollama_call
+                log_ollama_call(
+                    caller="memory.reflect_on_task",
+                    model=model_name,
+                    options=options_dict,
+                    response_data=raw_json,
+                    wall_time_s=wall_time,
+                    keep_alive=keep_alive_val,
+                )
+            except Exception:
+                pass
+
             if resp.status_code == 200:
-                text = resp.json().get("response", "").strip()
+                text = raw_json.get("response", "").strip()
                 if "LESSON:" in text:
                     lesson_line = ""
                     kw_line = ""
@@ -526,7 +551,7 @@ def summarize_and_store_episode_async(
     Reflection default OFF (ZAINE_REFLECT=0). When enabled, runs only after >=10s idle with the reflex model.
     Guarded by a module-level lock and queue to prevent concurrent thread stampedes on Ollama.
     """
-    if os.getenv("ZAINE_REFLECT", "0").lower() not in ("1", "true", "yes"):
+    if os.getenv("ZAINE_DEMO", "0").lower() in ("1", "true", "yes") or os.getenv("ZAINE_REFLECT", "0").lower() not in ("1", "true", "yes"):
         return
 
     if not model_name:
@@ -598,19 +623,38 @@ def summarize_and_store_episode_async(
                     "If no meaningful conversation took place, reply with: NONE"
                 )
 
+                options_dict = {"num_predict": 150, "temperature": 0.3, "num_ctx": int(os.environ.get("ZAINE_NUM_CTX", "4096"))}
+                keep_alive_val = -1
                 try:
+                    t0 = time.perf_counter()
                     resp = requests.post(
                         "http://127.0.0.1:11434/api/generate",
                         json={
                             "model": m_name,
                             "prompt": prompt,
                             "stream": False,
-                            "options": {"num_predict": 150, "temperature": 0.3}
+                            "keep_alive": keep_alive_val,
+                            "options": options_dict,
                         },
                         timeout=18,
                     )
+                    wall_time = time.perf_counter() - t0
+                    raw_json = resp.json() if resp.status_code == 200 else {}
+                    try:
+                        from ollama_profiler import log_ollama_call
+                        log_ollama_call(
+                            caller="memory.extract_conversation_topics",
+                            model=m_name,
+                            options=options_dict,
+                            response_data=raw_json,
+                            wall_time_s=wall_time,
+                            keep_alive=keep_alive_val,
+                        )
+                    except Exception:
+                        pass
+
                     if resp.status_code == 200:
-                        text = resp.json().get("response", "").strip()
+                        text = raw_json.get("response", "").strip()
                         if "TOPIC_SUMMARY:" in text and "none" not in text.lower()[:30]:
                             topic_summary = ""
                             key_points = ""
