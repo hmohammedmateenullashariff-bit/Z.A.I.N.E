@@ -117,6 +117,23 @@ def collect_system_graph(core_url: str) -> SystemGraph:
     except Exception:
         pass
 
+    # VisionQuest agents (profiles are local config; pin / last turn come from the core).
+    try:
+        from agents import get_registry
+        agent_info = (status or {}).get("agent") or {} if core_up else {}
+        pinned = agent_info.get("pinned")
+        last = (agent_info.get("last") or {}).get("agent_id")
+        reg = get_registry()
+        g.add("agents", "group", "Agents", f"{len(reg.interactive())} interactive" + (" · pinned" if pinned else ""),
+              "online" if core_up else "unknown", parent="core")
+        for p in reg.profiles.values():
+            mark = " ★" if p.agent_id in (pinned, last) else ""
+            detail = ("background" if not p.interactive else p.title.split(" (")[0]) + mark
+            g.add(f"agent:{p.agent_id}", "group", p.display_name, detail,
+                  ("online" if p.interactive else "idle") if core_up else "unknown", parent="agents")
+    except Exception:
+        pass
+
     # Human-in-the-loop path.
     pending = len(approvals.get("pending", [])) if isinstance(approvals, dict) else None
     g.add("guard", "group", "Guardrail", f"{pending} pending" if pending is not None else "n/a",

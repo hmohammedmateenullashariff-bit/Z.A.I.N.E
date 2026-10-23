@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # Node kinds
 PROMPT, ROUTER, MODEL, TOOL, APPROVAL, REPLY, ERROR = "prompt", "router", "model", "tool", "approval", "reply", "error"
+AGENT = "agent"
 
 # Node statuses
 RUNNING, OK, FAILED, WAITING, BLOCKED, CANCELLED = "running", "ok", "failed", "waiting", "blocked", "cancelled"
@@ -90,6 +91,10 @@ class ExecGraph:
         self._running_tools: Dict[str, List[str]] = {}  # tool name -> node ids still running
         self._approval_for_tool: Dict[str, str] = {}    # tool node id -> approval node id
         self._streamed = ""                              # tail of streamed reply text
+        self.agent = ""                                  # display name of the turn's agent
+        self.agent_color = ""
+        self.delegations: List[Tuple[str, str]] = []     # (to_display, outcome)
+        self._frames: List[Dict[str, Any]] = []          # saved state while a consulted agent runs
 
     # ── construction helpers ────────────────────────────────────────────────
     def _add(self, kind: str, label: str, detail: str = "", status: str = RUNNING, sources=None, **meta) -> GraphNode:
@@ -116,9 +121,10 @@ class ExecGraph:
             return self.nodes[self._open_model]
         if self._last_model and not self._hop_tools:
             return self.nodes[self._last_model]
-        hop = sum(1 for n in self.nodes.values() if n.kind == MODEL) + 1
+        hop = sum(1 for n in self.nodes.values() if n.kind == MODEL and n.meta.get("agent") == self.agent) + 1
         sources = self._hop_tools or self._frontier
-        node = self._add(MODEL, f"LLM hop {hop}", self.model or "generating", sources=sources, hop=hop)
+        label = f"{self.agent} hop {hop}" if self.agent else f"LLM hop {hop}"
+        node = self._add(MODEL, label, self.model or "generating", sources=sources, hop=hop, agent=self.agent)
         self._open_model = node.node_id
         self._last_model = node.node_id
         self._frontier = [node.node_id]
@@ -152,6 +158,10 @@ class ExecGraph:
         self._running_tools = {}
         self._approval_for_tool = {}
         self._streamed = ""
+        self.agent = ""
+        self.agent_color = ""
+        self.delegations = []
+        self._frames = []
         self.turn_index += 1
         self.prompt = prompt
         self.tier = ""
@@ -194,6 +204,50 @@ class ExecGraph:
             node.ended = node.started
             self._frontier = [node.node_id]
             self._log("ROUTER", f"tier {self.tier or 'n/a'} -> {self.model or 'n/a'}")
+        elif stage == "agent":
+            info = data if isinstance(data, dict) else {}
+            self.agent = str(info.get("display_name") or tool or "agent")
+            self.agent_color = str(info.get("color") or "")
+            node = self._add(AGENT, self.agent, str(info.get("reason") or ""), status=OK,
+                             agent_id=info.get("agent_id", tool), color=self.agent_color, title=info.get("title", ""))
+            node.ended = node.started
+            self._frontier = [node.node_id]
+            self._log("AGENT", f"{self.agent} ({info.get('reason', '')})")
+        elif stage == "delegate_start":
+            info = data if isinstance(data, dict) else {}
+            to_display = str(info.get("to_display") or tool)
+            asking = (self._running_tools.get("ask_agent") or [None])[-1]
+            # Save the caller's position; the consulted agent's hops and tools hang off the ask_agent node.
+            self._frames.append({
+                "frontier": self._frontier, "open": self._open_model, "last": self._last_model,
+                "hop_tools": self._hop_tools, "agent": self.agent,
+            })
+            node = self._add(AGENT, to_display, _short(info.get("request"), 48),
+                             sources=[asking] if asking else self._frontier, agent_id=info.get("to", tool),
+                             consulted_by=info.get("from_display", ""))
+            self._frontier, self._open_model, self._last_model, self._hop_tools = [node.node_id], None, None, []
+            self.agent = to_display
+            self._frames[-1]["node"] = node.node_id
+            self._frames[-1]["asking"] = asking
+            self._log("AGENT", f"{info.get('from_display', '')} -> {to_display}: {_short(info.get('request'), 80)}")
+        elif stage == "delegate_done":
+            info = data if isinstance(data, dict) else {}
+            self._close_model()
+            if self._frames:
+                frame = self._frames.pop()
+                leaves = self._hop_tools or self._frontier
+                consulted = self.nodes.get(frame.get("node"))
+                if consulted:
+                    consulted.finish(OK if info.get("ok", True) else FAILED)
+                self._frontier, self._open_model, self._last_model = frame["frontier"], frame["open"], frame["last"]
+                # The consulted agent's answer (its last step) replaces the ask_agent node as input to the
+                # caller's next hop: the tool's result *is* that answer.
+                kept = [n for n in frame["hop_tools"] if n != frame.get("asking")]
+                self._hop_tools = kept + [n for n in leaves if n not in kept]
+                self.agent = frame["agent"]
+            to_display = str(info.get("to_display") or tool)
+            self.delegations.append((to_display, "ok" if info.get("ok", True) else "failed"))
+            self._log("AGENT", f"{to_display} replied: {_short(info.get('answer'), 80)}")
         elif stage in ("think", "generating"):
             self._ensure_model()
         elif stage == "profiler":
@@ -298,6 +352,8 @@ class ExecGraph:
         end = self.ended if self.ended is not None else time.perf_counter()
         return {
             "turn": self.turn_index,
+            "agent": next((n.label for n in self.nodes.values() if n.kind == AGENT and not n.meta.get("consulted_by")), "n/a"),
+            "delegations": list(self.delegations),
             "prompt": self.prompt,
             "tier": self.tier or "n/a",
             "model": self.model or "n/a",

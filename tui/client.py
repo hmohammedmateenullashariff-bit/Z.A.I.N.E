@@ -318,6 +318,35 @@ async def toggle_voice(base_url: Optional[str] = None, enable: Optional[bool] = 
         return {"status": "error", "message": str(e)}
 
 
+async def get_agents(base_url: Optional[str] = None) -> Dict[str, Any]:
+    """GET /api/agents: VisionQuest agent profiles, the session pin and the last turn's agent."""
+    url = (base_url or get_core_service_url()) + "/api/agents"
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(url, headers=get_auth_headers())
+            if resp.status_code == 200:
+                return resp.json()
+            return {"ok": False, "message": resp.text, "agents": []}
+    except Exception as e:
+        return {"ok": False, "message": str(e), "agents": []}
+
+
+async def set_agent(name: Optional[str], base_url: Optional[str] = None) -> Dict[str, Any]:
+    """POST /api/agent: pin an agent for the session, or 'auto' to restore routing."""
+    url = (base_url or get_core_service_url()) + "/api/agent"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(url, json={"agent": name or "auto"}, headers=get_auth_headers())
+            try:
+                data = resp.json()
+            except ValueError:
+                data = {"message": resp.text}
+            data.setdefault("ok", resp.status_code == 200)
+            return data
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
 async def get_conversation_history(base_url: Optional[str] = None) -> Dict[str, Any]:
     """Calls GET /api/history to retrieve episodic memory records."""
     url = (base_url or get_core_service_url()) + "/api/history"

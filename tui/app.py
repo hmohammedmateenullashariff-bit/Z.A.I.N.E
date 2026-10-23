@@ -67,6 +67,8 @@ from tui.client import (
     get_conversation_history,
     respond_to_approval,
     cancel_chat_request,
+    get_agents,
+    set_agent,
     StreamTimeoutError,
     StreamCancelledError,
 )
@@ -188,6 +190,11 @@ class ZaineTUI(App):
             cfg = status.get("config") or {}
             flags = [name for name, on in (("DEMO", cfg.get("demo")), ("FAST 3B", cfg.get("fast"))) if on]
             header.core_flags = " · ".join(flags) if facts.get("core_up") else ""
+            # Keep the pin indicator in sync (Telegram or another client may change it).
+            agent_info = status.get("agent") or {}
+            if facts.get("core_up") and not self.is_streaming:
+                header.agent_pinned = bool(agent_info.get("pinned"))
+                hud.agent_pinned = header.agent_pinned
             if not self.is_streaming:
                 label = self._idle_status()
                 header.status_label = label
@@ -427,6 +434,10 @@ class ZaineTUI(App):
             self.handle_models_command(text)
             return
 
+        if cmd == "/agent" or cmd.startswith("/agent ") or cmd == "/agents":
+            self.handle_agent_command(text)
+            return
+
         # 3. Standard User Natural Language Chat Turn (Streamed SSE)
         self.stream_agent_response(text)
 
@@ -447,6 +458,8 @@ class ZaineTUI(App):
             "| `/memory` | Inspect Obsidian durable knowledge vault index |\n"
             "| `/history` | View episodic memory session summaries |\n"
             "| `/models` | Inspect cognitive model tier configurations |\n"
+            "| `/agent [name\\|auto]` | List VisionQuest agents, pin one, or restore auto routing |\n"
+            "| `@edith …` / `@ultron …` | Send one message to a specific agent |\n"
             "| `/clear` | Clear chat viewport back to initial banner |\n"
             "| `/hud` or `F2` | Toggle Agent State HUD sidebar |\n"
             "| `F3` | Graph workspace: `1` live execution DAG · `2` system topology · `3` 3D orbit |\n"
@@ -589,6 +602,50 @@ class ZaineTUI(App):
             lines.append(f"- **{ep.get('session_start', 'Session')}**: {ep.get('topic_summary', 'No summary')}")
         chat_log.add_assistant_message("\n".join(lines), latency="0.03s")
 
+    @work
+    async def handle_agent_command(self, user_text: str) -> None:
+        """/agent lists the VisionQuest agents; /agent <name> pins one; /agent auto restores routing."""
+        chat_log = self.query_one(ChatLog)
+        chat_log.add_user_message(user_text)
+        parts = user_text.strip().split(maxsplit=1)
+        header = self.query_one(HeaderBar)
+        hud = self.query_one(AgentStateHUD)
+
+        if len(parts) > 1:
+            res = await set_agent(parts[1], base_url=self.core_url)
+            ok = bool(res.get("ok"))
+            chat_log.add_system_card(
+                title="AGENT PINNED" if ok and res.get("pinned") else ("AUTO ROUTING" if ok else "AGENT NOT CHANGED"),
+                message=res.get("message", ""),
+                level="success" if ok else "warning",
+            )
+            if ok:
+                header.agent_pinned = bool(res.get("pinned"))
+                if res.get("display_name"):
+                    header.agent_name = res["display_name"]
+                hud.agent_pinned = header.agent_pinned
+                hud.refresh()
+            return
+
+        res = await get_agents(base_url=self.core_url)
+        agents = res.get("agents") or []
+        if not agents:
+            chat_log.add_system_card(title="AGENTS UNAVAILABLE", message=res.get("message", "Core is offline."), level="warning")
+            return
+        pinned = res.get("pinned")
+        last = (res.get("last") or {}).get("agent_id")
+        rows = ["### VisionQuest Agents\n",
+                "| Agent | Role | Tools | Routing | Call it |",
+                "| :--- | :--- | :--- | :--- | :--- |"]
+        for a in agents:
+            mark = " (pinned)" if a["agent_id"] == pinned else (" (last turn)" if a["agent_id"] == last else "")
+            routing = "background" if not a.get("interactive") else ("auto" if a.get("auto_route") else "on request")
+            alias = (a.get("aliases") or [a["agent_id"]])[0]
+            call = f"`@{alias}` · `/agent {alias}`" if a.get("interactive") else "—"
+            rows.append(f"| **{a['display_name']}**{mark} | {a['title']} | {a['tool_count']} | {routing} | {call} |")
+        rows.append("\nAgents can consult each other with `ask_agent` (one level deep). `/agent auto` restores automatic routing.")
+        chat_log.add_assistant_message("\n".join(rows), latency="0.01s")
+
     def handle_memory_command(self, user_text: str) -> None:
         chat_log = self.query_one(ChatLog)
         chat_log.add_user_message(user_text)
@@ -711,6 +768,21 @@ class ZaineTUI(App):
                             header.mode = tier
                             footer.model = m
                             hud.update_metrics(model=m, tier=tier)
+
+                    elif stage == "agent":
+                        info = data if isinstance(data, dict) else {}
+                        name = str(info.get("display_name") or tool_name)
+                        color = str(info.get("color") or "#00f5a0")
+                        pinned = info.get("source") == "pinned"
+                        header.agent_name, header.agent_color, header.agent_pinned = name, color, pinned
+                        hud.update_agent(name, str(info.get("title", "")), str(info.get("reason", "")), color, pinned)
+
+                    elif stage in ("delegate_start", "delegate_done"):
+                        info = data if isinstance(data, dict) else {}
+                        to_name = str(info.get("to_display") or tool_name)
+                        label = f"CONSULTING {to_name}" if stage == "delegate_start" else "THINKING"
+                        header.status_label = label
+                        footer.status = label
 
                     elif stage == "profiler":
                         # Ollama's own counters for the call that just finished: the real tok/s.

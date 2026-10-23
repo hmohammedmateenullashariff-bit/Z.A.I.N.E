@@ -118,28 +118,33 @@ def is_biometric_identity_intent(prompt: str) -> bool:
     clean = re.sub(r"[^\w\s]", " ", msg)
     words = clean.split()
     
+    # Whole-word phrases only, and only filler may follow them: substring matching used to fire the webcam
+    # on "look at memory usage", "scan memory" and "who am i talking to".
     triggers = [
-        "identify me", "identify my face", "identify who", "identify person", "identify user",
-        "who am i", "who is this", "who are you looking at", "who do you see", "who is in front",
-        "who's in front", "who is looking", "who is there",
-        "recognize me", "recognize my face", "recognize who", "scan my face",
-        "scan face", "scan me", "check my face", "check who i am", "verify my identity",
-        "verify who i am", "verify me", "face id", "face recognition", "facial recognition",
+        "identify me", "identify my face", "identify who is there", "identify the person", "identify the user",
+        "who am i", "who is this", "who are you looking at", "who do you see", "who is in front of the camera",
+        "who s in front of the camera", "who is in front of you", "who is looking at you", "who is there",
+        "recognize me", "recognize my face", "scan my face", "scan me", "check my face", "check who i am",
+        "verify my identity", "verify who i am", "verify me", "face id", "face recognition", "facial recognition",
         "do you know who i am", "do you know me", "tell me who i am", "tell me who am i",
         "look at me and tell me who i am", "look at me who am i", "look at me",
         "did face recognition fail", "did the face recognition fail", "face recognition failed",
-        "am i recognized", "its me mateen", "it's me mateen", "it is me mateen", "its me sir", "it's me sir"
+        "am i recognized", "its me mateen", "it s me mateen", "it is me mateen", "its me sir", "it s me sir",
     ]
-    if any(t in msg for t in triggers):
-        return True
-    
-    has_verb = any(w in words for w in ["identify", "recognize", "scan", "verify", "check", "see", "know", "tell"])
-    has_noun = any(w in words for w in ["face", "identity", "biometric", "who"])
-    has_self = any(w in words for w in ["me", "i", "my", "myself"])
-    if has_verb and (has_noun or has_self) and any(w in words for w in ["face", "identity", "who", "camera", "webcam"]):
-        return True
-        
-    return False
+    filler = {"please", "now", "sir", "zaine", "jarvis", "again", "right", "quickly", "for", "me", "mateen", "pls"}
+    padded = " " + " ".join(words) + " "
+    for t in triggers:
+        idx = padded.find(" " + t + " ")
+        if idx < 0:
+            continue
+        rest = padded[idx + len(t) + 2:].split()
+        if all(w in filler for w in rest):
+            return True
+
+    # Fallback needs an explicit biometric word, not just "who"/"tell" ("tell me who won the match").
+    has_verb = any(w in words for w in ["identify", "recognize", "recognise", "scan", "verify", "check"])
+    has_biometric = any(w in words for w in ["face", "facial", "biometric", "biometrics", "identity"])
+    return has_verb and has_biometric
 
 
 def build_system_prompt(memory_context: str = "", ultron_mode: bool = False) -> str:
@@ -386,6 +391,14 @@ class ZaineAgent:
         self.last_tool_called = None
         self.ultron_mode = False
         self.last_turn_calls = []
+        # VisionQuest sub-agent for the running turn (None = no restriction, e.g. direct tool calls)
+        self.active_agent = None
+        self.last_agent_selection = None
+        # Per-turn context used when one agent consults another via ask_agent
+        self._turn_event_cb = None
+        self._turn_model = None
+        self._turn_thread = None
+        self._delegation_depth = 0
         # Pre-warm and permanently pin Tier 0 Reflex Core into GPU VRAM
         try:
             router.pin_reflex_in_vram()
@@ -976,6 +989,18 @@ class ZaineAgent:
             if "note" in args and "content" not in args:
                 args["content"] = args.pop("note")
 
+        # Sub-agent permissions are enforced here, on the canonical tool name, not only by what the
+        # prompt shows: a model naming a tool outside its agent's scope must not run it.
+        if name in ("delegate", "ask", "consult_agent", "ask_subagent", "ask_agents"):
+            name = "ask_agent"
+        agent_profile = getattr(self, "active_agent", None)
+        if agent_profile is not None and not agent_profile.allows(name):
+            return (f"Tool '{name}' is outside {agent_profile.display_name}'s permissions "
+                    f"({agent_profile.title}). Answer without it, or ask Sir to switch with /agent or @jarvis.")
+
+        if name == "ask_agent":
+            return self._delegate(args)
+
         fn = TOOL_REGISTRY.get(name)
         if fn is None:
             return f"Error: unknown tool '{raw_name}'"
@@ -999,6 +1024,125 @@ class ZaineAgent:
             result += f"\n[note: ignored unsupported argument(s) for {name}: {', '.join(ignored)}]"
         return result
 
+    # ── VisionQuest sub-agents ─────────────────────────────────────────────────
+    MAX_DELEGATION_DEPTH = 1   # a consulted agent cannot consult another one (no chains or loops)
+    SUBAGENT_MAX_HOPS = 3      # tool rounds inside one consultation
+
+    @staticmethod
+    def _agent_clusters(profile, message: str) -> list:
+        clusters = classify_intent_clusters(message)
+        if profile is not None and not profile.allow_all_tools:
+            clusters = [c for c in clusters if c in profile.allowed_clusters] or list(profile.allowed_clusters[:2])
+        return clusters
+
+    def _emit(self, stage: str, tool: str, data) -> None:
+        cb = self._turn_event_cb
+        if cb:
+            try:
+                cb(stage, tool, data)
+            except Exception:
+                pass
+
+    def _delegate(self, args: dict) -> str:
+        """ask_agent tool: the active agent consults another agent and gets its answer as the result."""
+        from agents import get_registry
+        caller = self.active_agent
+        target_name = str(args.get("agent") or args.get("to") or args.get("name") or args.get("agent_id") or "").strip()
+        request = str(args.get("request") or args.get("question") or args.get("task")
+                      or args.get("message") or args.get("prompt") or "").strip()
+        if not target_name or not request:
+            return "Error: ask_agent needs 'agent' (e.g. 'edith', 'ultron') and 'request'."
+        target = get_registry().resolve(target_name)
+        if target is None:
+            names = ", ".join(p.aliases[0] for p in get_registry().interactive() if p.aliases)
+            return f"Error: unknown agent '{target_name}'. Agents: {names}."
+        if not target.interactive:
+            return f"Error: {target.display_name} is a background agent and cannot be consulted."
+        if caller is not None and target.agent_id == caller.agent_id:
+            return "Error: an agent cannot consult itself; answer directly."
+        if self._delegation_depth >= self.MAX_DELEGATION_DEPTH:
+            return "Error: consulted agents cannot delegate further; answer with what you have."
+        if self._turn_thread is not None and threading.current_thread() is not self._turn_thread:
+            return "Error: call ask_agent on its own, not together with other tools."
+
+        caller_name = caller.display_name if caller else "Z.A.I.N.E"
+        self._emit("delegate_start", target.agent_id, {
+            "from": caller.agent_id if caller else None, "from_display": caller_name,
+            "to": target.agent_id, "to_display": target.display_name, "request": request[:500],
+        })
+        self.active_agent = target
+        self._delegation_depth += 1
+        ok = True
+        try:
+            answer = self._run_subagent(target, request, caller_name)
+        except Exception as e:
+            ok, answer = False, f"{target.display_name} could not answer: {e}"
+        finally:
+            self._delegation_depth -= 1
+            self.active_agent = caller
+        self._emit("delegate_done", target.agent_id, {"to": target.agent_id, "to_display": target.display_name,
+                                                      "ok": ok, "answer": answer[:500]})
+        return f"{target.display_name} replied:\n{answer}"
+
+    def _run_subagent(self, profile, request: str, caller_name: str) -> str:
+        """One consultation: the target agent's own prompt and tools, a few non-streamed hops, text answer."""
+        model = self._turn_model or router.resolve_model(router.reflex_model)
+        is_demo = os.getenv("ZAINE_DEMO", "0").strip().lower() in ("1", "true", "yes")
+        system_prompt = build_clustered_system_prompt(
+            self.memory.get_persistent_context(current_prompt=request),
+            ultron_mode=self.ultron_mode,
+            active_clusters=self._agent_clusters(profile, request) if profile.allowed_tools or profile.allow_all_tools else [],
+            agent_profile=profile,
+            allow_delegation=False,
+        )
+        system_prompt += (f"\n\nYou are being consulted by {caller_name}. Answer their request directly and concisely; "
+                          f"your reply goes back to {caller_name}, not to Sir.")
+        messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": request}]
+        hops = min(profile.max_tool_hops, self.SUBAGENT_MAX_HOPS)
+        content = ""
+        for hop in range(hops + 1):
+            payload = {
+                "model": model,
+                "messages": messages,
+                "stream": False,
+                "keep_alive": -1 if ZAINE_SINGLE_MODEL else "5m",
+                "options": {
+                    "num_ctx": int(os.environ.get("ZAINE_NUM_CTX", "4096")),
+                    "num_predict": 300 if is_demo else 768,
+                    "temperature": 0.3,
+                },
+            }
+            t0 = time.perf_counter()
+            resp = requests.post(OLLAMA_URL, json=payload, timeout=180)
+            resp.raise_for_status()
+            data = resp.json()
+            metrics = {
+                "model": model, "hop": hop, "agent": profile.agent_id,
+                "eval_count": data.get("eval_count", 0),
+                "eval_duration_s": round(data.get("eval_duration", 0) / 1e9, 3),
+                "prompt_eval_count": data.get("prompt_eval_count", 0),
+                "load_duration_s": round(data.get("load_duration", 0) / 1e9, 3),
+                "wall_time_s": round(time.perf_counter() - t0, 2),
+            }
+            self.last_turn_calls.append(metrics)
+            self._emit("profiler", model, metrics)
+            content = (data.get("message") or {}).get("content", "")
+            calls = self._try_parse_tool_calls(content)
+            if not calls:
+                return content.strip() or "(no answer)"
+            if hop == hops:
+                return "Stopped after the consultation's tool limit. Last output:\n" + content.strip()
+            feedback = []
+            for tc in calls[:3]:
+                tname = tc.get("tool", "")
+                self._emit("start", tname, tc.get("args", {}))
+                result = self._execute_tool(tc)
+                self._emit("done", tname, result)
+                feedback.append(f"[TOOL RESULT for {tname}]: {result}")
+            messages.append({"role": "assistant", "content": content})
+            messages.append({"role": "user", "content": "\n".join(feedback)})
+        return content.strip() or "(no answer)"
+
     def chat_stream(self, user_message: str, on_tool_event=None):
         """
         Streaming generator that yields sentences as they are generated.
@@ -1014,6 +1158,10 @@ class ZaineAgent:
         before streaming final conversational speech.
         """
         self.last_tool_called = None
+        # "@edith fix this" addresses a sub-agent; the model and memory see only "fix this".
+        from agents import parse_mention, select_agent
+        raw_message = user_message
+        _mentioned, user_message = parse_mention(user_message)
         with self._chat_lock:
             self.memory.add("user", user_message)
 
@@ -1086,8 +1234,14 @@ class ZaineAgent:
         is_demo = os.getenv("ZAINE_DEMO", "0").strip().lower() in ("1", "true", "yes")
         is_plain_code = is_demo and is_plain_code_request(user_message)
 
-        # Dynamic lean tool clustering (reduces prompt from 2500 -> 350 tokens)
-        active_clusters = classify_intent_clusters(user_message)
+        # VisionQuest sub-agent for this turn: @mention > /agent pin > cluster routing > default.
+        selection = select_agent(raw_message, task_tier)
+        profile = selection.profile
+        self.active_agent = profile
+        self.last_agent_selection = selection
+
+        # Dynamic lean tool clustering (reduces prompt from 2500 -> 350 tokens), limited to the agent's tools
+        active_clusters = self._agent_clusters(profile, user_message)
         if is_plain_code:
             active_clusters = [c for c in active_clusters if c != "DEV_CODE"]
 
@@ -1099,9 +1253,22 @@ class ZaineAgent:
         else:
             target_model = router.reflex_model
         active_model = router.resolve_model(target_model)
+        self._turn_event_cb = on_tool_event
+        self._turn_model = active_model
+        self._turn_thread = threading.current_thread()
+        self._delegation_depth = 0
         if on_tool_event:
             try:
                 on_tool_event("route", "router", {"tier": task_tier, "model": active_model})
+                on_tool_event("agent", profile.agent_id, {
+                    "agent_id": profile.agent_id,
+                    "display_name": profile.display_name,
+                    "title": profile.title,
+                    "reason": selection.reason,
+                    "source": selection.source,
+                    "color": profile.color,
+                    "clusters": list(active_clusters),
+                })
             except Exception:
                 pass
 
@@ -1109,7 +1276,8 @@ class ZaineAgent:
             self.memory.get_persistent_context(current_prompt=user_message),
             ultron_mode=self.ultron_mode,
             active_clusters=active_clusters,
-            active_user=active_user
+            active_user=active_user,
+            agent_profile=profile,
         )
         if is_demo:
             model_display = derive_model_display_name(active_model)
@@ -1120,7 +1288,7 @@ class ZaineAgent:
 
         messages = [{"role": "system", "content": system_prompt}] + self.memory.get_messages()
 
-        max_tool_hops = 6  # Allows write -> run -> debug -> verify loops
+        max_tool_hops = profile.max_tool_hops  # per agent; default 6 allows write -> run -> debug -> verify loops
         hops = 0
         executed_tool_history = []
 
@@ -1340,6 +1508,9 @@ class ZaineAgent:
 
                 if has_error and hops < max_tool_hops - 1:
                     tool_feedbacks.append("[SYSTEM NOTE]: An error or bug occurred during execution. Inspect the error above, use edit_workspace_file or write_workspace_file to fix it, and re-run to verify before answering.")
+                else:
+                    # Small models tend to echo the tool-call JSON into their answer after a result.
+                    tool_feedbacks.append("[SYSTEM NOTE]: Use the results above. If no further tool is needed, answer Sir in plain language and do not repeat the tool call JSON.")
 
                 messages.append({"role": "assistant", "content": full_content})
                 messages.append({"role": "user", "content": "\n".join(tool_feedbacks)})

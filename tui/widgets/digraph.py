@@ -20,6 +20,7 @@ from tui.theme import (
 KIND_STYLE = {
     "prompt": ("USER", COLOR_EMERALD),
     "router": ("ROUTER", COLOR_VIOLET_BRIGHT),
+    "agent": ("AGENT", COLOR_VIOLET_BRIGHT),
     "model": ("LLM", COLOR_CYAN),
     "tool": ("TOOL", COLOR_AMBER),
     "approval": ("GUARD", COLOR_AMBER),
@@ -156,19 +157,30 @@ def render_digraph(graph: Any, width: int, height: int, style: str = "box", fram
     ncols = len(layers)
     usable = width - MARGIN
     nodes = graph.nodes
-    if style == "box":
-        uniform = max(15, min(28, (usable - GAP * (ncols - 1)) // max(1, ncols)))
-        col_w = [uniform] * ncols
-    else:
-        # Pills size each column to its longest "glyph label  detail" line.
-        col_w = [
-            max(14, min(PILL_MAX, max(len(f"{getattr(nodes[n], 'label', n)}  {getattr(nodes[n], 'detail', '')}") + 3 for n in col)))
-            for col in layers
-        ]
-    # Hide leading columns until the rest fits.
-    hidden = 0
-    while hidden < ncols - 1 and sum(col_w[hidden:]) + GAP * (ncols - hidden - 1) > usable:
-        hidden += 1
+    def fit(gap: int):
+        if style == "box":
+            uniform = max(15, min(28, (usable - gap * (ncols - 1)) // max(1, ncols)))
+            widths = [uniform] * ncols
+        else:
+            # Pills size each column to its longest "glyph label  detail" line.
+            widths = [
+                max(14, min(PILL_MAX, max(len(f"{getattr(nodes[n], 'label', n)}  {getattr(nodes[n], 'detail', '')}") + 3 for n in col)))
+                for col in layers
+            ]
+        # Hide leading columns until the rest fits.
+        h = 0
+        while h < ncols - 1 and sum(widths[h:]) + gap * (ncols - h - 1) > usable:
+            h += 1
+        return widths, h
+
+    # A 5-column gap leaves two vertical lanes, so edges from different sources never share one;
+    # fall back to 4 only when that keeps more columns on screen.
+    gap = GAP + 1
+    col_w, hidden = fit(gap)
+    if hidden:
+        narrow_w, narrow_hidden = fit(GAP)
+        if narrow_hidden < hidden:
+            gap, col_w, hidden = GAP, narrow_w, narrow_hidden
     visible_layers = layers[hidden:]
     vis_w = col_w[hidden:]
     width_of: Dict[str, int] = {nid: vis_w[ci] for ci, col in enumerate(visible_layers) for nid in col}
@@ -177,6 +189,7 @@ def render_digraph(graph: Any, width: int, height: int, style: str = "box", fram
     rows_fit = max(1, (height + row_gap) // (box_h + row_gap))
 
     pos: Dict[str, Tuple[int, int]] = {}
+    col_of: Dict[str, int] = {}
     clipped = 0
     x = MARGIN
     for ci, col in enumerate(visible_layers):
@@ -185,7 +198,11 @@ def render_digraph(graph: Any, width: int, height: int, style: str = "box", fram
         offset = ((min(max_rows, rows_fit) - len(shown)) * (box_h + row_gap)) // 2
         for ri, nid in enumerate(shown):
             pos[nid] = (x, offset + ri * (box_h + row_gap))
-        x += vis_w[ci] + GAP
+            col_of[nid] = ci
+        x += vis_w[ci] + gap
+    # Edges that skip columns run along lanes below every box, so they never pass behind another node.
+    lane_y = (max((y for _, y in pos.values()), default=0) + box_h + (1 if style == "box" else 0))
+    next_lane = 0
 
     grid = _Grid(width, height)
 
@@ -210,14 +227,33 @@ def render_digraph(graph: Any, width: int, height: int, style: str = "box", fram
         x1 = dx - 1
         if x1 <= x0:
             continue
-        if y0 == y1:
-            lane = 0
-        else:
-            if src not in lane_of_src:
-                lane_of_src[src] = lanes_in_gap.get(x0, 0)
-                lanes_in_gap[x0] = lane_of_src[src] + 1
-            lane = lane_of_src[src]
-        mx = min(x1 - 1, x0 + 1 + lane % max(1, GAP - 3))
+        # One vertical lane per source node in each gap (shared by its short and long edges).
+        if src not in lane_of_src:
+            lane_of_src[src] = lanes_in_gap.get(x0, 0)
+            lanes_in_gap[x0] = lane_of_src[src] + 1
+        src_lane = lane_of_src[src] % max(1, gap - 3)
+        span = col_of[dst] - col_of[src]
+        if span > 1 and lane_y + next_lane < height:
+            ly = lane_y + next_lane
+            next_lane += 1
+            down_x, up_x = x0 + 1 + src_lane, x1 - 1
+            dst_status = getattr(nodes[dst], "status", "")
+            est = (f"bold {COLOR_CYAN}" if dst_status in ("running", "waiting") else
+                   COLOR_ROSE if dst_status in ("failed", "blocked") else
+                   (COLOR_EMERALD if style == "box" else COLOR_TEXT_DIM) if dst_status in ("ok", "online", "loaded")
+                   else COLOR_TEXT_DIM)
+            horiz.append((y0, x0, down_x, est))
+            vert.append((down_x, y0 + 1, ly, est))
+            corners.append((down_x, y0, "╮", est))
+            corners.append((down_x, ly, "╰", est))
+            horiz.append((ly, down_x + 1, up_x, est))
+            corners.append((up_x, ly, "╯", est))
+            vert.append((up_x, y1 + 1, ly, est))
+            corners.append((up_x, y1, "╭", est))
+            horiz.append((y1, up_x + 1, x1, est))
+            arrows.append((x1, y1, est))
+            continue
+        mx = min(x1 - 1, x0 + 1 + (0 if y0 == y1 else src_lane))
         dst_status = getattr(nodes[dst], "status", "")
         if dst_status in ("running", "waiting"):
             est = f"bold {COLOR_CYAN}"

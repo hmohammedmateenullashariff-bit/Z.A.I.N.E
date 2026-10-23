@@ -29,6 +29,8 @@ def status_badge(label: str) -> Tuple[str, str]:
         return "✓ APPROVED", f"bold {COLOR_EMERALD}"
     if s in ("DENIED", "NOT APPLIED"):
         return f"✗ {s}", f"bold {COLOR_ROSE}"
+    if "CONSULTING" in s:
+        return f"⇄ {s}", f"bold {COLOR_CYAN}"
     if "THINKING" in s or "REASONING" in s:
         return f"◆ {s}", f"bold {COLOR_AMBER}"
     if "TOOL" in s:
@@ -58,6 +60,9 @@ class HeaderBar(Widget):
     voice_enabled = reactive(False)
     status_label = reactive("WARMING UP")
     core_flags = reactive("")  # e.g. "DEMO · FAST" from the core's reported config
+    agent_name = reactive("—")       # VisionQuest agent of the current/last turn
+    agent_color = reactive("#00f5a0")
+    agent_pinned = reactive(False)
 
     def __init__(self, **kwargs):
         super().__init__(id="header-bar", **kwargs)
@@ -78,6 +83,11 @@ class HeaderBar(Widget):
         t.append(*sep)
         view_col = COLOR_EMERALD if self.view_mode != "COMMAND" else COLOR_CYAN
         t.append(f"VIEW: {self.view_mode}", style=f"bold {view_col}")
+        t.append(*sep)
+        t.append("AGENT: ", style=COLOR_TEXT_MUTED)
+        t.append(self.agent_name, style=f"bold {self.agent_color}")
+        if self.agent_pinned:
+            t.append(" (pinned)", style=COLOR_TEXT_MUTED)
         t.append(*sep)
         t.append("TIER: ", style=COLOR_TEXT_MUTED)
         t.append(self.mode, style=f"bold {COLOR_CYAN}")

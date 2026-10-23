@@ -83,6 +83,9 @@ class TurnSummaryCard(Widget):
         _kv(t, "Turn", f"#{s['turn']}  {state[0]}", f"bold {state[1]}")
         room = max(10, (self.size.width or 44) - 18)
         _kv(t, "Prompt", (s["prompt"][: room - 1] + "…") if len(s["prompt"]) > room else s["prompt"])
+        _kv(t, "Agent", s.get("agent", "n/a"), f"bold {COLOR_VIOLET_BRIGHT}")
+        if s.get("delegations"):
+            _kv(t, "Consulted", ", ".join(f"{n} ({o})" for n, o in s["delegations"]), f"bold {COLOR_CYAN}")
         _kv(t, "Tier / model", f"{s['tier']} · {s['model']}", COLOR_TEXT)
         _kv(t, "LLM hops", str(s["hops"]))
         _kv(t, "Tokens out", f"{s['tokens']}" + (f" @ {s['tok_s']:.1f} tok/s" if s["tok_s"] else ""), f"bold {COLOR_CYAN}")

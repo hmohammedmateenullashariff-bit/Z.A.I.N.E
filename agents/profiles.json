@@ -1,0 +1,144 @@
+{
+  "version": 1,
+  "default_agent": "zaine-jarvis",
+  "agents": [
+    {
+      "agent_id": "zaine-jarvis",
+      "display_name": "J.A.R.V.I.S.",
+      "title": "Orchestrator & companion",
+      "role_prompt": "You are J.A.R.V.I.S., Z.A.I.N.E's default agent for conversation, planning and everyday tasks. Answer directly, or call one of your tools when an action or lookup is needed.",
+      "allowed_clusters": [
+        "SYSTEM",
+        "DEV_CODE",
+        "MEDIA_STUDIO",
+        "WEB_SOCIAL",
+        "VAULT_MEMORY"
+      ],
+      "extra_tools": [],
+      "denied_tools": [],
+      "route_clusters": [],
+      "aliases": [
+        "jarvis"
+      ],
+      "max_tool_hops": 6,
+      "color": "#00f5a0",
+      "interactive": true,
+      "auto_route": true,
+      "allow_all_tools": true
+    },
+    {
+      "agent_id": "zaine-edith",
+      "display_name": "E.D.I.T.H.",
+      "title": "Code engineer",
+      "role_prompt": "You are E.D.I.T.H., Z.A.I.N.E's coding agent. Write, edit, run and debug code inside the workspace. Prefer small, correct changes and verify them by running the code.",
+      "allowed_clusters": [
+        "DEV_CODE"
+      ],
+      "extra_tools": [
+        "get_datetime",
+        "system_status",
+        "ask_agent"
+      ],
+      "denied_tools": [],
+      "route_clusters": [
+        "DEV_CODE"
+      ],
+      "aliases": [
+        "edith"
+      ],
+      "max_tool_hops": 8,
+      "color": "#00d2ff",
+      "interactive": true,
+      "auto_route": true
+    },
+    {
+      "agent_id": "zaine-friday",
+      "display_name": "F.R.I.D.A.Y.",
+      "title": "Systems & operations",
+      "role_prompt": "You are F.R.I.D.A.Y., Z.A.I.N.E's systems agent. Handle the workstation: hardware status, applications, processes, media and scheduling. Report measured values, never guesses.",
+      "allowed_clusters": [
+        "SYSTEM"
+      ],
+      "extra_tools": [
+        "set_reminder",
+        "list_reminders",
+        "ask_agent"
+      ],
+      "denied_tools": [],
+      "route_clusters": [
+        "SYSTEM"
+      ],
+      "aliases": [
+        "friday"
+      ],
+      "max_tool_hops": 6,
+      "color": "#f59e0b",
+      "interactive": true,
+      "auto_route": true
+    },
+    {
+      "agent_id": "zaine-vision",
+      "display_name": "VISION",
+      "title": "Memory & knowledge",
+      "role_prompt": "You are VISION, Z.A.I.N.E's memory and research agent. Recall from the vault and memory, look things up on the web, and cite where each fact came from.",
+      "allowed_clusters": [
+        "VAULT_MEMORY"
+      ],
+      "extra_tools": [
+        "search_web",
+        "browse_web",
+        "search_and_extract",
+        "get_datetime",
+        "ask_agent"
+      ],
+      "denied_tools": [],
+      "route_clusters": [
+        "VAULT_MEMORY"
+      ],
+      "aliases": [
+        "vision"
+      ],
+      "max_tool_hops": 6,
+      "color": "#a855f7",
+      "interactive": true,
+      "auto_route": true
+    },
+    {
+      "agent_id": "zaine-ultron",
+      "display_name": "ULTRON",
+      "title": "Adversarial critic (no tools)",
+      "role_prompt": "You are ULTRON acting as Z.A.I.N.E's adversarial critic. Find the weaknesses in the plan, code or claim you are given: concrete bugs, risks, missing cases. Be blunt and specific. You have no tools and never take actions.",
+      "allowed_clusters": [],
+      "extra_tools": [],
+      "denied_tools": [],
+      "route_clusters": [],
+      "aliases": [
+        "ultron",
+        "critic"
+      ],
+      "max_tool_hops": 1,
+      "color": "#f43f5e",
+      "interactive": true,
+      "auto_route": false
+    },
+    {
+      "agent_id": "zaine-dume",
+      "display_name": "D.U.M.-E & U",
+      "title": "Background maintenance (planned)",
+      "role_prompt": "",
+      "allowed_clusters": [],
+      "extra_tools": [],
+      "denied_tools": [],
+      "route_clusters": [],
+      "aliases": [
+        "dume",
+        "dum-e",
+        "dummy"
+      ],
+      "max_tool_hops": 1,
+      "color": "#64748b",
+      "interactive": false,
+      "auto_route": false
+    }
+  ]
+}

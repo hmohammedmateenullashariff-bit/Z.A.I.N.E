@@ -31,6 +31,25 @@ def _env_flag(name: str, default: str = "0") -> bool:
     return os.getenv(name, default).strip().lower() in ("1", "true", "yes")
 
 
+def agent_state(agent) -> dict:
+    """Pinned sub-agent (session) and the agent chosen for the last turn."""
+    try:
+        from agents import get_registry
+        pinned = get_registry().pinned
+    except Exception:
+        pinned = None
+    sel = getattr(agent, "last_agent_selection", None) if agent is not None else None
+    return {
+        "pinned": pinned.agent_id if pinned else None,
+        "last": {
+            "agent_id": sel.profile.agent_id,
+            "display_name": sel.profile.display_name,
+            "reason": sel.reason,
+            "source": sel.source,
+        } if sel else None,
+    }
+
+
 def core_runtime_config() -> dict:
     """Settings this core process actually runs with, read from its own environment.
 
@@ -846,7 +865,21 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
             telem["port"] = self.core_service.port if self.core_service else 7860
             telem["pid"] = os.getpid()
             telem["config"] = core_runtime_config()
+            telem["agent"] = agent_state(agent)
             self._send_json(200, telem)
+            return
+
+        # VisionQuest sub-agents: profiles, current pin and the last turn's choice
+        if path == "/api/agents":
+            agent = self.core_service.agent if self.core_service else None
+            from agents import get_registry
+            state = agent_state(agent)
+            self._send_json(200, {
+                "ok": True,
+                "agents": [p.summary() for p in get_registry().profiles.values()],
+                "pinned": state["pinned"],
+                "last": state["last"],
+            })
             return
 
         # 5. Active Persona Mode (/api/mode)
@@ -937,6 +970,20 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
             if self.core_service:
                 self.core_service.set_mode(active_mode)
             self._send_json(200, {"status": "ok", "mode": active_mode, "message": res_str})
+            return
+
+        # 1b. Sub-agent pin (/api/agent): {"agent": "edith"} pins, {"agent": "auto"} restores routing
+        if path == "/api/agent":
+            from agents import get_registry
+            reg = get_registry()
+            ok, msg = reg.pin(str(req_data.get("agent", "")).strip() or None)
+            pinned = reg.pinned
+            self._send_json(200 if ok else 400, {
+                "ok": ok,
+                "message": msg,
+                "pinned": pinned.agent_id if pinned else None,
+                "display_name": pinned.display_name if pinned else None,
+            })
             return
 
         # 2. Voice Mode Toggle (/api/voice/toggle)

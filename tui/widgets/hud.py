@@ -66,6 +66,22 @@ class AgentStateHUD(Widget):
         self.telemetry_snapshot: Optional[TelemetrySnapshot] = None
         self.recent_tools: List[Tuple[str, str, str]] = []
         self.exec_graph: Optional[Any] = None
+        # VisionQuest agent of the current/last turn
+        self.agent_name = "n/a"
+        self.agent_title = ""
+        self.agent_reason = ""
+        self.agent_color = COLOR_EMERALD
+        self.agent_pinned = False
+
+    def update_agent(self, name: str, title: str = "", reason: str = "", color: str = "", pinned: Optional[bool] = None) -> None:
+        self.agent_name = name or "n/a"
+        self.agent_title = title
+        self.agent_reason = reason
+        if color:
+            self.agent_color = color
+        if pinned is not None:
+            self.agent_pinned = pinned
+        self.refresh()
 
     def add_tool_run(self, tool_name: str, duration_s: float = 0.0, status: str = "COMPLETED") -> None:
         self.recent_tools.insert(0, (tool_name, f"{duration_s:.2f}s", status))
@@ -115,6 +131,17 @@ class AgentStateHUD(Widget):
         else:
             t.append("   ○ CORE OFFLINE\n", style=f"bold {COLOR_ROSE}")
         t.append("─" * width + "\n", style=COLOR_BORDER)
+
+        _section(t, "ACTIVE AGENT", "pinned" if self.agent_pinned else "auto-routed",
+                 f"bold {COLOR_AMBER}" if self.agent_pinned else COLOR_TEXT_DIM)
+        _row(t, "Agent", self.agent_name, f"bold {self.agent_color}")
+        if self.agent_title:
+            _row(t, "Role", self.agent_title, COLOR_TEXT)
+        if self.agent_reason:
+            _row(t, "Why", self.agent_reason[: max(10, width - LABEL_W - 2)], COLOR_TEXT_MUTED)
+        consulted = getattr(self.exec_graph, "delegations", []) if self.exec_graph is not None else []
+        if consulted:
+            _row(t, "Consulted", ", ".join(name for name, _ in consulted), f"bold {COLOR_CYAN}")
 
         _section(t, "ACTIVE PERSONA")
         _row(t, "Persona", f"Z.A.I.N.E {self.persona}", f"bold {COLOR_EMERALD if self.persona == 'JARVIS' else COLOR_ROSE}")
