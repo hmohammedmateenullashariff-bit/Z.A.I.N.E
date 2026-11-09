@@ -1249,3 +1249,22 @@ otepad).
     - Full discovery test suite: 135/135 tests PASS in 14.34s with zero errors and zero regressions.
     - Vite production frontend builds clean in 1.33s.
 - **Commit:** 9303a1b (E:\Project-Z 2.0)
+
+### [2026-11-09 22:15:00 +0530] — FIX — Author: Antigravity (Principal Systems Architect)
+- **Scope:** zaine/db/sessions.py, zaine/ui/hud/gateway.py, web/src/components/screens/ChatTranscriptScreen.tsx, web/src/store/useAgentStore.ts
+- **Description:** **Fixed Catastrophic Context Inversion Bug, Prompt Tool Overfitting, and Cross-Agent Session Bleed.**
+  - *Context Inversion Bug Fix (sessions.py & gateway.py):*
+    - Diagnosed root cause of model confusion: get_messages(session_id, limit=12) executed ORDER BY id ASC LIMIT 12, fetching the first 12 messages from project inception instead of the most recent conversation turns.
+    - Implemented get_recent_messages(session_id, limit) and recent_only=True using nested SQL query.
+    - Added clear_session_messages(session_id) and HTTP endpoint POST /api/chat/clear to allow resetting conversational context cleanly.
+  - *Dynamic Intent Gating & Prompt De-bloat (gateway.py):*
+    - Separated pure conversational queries (Jarvis butler poise, direct answers, zero tool noise) from autonomous engineering/coding tasks.
+    - Eliminated unconditional injection of 500-token tool instructions, workspace revision mandates, and raw HTML previews into simple conversational turns (which previously caused 3B/7B models to interpret words like 'resolve' as tool calls).
+  - *HUD Context Reset Button (ChatTranscriptScreen.tsx & useAgentStore.ts):*
+    - Added active context indicator pill with one-click [RESET CONTEXT] button calling /api/chat/clear and wiping the UI transcript buffer.
+  - *Verification:*
+    - 50/50 Master Scenario tests PASS in 7.05s.
+    - 7/7 React DOM tests PASS in 0.015s.
+    - 4/4 DB tests PASS in 0.251s.
+    - Vite production frontend builds clean in 2.28s.
+- **Commit:** 273be91 (E:\Project-Z 2.0)
