@@ -26,6 +26,28 @@ DEFAULT_HEADERS = {
 }
 
 
+def _enforce_agent_approval(tool_name: str, args: dict):
+    """Under ZAINE_AGENT=1, enforce blocking approval for network tools unless already pre-approved."""
+    try:
+        from autonomy import is_agent_enabled
+        if not is_agent_enabled():
+            return None
+        from autonomy.guards import is_tool_preapproved, require_side_effect_approval
+        if is_tool_preapproved(tool_name):
+            return None
+        ok, msg = require_side_effect_approval(tool_name, args or {})
+        if not ok:
+            return f"Security Authorization Failed: {msg}"
+    except Exception:
+        try:
+            from autonomy import is_agent_enabled
+            if is_agent_enabled():
+                return "Security Authorization Failed: Unable to verify side-effect approval."
+        except Exception:
+            pass
+    return None
+
+
 def browse_web(url: str, selector: str = "", extract_links: bool = False, max_chars: int = 3500) -> str:
     """
     Fetches and reads the contents of any public webpage, stripping ads, navigation, and boilerplate.
@@ -34,6 +56,10 @@ def browse_web(url: str, selector: str = "", extract_links: bool = False, max_ch
     url = url.strip()
     if not url.startswith("http://") and not url.startswith("https://"):
         url = "https://" + url
+
+    blocked = _enforce_agent_approval("browse_web", {"url": url, "selector": selector})
+    if blocked:
+        return blocked
 
     try:
         resp = requests.get(url, headers=DEFAULT_HEADERS, timeout=15)
@@ -102,6 +128,10 @@ def search_and_extract(query: str, max_pages: int = 2) -> str:
     if not query:
         return "Error: Search query cannot be empty."
 
+    blocked = _enforce_agent_approval("search_and_extract", {"query": query, "max_pages": max_pages})
+    if blocked:
+        return blocked
+
     search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
     try:
         resp = requests.post(search_url, data={"q": query}, headers=DEFAULT_HEADERS, timeout=12)
@@ -124,11 +154,20 @@ def search_and_extract(query: str, max_pages: int = 2) -> str:
             snippets = [s.get_text(strip=True) for s in soup.find_all("a", class_="result__snippet")[:3]]
             return "Search Summary:\n" + "\n".join(f"- {s}" for s in snippets) if snippets else "No search results found."
 
+        import contextlib
+        try:
+            from autonomy import is_agent_enabled
+            from autonomy.guards import preapproved_tool_scope
+            scope_ctx = preapproved_tool_scope("browse_web") if is_agent_enabled() else contextlib.nullcontext()
+        except Exception:
+            scope_ctx = contextlib.nullcontext()
+
         deep_results = [f"=== Deep Web Research for '{query}' ===\n"]
-        for idx, page_url in enumerate(results[:max_pages], start=1):
-            deep_results.append(f"\n[Source {idx}]: {page_url}")
-            content = browse_web(page_url, max_chars=1200)
-            deep_results.append(content)
+        with scope_ctx:
+            for idx, page_url in enumerate(results[:max_pages], start=1):
+                deep_results.append(f"\n[Source {idx}]: {page_url}")
+                content = browse_web(page_url, max_chars=1200)
+                deep_results.append(content)
 
         return "\n".join(deep_results)
 
@@ -144,15 +183,21 @@ def download_web_file(url: str, save_as: str = "") -> str:
     if not url.startswith("http://") and not url.startswith("https://"):
         url = "https://" + url
 
+    blocked = _enforce_agent_approval("download_web_file", {"url": url, "save_as": save_as})
+    if blocked:
+        return blocked
+
     try:
+        from tools import _resolve_workspace_path
         filename = save_as.strip()
         if not filename:
             parsed = urllib.parse.urlparse(url)
             filename = Path(parsed.path).name or "downloaded_file"
+            filename = re.sub(r'[\\/*?:"<>|]', "", filename)
 
-        # Sanitize filename
-        filename = re.sub(r'[\\/*?:"<>|]', "", filename)
-        target_path = WORKSPACE_DIR / filename
+        # Resolve inside workspace sandbox to block path traversal (e.g. ../outside)
+        target_path = Path(_resolve_workspace_path(filename))
+        target_path.parent.mkdir(parents=True, exist_ok=True)
 
         resp = requests.get(url, headers=DEFAULT_HEADERS, stream=True, timeout=20)
         if resp.status_code >= 400:

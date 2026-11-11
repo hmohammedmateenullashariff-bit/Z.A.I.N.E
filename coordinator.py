@@ -12,7 +12,7 @@ Provides:
 
 import time
 import threading
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Callable, Dict, List, Optional, Tuple, Any
 
 
 class ManagedRequest:
@@ -97,6 +97,10 @@ class RequestCoordinator:
         self._in_flight_registry: Dict[str, ManagedRequest] = {}
         self._request_queue: List[ManagedRequest] = []
         self._current_running_request: Optional[ManagedRequest] = None
+        # Serializes nested single-GPU subagent execution (one subagent at a time).
+        self._subagent_lock = threading.Lock()
+        self._active_subagent: Optional[Dict[str, Any]] = None
+        self._cancelled_requests: List[str] = []
 
     def claim_request(
         self,
@@ -199,6 +203,10 @@ class RequestCoordinator:
     def cancel_request(self, request_id: str):
         """Cancels a queued or in-flight request, unblocking waiters and advancing queue."""
         with self._lock:
+            if request_id and request_id not in self._cancelled_requests:
+                self._cancelled_requests.append(request_id)
+                if len(self._cancelled_requests) > 100:
+                    self._cancelled_requests.pop(0)
             req = self._in_flight_registry.pop(request_id, None)
             if req:
                 if req in self._request_queue:
@@ -290,6 +298,7 @@ class RequestCoordinator:
                 "ok": True,
                 "running": self._current_running_request.request_id if self._current_running_request else None,
                 "running_client": self._current_running_request.client if self._current_running_request else None,
+                "active_subagent": dict(self._active_subagent) if self._active_subagent else None,
                 "queue_depth": len(self._request_queue),
                 "queued_requests": [
                     {
@@ -303,6 +312,47 @@ class RequestCoordinator:
                 "in_flight_count": len(self._in_flight_registry),
                 "completed_cache_count": len(self._completed_responses),
             }
+
+    def run_subagent_turn(
+        self,
+        parent_request_id: Optional[str],
+        agent_id: str,
+        runner: Callable[[], Any],
+    ) -> Any:
+        """
+        Executes a delegated subagent turn one at a time on the single resident model lock.
+        Does not re-enter _request_queue (avoiding deadlock when called from the running parent request).
+        """
+        def _is_parent_aborted() -> bool:
+            if not parent_request_id:
+                return False
+            with self._lock:
+                if parent_request_id in self._cancelled_requests:
+                    return True
+                parent = self._in_flight_registry.get(parent_request_id)
+                if parent is not None and (
+                    parent.state in ("failed", "completed") or getattr(parent, "cancelled", False)
+                ):
+                    return True
+            return False
+
+        if _is_parent_aborted():
+            raise RuntimeError(f"Parent request '{parent_request_id}' cancelled before subagent '{agent_id}' started.")
+
+        with self._subagent_lock:
+            if _is_parent_aborted():
+                raise RuntimeError(f"Parent request '{parent_request_id}' cancelled while waiting for subagent slot.")
+            with self._lock:
+                self._active_subagent = {
+                    "agent_id": agent_id,
+                    "parent_request_id": parent_request_id,
+                    "started_at": time.time(),
+                }
+            try:
+                return runner()
+            finally:
+                with self._lock:
+                    self._active_subagent = None
 
     def reset_for_testing(self):
         """Resets all internal coordinator states for test isolation."""

@@ -1301,3 +1301,12 @@ otepad).
 - **Scope:** autonomy/__init__.py, autonomy/tool_validation.py, autonomy/loop.py, agent.py, core_service.py, tests/test_autonomy_loop.py
 - **Description:** Implemented Phase A autonomous Plan -> Act -> Observe -> Reflect execution loop behind ZAINE_AGENT=1 (default OFF). Added bounded step & wall-clock budgets, circuit breaker stop guarantees (reusing CircuitBreakerManager & CallTracker), 1-pass deterministic JSON repair + at-most-1 retry validation without looping, instant socket cancellation via /api/chat/cancel, unified _TOOL_ALIAS_MAP / resolve_tool_alias before unconditional ZAINE_AGENT=1 agent_profile.allows() and is_tool_permitted() checks, and single-model zaine-reflex-7b lock on DEEP_CODE when ZAINE_SINGLE_MODEL=1.
 - **Commit:** Pending (agent-core Phase A)
+
+### [2026-11-12 00:45:00 +0530] - FEAT - Author: Antigravity
+- **Scope:** autonomy/subagents.py, autonomy/cancel.py, autonomy/guards.py, autonomy/untrusted.py, autonomy/loop.py, autonomy/__init__.py, agents/profiles.json, agents/registry.py, agent.py, coordinator.py, tool_clusters.py, tools.py, vision.py, browser_agent.py, tests/test_subagents.py
+- **Description:** Implemented Phase B sequential subagent delegation (delegate(agent_id, task, context)) mapped onto unified gents/profiles.json roles (planner -> zaine-jarvis, coder -> zaine-edith, 
+esearcher -> zaine-friday, ision -> zaine-vision, 
+eviewer -> zaine-ultron). Added RequestCoordinator.run_subagent_turn() sequential lock for single-GPU execution on zaine-reflex-7b, depth limit = 1 via ContextVar + TaskEnvelope.denied_tools, scoped context builder within ~1800 chars, blocking side-effect approvals (utonomy/guards.py) for shell/network/messaging, untrusted data quarantine + injected tool blocking (utonomy/untrusted.py), 
+un_workspace_tests, and nalyze_image (moondream). Verified 133/133 pytest tests pass (	ests/test_subagents.py 9/9 + full regression) and measured live zaine-reflex-7b (
+um_ctx=4096) peak VRAM at 2608 MiB.
+- **Commit:** Pending (agent-core Phase B)

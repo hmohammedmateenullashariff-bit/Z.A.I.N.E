@@ -13,14 +13,15 @@ Selection is deterministic (no extra LLM call), in this order:
 import json
 import re
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 PROFILES_PATH = Path(__file__).resolve().parent / "profiles.json"
 
 # Tools implemented by the agent runtime itself rather than tools.py (not part of any cluster).
-AGENT_RUNTIME_TOOLS = {"ask_agent", "read_result"}
+AGENT_RUNTIME_TOOLS = {"ask_agent", "delegate", "read_result"}
+DELEGATION_TOOLS = frozenset({"ask_agent", "delegate"})
 
 _MENTION_RE = re.compile(r"^\s*@([A-Za-z][\w.\-&]*)[\s,:]+(.*)$", re.S)
 
@@ -45,12 +46,26 @@ class AgentProfile:
     voice_rate: str = "+0%"
     allowed_tools: frozenset = field(default_factory=frozenset)
     allow_all_tools: bool = False  # default agent: every registered tool, including runtime custom tools
+    role: str = ""
+    subagent_allowed_tools: frozenset = field(default_factory=frozenset)
+    step_budget: int = 0
+    context_scope: str = ""
 
     def allows(self, tool_name: str) -> bool:
         return self.allow_all_tools or tool_name in self.allowed_tools
 
+    def for_subagent(self) -> "AgentProfile":
+        """Returns a strictly scoped copy for depth>=1 subagent execution (never spawns subagents)."""
+        scoped = (self.subagent_allowed_tools or self.allowed_tools) - DELEGATION_TOOLS
+        return replace(
+            self,
+            allowed_tools=frozenset(scoped),
+            allow_all_tools=False,
+            max_tool_hops=self.step_budget or self.max_tool_hops,
+        )
+
     def summary(self) -> Dict:
-        return {
+        data = {
             "agent_id": self.agent_id,
             "display_name": self.display_name,
             "title": self.title,
@@ -65,6 +80,13 @@ class AgentProfile:
             "auto_route": self.auto_route,
             "aliases": list(self.aliases),
         }
+        if self.role:
+            data["role"] = self.role
+        if self.step_budget:
+            data["step_budget"] = self.step_budget
+        if self.context_scope:
+            data["context_scope"] = self.context_scope
+        return data
 
 
 @dataclass(frozen=True)
@@ -84,9 +106,12 @@ class AgentRegistry:
         self.profiles: Dict[str, AgentProfile] = {p.agent_id: p for p in profiles}
         self.default_id = default_id
         self._lookup: Dict[str, str] = {}
+        self._role_lookup: Dict[str, str] = {}
         for p in profiles:
             for name in (p.agent_id, p.agent_id.replace("zaine-", ""), p.display_name, *p.aliases):
                 self._lookup[_key(name)] = p.agent_id
+            if p.role:
+                self._role_lookup[_key(p.role)] = p.agent_id
         self._pin_lock = threading.Lock()
         self._pinned: Optional[str] = None
 
@@ -95,7 +120,8 @@ class AgentRegistry:
         return self.profiles[self.default_id]
 
     def resolve(self, name: str) -> Optional[AgentProfile]:
-        agent_id = self._lookup.get(_key(name))
+        k = _key(name)
+        agent_id = self._lookup.get(k) or self._role_lookup.get(k)
         return self.profiles.get(agent_id) if agent_id else None
 
     def interactive(self) -> List[AgentProfile]:
@@ -137,12 +163,13 @@ def _load(path: Path = PROFILES_PATH) -> AgentRegistry:
         for c in list(raw.get("allowed_clusters", [])) + list(raw.get("route_clusters", [])):
             if c not in TOOL_CLUSTERS:
                 raise ValueError(f"{aid}: unknown cluster {c}")
-        for t in list(raw.get("extra_tools", [])) + list(raw.get("denied_tools", [])):
+        for t in list(raw.get("extra_tools", [])) + list(raw.get("denied_tools", [])) + list(raw.get("allowed_tools", [])):
             if t not in known_tools:
                 raise ValueError(f"{aid}: unknown tool {t}")
         allowed = {t for c in raw.get("allowed_clusters", []) for t in TOOL_CLUSTERS[c]["tools"]}
         allowed |= set(raw.get("extra_tools", []))
         allowed -= set(raw.get("denied_tools", []))
+        sub_allowed = raw.get("allowed_tools")
         profiles.append(AgentProfile(
             agent_id=aid,
             display_name=raw["display_name"],
@@ -162,6 +189,10 @@ def _load(path: Path = PROFILES_PATH) -> AgentRegistry:
             auto_route=bool(raw.get("auto_route", True)),
             allowed_tools=frozenset(allowed),
             allow_all_tools=bool(raw.get("allow_all_tools", False)),
+            role=str(raw.get("role", "")),
+            subagent_allowed_tools=frozenset(sub_allowed) if sub_allowed is not None else frozenset(),
+            step_budget=int(raw.get("step_budget", 0) or 0),
+            context_scope=str(raw.get("context_scope", "")),
         ))
     default_id = data.get("default_agent") or profiles[0].agent_id
     if default_id not in seen:

@@ -13,6 +13,7 @@ resident local model via Ollama with num_ctx<=4096 unless explicitly overridden.
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import re
@@ -20,14 +21,29 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple
 
 import requests
 
+from autonomy.cancel import (
+    CancelToken,
+    _close_response_socket,
+    cancel_run,
+    get_active_runs,
+    register_active_run,
+    unregister_active_run,
+)
+from autonomy.guards import preapproved_tool_scope, require_side_effect_approval
 from autonomy.tool_validation import (
     ToolValidationResult,
     looks_like_tool_attempt,
     validate_and_repair_tool_calls,
+)
+from autonomy.untrusted import (
+    UNTRUSTED_SOURCE_TOOLS,
+    contains_injection_attempt,
+    extract_injected_tool_names,
+    wrap_untrusted_content,
 )
 from core.circuit_breaker import CircuitBreakerManager, get_circuit_breaker
 from core.task_envelope import (
@@ -39,111 +55,6 @@ from core.task_envelope import (
 from harness import CallTracker, ResultStore, ToolOutcome, compact, result_char_limit, tool_outcome
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-
-
-def _close_response_socket(resp: Any) -> None:
-    """Best-effort immediate socket shutdown/close to abort blocked streaming reads."""
-    if resp is None:
-        return
-    try:
-        raw = getattr(resp, "raw", None)
-        fp = getattr(raw, "_fp", None) if raw is not None else None
-        raw_fp = getattr(fp, "fp", None) if fp is not None else None
-        sock = getattr(raw_fp, "raw", None)
-        sock = getattr(sock, "_sock", sock) if sock is not None else None
-        if sock is None and raw is not None:
-            sock = getattr(raw, "_sock", None)
-        if sock is not None and hasattr(sock, "close"):
-            try:
-                if hasattr(sock, "shutdown"):
-                    sock.shutdown(2)
-            except Exception:
-                pass
-            sock.close()
-    except Exception:
-        pass
-    try:
-        if hasattr(resp, "close"):
-            resp.close()
-    except Exception:
-        pass
-
-
-class CancelToken:
-    """Thread-safe cancellation token capable of aborting active HTTP/Ollama streams."""
-
-    def __init__(self) -> None:
-        self._event = threading.Event()
-        self._lock = threading.Lock()
-        self._closeables: List[Any] = []
-
-    @property
-    def cancelled(self) -> bool:
-        return self._event.is_set()
-
-    def is_set(self) -> bool:
-        return self._event.is_set()
-
-    def wait(self, timeout: Optional[float] = None) -> bool:
-        return self._event.wait(timeout=timeout)
-
-    def register_response(self, resp: Any) -> None:
-        with self._lock:
-            if self._event.is_set():
-                _close_response_socket(resp)
-                return
-            self._closeables.append(resp)
-
-    def unregister_response(self, resp: Any) -> None:
-        with self._lock:
-            self._closeables = [r for r in self._closeables if r is not resp]
-
-    def cancel(self) -> None:
-        self._event.set()
-        with self._lock:
-            targets = list(self._closeables)
-            self._closeables.clear()
-        for resp in targets:
-            _close_response_socket(resp)
-
-
-# Registry of live autonomous runs keyed by run_id -> (request_id, CancelToken)
-_ACTIVE_RUNS_LOCK = threading.Lock()
-_ACTIVE_RUNS: Dict[str, Tuple[Optional[str], CancelToken]] = {}
-
-
-def register_active_run(run_id: str, request_id: Optional[str], token: CancelToken) -> None:
-    """Registers an active run so /api/chat/cancel can abort it immediately."""
-    with _ACTIVE_RUNS_LOCK:
-        _ACTIVE_RUNS[run_id] = (request_id, token)
-
-
-def unregister_active_run(run_id: str) -> None:
-    """Removes a completed or stopped run from the active cancellation registry."""
-    with _ACTIVE_RUNS_LOCK:
-        _ACTIVE_RUNS.pop(run_id, None)
-
-
-def cancel_run(target_id: Optional[str] = None) -> int:
-    """Cancels matching active run(s) by run_id or request_id (or all if empty). Returns count."""
-    targets: List[CancelToken] = []
-    clean = (target_id or "").strip()
-    with _ACTIVE_RUNS_LOCK:
-        for run_id, (req_id, tok) in _ACTIVE_RUNS.items():
-            if not clean or clean == run_id or (req_id and clean == req_id):
-                targets.append(tok)
-    for tok in targets:
-        tok.cancel()
-    return len(targets)
-
-
-def get_active_runs() -> List[Dict[str, Optional[str]]]:
-    """Returns snapshots of currently active autonomous runs."""
-    with _ACTIVE_RUNS_LOCK:
-        return [
-            {"run_id": rid, "request_id": req_id, "cancelled": tok.cancelled}
-            for rid, (req_id, tok) in _ACTIVE_RUNS.items()
-        ]
 
 
 @dataclass
@@ -287,6 +198,10 @@ class AutonomousLoop:
         on_event: Optional[EventCallback] = None,
         cancel_token: Optional[CancelToken] = None,
         result_store: Optional[ResultStore] = None,
+        allow_delegation: Optional[bool] = None,
+        delegation_depth: int = 0,
+        delegate_fn: Optional[Callable[[Dict[str, Any]], str]] = None,
+        memory: Optional[Any] = None,
     ) -> None:
         self.config = config or LoopConfig.from_env()
         self.profile = profile
@@ -302,6 +217,10 @@ class AutonomousLoop:
         self._on_event = on_event
         self.cancel_token = cancel_token or CancelToken()
         self._result_store = result_store if result_store is not None else ResultStore()
+        self._delegation_depth = max(0, int(delegation_depth or 0))
+        self._allow_delegation = (self._delegation_depth < 1) if allow_delegation is None else bool(allow_delegation)
+        self._delegate_fn = delegate_fn
+        self._memory = memory
         self._last_model_calls: List[Dict[str, Any]] = []
 
     @staticmethod
@@ -309,10 +228,22 @@ class AutonomousLoop:
         from tools import TOOL_REGISTRY
 
         tname = tc.get("tool", "")
+        args = dict(tc.get("args") or {})
         fn = TOOL_REGISTRY.get(tname)
         if fn is None:
             return f"Error: unknown tool '{tname}'"
-        return str(fn(**dict(tc.get("args") or {})))
+        ignored: List[str] = []
+        try:
+            params = inspect.signature(fn).parameters
+            if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+                ignored = [k for k in args if k not in params]
+                args = {k: v for k, v in args.items() if k in params}
+        except (TypeError, ValueError):
+            pass
+        out = str(fn(**args))
+        if ignored:
+            out += f"\n[note: ignored unsupported argument(s) for {tname}: {', '.join(ignored)}]"
+        return out
 
     def _emit(self, stage: str, tool: str, data: Any) -> None:
         if not self._on_event:
@@ -580,6 +511,12 @@ class AutonomousLoop:
     def _check_tool_permission(self, raw_tool_name: str) -> Tuple[str, Optional[str]]:
         """Resolves alias and validates calling agent + TaskEnvelope permissions unconditionally."""
         resolved = self._tool_alias_fn(raw_tool_name)
+        if resolved in ("delegate", "ask_agent") and (
+            not self._allow_delegation or self._delegation_depth >= 1
+        ):
+            return resolved, (
+                f"Permission denied: tool '{resolved}' is disabled inside subagents (delegation depth limit = 1)."
+            )
         profile = self.profile
         if profile is not None and not profile.allows(resolved):
             return resolved, (
@@ -758,6 +695,9 @@ class AutonomousLoop:
         identical_fail_counts: Dict[str, int] = {}
         seen_result_digests: Dict[str, str] = {}
         no_progress_streak = 0
+        injected_suspects: Set[str] = set()
+        untrusted_result_ids: Set[str] = set()
+        role_name = str(getattr(self.profile, "role", "") or "").lower() if self.profile else ""
 
         def _finish(status: str, summary: str, stop_reason: str) -> LoopResult:
             elapsed = round(time.monotonic() - t_start, 3)
@@ -950,6 +890,11 @@ class AutonomousLoop:
                     raw_tname = str(tc.get("tool", "")).strip()
                     targs = dict(tc.get("args") or {})
                     resolved_name, perm_err = self._check_tool_permission(raw_tname)
+                    if not perm_err and resolved_name in injected_suspects:
+                        perm_err = (
+                            f"Security block: tool '{resolved_name}' was referenced in an untrusted "
+                            "prompt-injection payload and is blocked for this run."
+                        )
 
                     target_key = self._extract_target_for_breaker(targs)
                     sig = CallTracker.signature(resolved_name, targs)
@@ -966,46 +911,136 @@ class AutonomousLoop:
                         tool_result = self._result_store.read(
                             rid_arg,
                             int(targs.get("start", 0) or 0),
-                            int(targs.get("length", 1200) or 1200),
+                            int(targs.get("length", 2400) or 2400),
                         )
                         outcome = tool_outcome(tool_result)
-                    else:
-                        allowed_cb, cb_reason = self._breaker.can_execute(resolved_name, target=target_key)
-                        if not allowed_cb:
-                            tool_result = cb_reason or f"[UNAVAILABLE: '{resolved_name}' circuit is OPEN]"
-                            outcome = ToolOutcome(status="error", error_kind="circuit_open", key_line=tool_result[:200])
-                        else:
-                            t_tool0 = time.time()
+                    elif resolved_name == "delegate":
+                        t_tool0 = time.monotonic()
+                        try:
+                            from approval import set_current_tool_name
+                            set_current_tool_name("delegate")
+                        except Exception:
+                            pass
+                        try:
+                            if self._delegate_fn is not None:
+                                tool_result = str(self._delegate_fn(targs))
+                            else:
+                                from autonomy.subagents import execute_delegate
+                                inherited_exec = (
+                                    self._tool_exec_fn
+                                    if self._tool_exec_fn != self._fallback_tool_exec
+                                    else None
+                                )
+                                tool_result = execute_delegate(
+                                    targs,
+                                    caller_profile=self.profile,
+                                    delegation_depth=self._delegation_depth,
+                                    model_name=self.config.model_name,
+                                    model_stream_fn=self._model_stream_fn,
+                                    tool_exec_fn=inherited_exec,
+                                    tool_alias_fn=self._tool_alias_fn,
+                                    on_event=self._on_event,
+                                    result_store=self._result_store,
+                                    memory=self._memory,
+                                    request_id=self.request_id,
+                                    cancel_token=self.cancel_token,
+                                    cancel_check=self._external_cancel_check,
+                                    breaker=self._breaker,
+                                )
+                        except Exception as exc:
+                            tool_result = json.dumps(
+                                {
+                                    "status": "failed",
+                                    "summary": f"Delegation error: {exc}",
+                                    "artifacts": [],
+                                    "errors": [str(exc)],
+                                },
+                                ensure_ascii=False,
+                            )
+                        finally:
                             try:
                                 from approval import set_current_tool_name
-                                set_current_tool_name(resolved_name)
+                                set_current_tool_name(None)
                             except Exception:
                                 pass
-                            try:
-                                tool_result = str(self._tool_exec_fn({"tool": resolved_name, "args": targs}))
-                            except Exception as exc:
-                                tool_result = f"Error running tool '{resolved_name}': {exc}"
-                            finally:
+
+                        outcome = tool_outcome(tool_result)
+                        try:
+                            parsed_del = json.loads(tool_result)
+                            if isinstance(parsed_del, dict):
+                                d_status = str(parsed_del.get("status") or "").lower()
+                                d_summary = str(parsed_del.get("summary") or "")
+                                for dart in (parsed_del.get("artifacts") or []):
+                                    s_art = str(dart).strip()
+                                    if s_art and s_art not in artifacts:
+                                        artifacts.append(s_art)
+                                if d_status == "blocked":
+                                    outcome = ToolOutcome(
+                                        status="denied",
+                                        error_kind="delegation_blocked",
+                                        key_line=d_summary[:200],
+                                    )
+                                elif d_status in ("failed", "cancelled"):
+                                    outcome = ToolOutcome(
+                                        status="error",
+                                        error_kind=f"delegation_{d_status}",
+                                        key_line=d_summary[:200],
+                                    )
+                                else:
+                                    outcome = ToolOutcome(
+                                        status="ok",
+                                        error_kind="",
+                                        key_line=d_summary[:200],
+                                    )
+                        except Exception:
+                            pass
+                    else:
+                        ok_ap, msg_ap = require_side_effect_approval(resolved_name, targs)
+                        if not ok_ap:
+                            tool_result = msg_ap
+                            outcome = ToolOutcome(
+                                status="denied",
+                                error_kind="approval_denied",
+                                key_line=msg_ap[:200],
+                            )
+                        else:
+                            allowed_cb, cb_reason = self._breaker.can_execute(resolved_name, target=target_key)
+                            if not allowed_cb:
+                                tool_result = cb_reason or f"[UNAVAILABLE: '{resolved_name}' circuit is OPEN]"
+                                outcome = ToolOutcome(status="error", error_kind="circuit_open", key_line=tool_result[:200])
+                            else:
+                                t_tool0 = time.time()
                                 try:
                                     from approval import set_current_tool_name
-                                    set_current_tool_name(None)
+                                    set_current_tool_name(resolved_name)
                                 except Exception:
                                     pass
+                                try:
+                                    with preapproved_tool_scope(resolved_name):
+                                        tool_result = str(self._tool_exec_fn({"tool": resolved_name, "args": targs}))
+                                except Exception as exc:
+                                    tool_result = f"Error running tool '{resolved_name}': {exc}"
+                                finally:
+                                    try:
+                                        from approval import set_current_tool_name
+                                        set_current_tool_name(None)
+                                    except Exception:
+                                        pass
 
-                            outcome = tool_outcome(tool_result)
-                            if outcome.ok:
-                                self._breaker.record_success(resolved_name, target=target_key)
-                            elif outcome.status == "error":
-                                dur_ms = int((time.time() - t_tool0) * 1000)
-                                self._breaker.record_failure(
-                                    tool=resolved_name,
-                                    error_class=outcome.error_kind or "ToolError",
-                                    message=outcome.key_line or tool_result[:300],
-                                    target=target_key,
-                                    request_id=self.request_id,
-                                    agent_id=profile_id,
-                                    duration_ms=dur_ms,
-                                )
+                                outcome = tool_outcome(tool_result)
+                                if outcome.ok:
+                                    self._breaker.record_success(resolved_name, target=target_key)
+                                elif outcome.status == "error":
+                                    dur_ms = int((time.time() - t_tool0) * 1000)
+                                    self._breaker.record_failure(
+                                        tool=resolved_name,
+                                        error_class=outcome.error_kind or "ToolError",
+                                        message=outcome.key_line or tool_result[:300],
+                                        target=target_key,
+                                        request_id=self.request_id,
+                                        agent_id=profile_id,
+                                        duration_ms=dur_ms,
+                                    )
 
                     self._emit("done", resolved_name, tool_result)
                     tool_history.append(
@@ -1015,18 +1050,38 @@ class AutonomousLoop:
                         errors.append(f"{resolved_name}: {outcome.key_line}")
 
                     # Track created/modified file artifacts cleanly
-                    if outcome.ok and resolved_name in ("write_workspace_file", "edit_workspace_file"):
-                        fpath = str(targs.get("filepath") or targs.get("path") or "").strip()
+                    if outcome.ok and resolved_name in ("write_workspace_file", "edit_workspace_file", "download_web_file"):
+                        fpath = str(targs.get("filepath") or targs.get("path") or targs.get("save_as") or "").strip()
                         if fpath and fpath not in artifacts:
                             artifacts.append(fpath)
+
+                    # Quarantine untrusted external outputs (images, OCR, web pages, vision file reads)
+                    rid_arg_for_untrusted = (
+                        str(targs.get("id") or targs.get("result_id") or "")
+                        if resolved_name == "read_result"
+                        else ""
+                    )
+                    from_untrusted = (
+                        (resolved_name in UNTRUSTED_SOURCE_TOOLS)
+                        or (role_name == "vision" and resolved_name in ("read_workspace_file", "search_vault", "list_vault_documents"))
+                        or (resolved_name == "read_result" and rid_arg_for_untrusted in untrusted_result_ids)
+                    )
+                    if from_untrusted and outcome.ok and contains_injection_attempt(tool_result):
+                        for suspect in extract_injected_tool_names(tool_result):
+                            injected_suspects.add(self._tool_alias_fn(suspect))
+                            injected_suspects.add(suspect)
 
                     # Record in CallTracker & digest store (never re-compact read_result itself)
                     if resolved_name == "read_result":
                         compacted_body, shortened = str(tool_result), False
                     else:
                         compacted_body, shortened = compact(tool_result, result_char_limit(resolved_name), outcome.key_line)
+                    if from_untrusted:
+                        compacted_body = wrap_untrusted_content(resolved_name, compacted_body)
                     if shortened:
                         stored_id = self._result_store.put(resolved_name, tool_result)
+                        if from_untrusted:
+                            untrusted_result_ids.add(stored_id)
                         compacted_body += (
                             f'\n[shortened; full result is {stored_id}. Call '
                             f'{{"tool": "read_result", "args": {{"id": "{stored_id}", "start": 0}}}} if needed]'

@@ -319,8 +319,7 @@ _TOOL_ALIAS_MAP = {
     "status": "system_status",
     "sys_status": "system_status",
     "get_system_status": "system_status",
-    # Sub-agent consultation
-    "delegate": "ask_agent",
+    # Sub-agent consultation (delegate has its own autonomous handler when ZAINE_AGENT=1)
     "ask": "ask_agent",
     "consult_agent": "ask_agent",
     "ask_subagent": "ask_agent",
@@ -908,6 +907,18 @@ class ZaineAgent:
 
         agent_profile = getattr(self, "active_agent", None)
         agent_enabled = is_agent_enabled()
+        if agent_enabled:
+            try:
+                from autonomy.subagents import current_delegation_depth, resolve_subagent_profile
+                from core.task_envelope import current_agent_var
+                if current_delegation_depth() > 0:
+                    ctx_agent_id = current_agent_var.get(None)
+                    if ctx_agent_id:
+                        scoped, _ = resolve_subagent_profile(ctx_agent_id)
+                        if scoped is not None:
+                            agent_profile = scoped
+            except Exception:
+                pass
         profile_agent_id = (
             getattr(agent_profile, "agent_id", getattr(agent_profile, "name", None))
             if agent_profile is not None
@@ -1325,11 +1336,40 @@ class ZaineAgent:
             if not allowed:
                 return trip_reason
 
-        if name == "ask_agent":
+        if name in ("delegate", "ask_agent"):
+            if agent_enabled:
+                from autonomy.subagents import current_delegation_depth, execute_delegate
+                req_id = None
+                try:
+                    from approval import get_current_request_id
+                    req_id = get_current_request_id()
+                except Exception:
+                    pass
+                return execute_delegate(
+                    args,
+                    caller_profile=agent_profile,
+                    delegation_depth=current_delegation_depth(),
+                    model_name=getattr(self, "_turn_model", None),
+                    tool_exec_fn=self._execute_tool,
+                    tool_alias_fn=resolve_tool_alias,
+                    on_event=self._turn_event_cb,
+                    result_store=self._result_store(),
+                    memory=self.memory,
+                    request_id=req_id,
+                )
             return self._delegate(args)
         if name == "read_result":
             return self._result_store().read(args.get("id") or args.get("result_id") or "", args.get("start", 0),
-                                      args.get("length", 1200))
+                                      args.get("length", 2400))
+
+        import contextlib
+        scope_ctx = contextlib.nullcontext()
+        if agent_enabled and not getattr(self, "_in_autonomous_loop", False):
+            from autonomy.guards import preapproved_tool_scope, require_side_effect_approval
+            ok_ap, msg_ap = require_side_effect_approval(name, args)
+            if not ok_ap:
+                return msg_ap
+            scope_ctx = preapproved_tool_scope(name)
 
         fn = TOOL_REGISTRY.get(name)
         if fn is None:
@@ -1348,7 +1388,8 @@ class ZaineAgent:
             pass
         t_start = time.time()
         try:
-            result = str(fn(**args))
+            with scope_ctx:
+                result = str(fn(**args))
             if breaker is not None:
                 breaker.record_success(name)
         except Exception as e:
@@ -1584,6 +1625,9 @@ class ZaineAgent:
             cancel_check=cancel_check,
             on_event=on_tool_event,
             result_store=self._result_store(),
+            allow_delegation=True,
+            delegation_depth=0,
+            memory=self.memory,
         )
         self._in_autonomous_loop = True
         try:
