@@ -1314,3 +1314,12 @@ um_ctx=4096) peak VRAM at 2608 MiB.
 - **Scope:** autonomy/sandbox.py, autonomy/guards.py, autonomy/loop.py, autonomy/__init__.py, tools.py, toolmaker.py, tool_clusters.py, agents/profiles.json, tests/test_sandbox.py
 - **Description:** Implemented Phase C workspace sandbox hardening: strict traversal, NTFS alternate data stream, 8.3 tilde, extended prefix, trailing dot/space, and symlink/junction escape blocking across all workspace tools (`autonomy/sandbox.py`); unified diff computation and `diff_preview` SSE emission before any workspace overwrite/edit or approved external write (`write_workspace_file`, `edit_workspace_file`, `write_external_file`); read-only outside-workspace file inspection (`read_external_file`) blocking credentials, `.env`, DBs, and live vault; Zone 0 kernel lock and blocking operator approval via `approval.require_approval` for external writes, external `run_python_script` fallbacks, `pip install` (`toolmaker.install_python_package`), and `create_custom_tool`; dynamic `get_workspace_dir()` resolution across `open_vscode`, `start_local_server`, and `deep_search`. Verified 142/142 pytest tests pass (`tests/test_sandbox.py` 9/9 + full suite) and live `zaine-reflex-7b` (`num_ctx=4096`) overwrite diff + traversal block runs at 2561 MiB peak VRAM.
 - **Commit:** agent-core Phase C
+
+
+## Phase D - Memory, Privacy Taint, Trust Review Queue & Crash-Resume Scratchpad (agent-core)
+- **Date**: 2026-11-12
+- **Goal**: Enforce LOCAL_ONLY default privacy taint and no-cloud routing, block autonomous memory trust promotion via a persistent review queue, keep per-step vault/SQLite memory retrieval strictly within ~2000 chars, and add atomic crash-resumable per-run scratchpads.
+- **Files Changed**:
+  - Updated `memory_types.py`, `memory.py`, `memory_manager.py`, `core_router.py`, `autonomy/guards.py`, `autonomy/loop.py`, `agent.py`, `autonomy/__init__.py`
+  - Added `autonomy/privacy.py`, `autonomy/memory_review.py`, `autonomy/memory_bridge.py`, `autonomy/scratchpad.py`, `tests/test_memory_resume.py`
+- **Verification**: Full suite `148 passed` under `ZAINE_AGENT=0` against dev Obsidian vault; live `zaine-reflex-7b` (`num_ctx=4096`) smoke & resume checks stayed single-model at ~2520-2529 MiB GPU VRAM; live vault untouched (`552` files).

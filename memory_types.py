@@ -56,6 +56,12 @@ class MemorySource(str, Enum):
     IMPORT = "import"
 
 
+class PrivacyTaint(str, Enum):
+    """Local-first privacy classification attached to all memory items (LOCAL_ONLY by default)."""
+    LOCAL_ONLY = "LOCAL_ONLY"
+    SHAREABLE = "SHAREABLE"
+
+
 def generate_memory_id() -> str:
     """Generates a deterministic, unique memory ID."""
     short_uuid = uuid.uuid4().hex[:12]
@@ -92,6 +98,12 @@ class MemoryEntry:
     # Classification
     tags: List[str] = field(default_factory=list)
     related: List[str] = field(default_factory=list)
+    privacy_taint: str = PrivacyTaint.LOCAL_ONLY.value
+
+    def __post_init__(self):
+        raw_pt = self.privacy_taint.value if isinstance(self.privacy_taint, PrivacyTaint) else str(self.privacy_taint or "")
+        norm_pt = raw_pt.strip().upper()
+        self.privacy_taint = norm_pt if norm_pt in ("LOCAL_ONLY", "SHAREABLE") else PrivacyTaint.LOCAL_ONLY.value
 
     # Additional context sections (stored in Markdown body)
     context: str = ""
@@ -109,6 +121,7 @@ class MemoryEntry:
             "status": self.status.value if isinstance(self.status, MemoryStatus) else self.status,
             "trust": self.trust.value if isinstance(self.trust, TrustLevel) else self.trust,
             "source": self.source.value if isinstance(self.source, MemorySource) else self.source,
+            "privacy_taint": self.privacy_taint,
             "created": self.created,
             "updated": self.updated,
         }
@@ -210,6 +223,7 @@ class MemoryEntry:
             superseded_by=frontmatter.get("superseded_by"),
             tags=frontmatter.get("tags", []) or [],
             related=frontmatter.get("related", []) or [],
+            privacy_taint=str(frontmatter.get("privacy_taint", PrivacyTaint.LOCAL_ONLY.value) or PrivacyTaint.LOCAL_ONLY.value),
             context=context,
             evidence=evidence,
             notes=notes,
@@ -227,10 +241,11 @@ class MemoryEntry:
         trusted_levels = {TrustLevel.AUTHORITATIVE, TrustLevel.VERIFIED, TrustLevel.DERIVED}
         return self.trust in trusted_levels
 
-    def format_for_context(self, include_trust: bool = True) -> str:
+    def format_for_context(self, include_trust: bool = True, include_privacy: bool = False) -> str:
         """Formats this memory for injection into the LLM context window.
         Per Memory-Policy.md Section 15: retrieved memory must retain trust metadata.
         """
         trust_tag = f" [{self.trust.value}]" if include_trust else ""
+        priv_tag = f" [{self.privacy_taint}]" if include_privacy else ""
         type_tag = f"[{self.type.value}]"
-        return f"- {type_tag}{trust_tag} {self.title}: {self.content}"
+        return f"- {type_tag}{trust_tag}{priv_tag} {self.title}: {self.content}"

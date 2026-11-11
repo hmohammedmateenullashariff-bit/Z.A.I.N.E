@@ -102,10 +102,16 @@ def require_side_effect_approval(tool_name: str, args: Dict[str, Any]) -> Tuple[
     Enforces blocking human approval through approval.require_approval().
     Returns (True, "not_required" | "Approved: ...") or (False, "[APPROVAL REQUIRED / DENIED]: ...").
     """
+    from autonomy.privacy import check_outbound_cloud_block
+
+    effective_args = dict(args or {})
+    cloud_block = check_outbound_cloud_block(tool_name, effective_args)
+    if cloud_block:
+        return False, cloud_block
+
     if is_tool_preapproved(tool_name):
         return True, "preapproved"
 
-    effective_args = dict(args or {})
     if (tool_name or "").strip() == "write_external_file":
         from autonomy.sandbox import emit_diff_preview, precheck_external_write
 

@@ -126,7 +126,15 @@ class TieredBrainRouter:
                 "options": options_dict
             }
             t0 = time.perf_counter()
-            resp = requests.post(OLLAMA_URL, json=payload, timeout=10)
+            target_url = os.getenv("ZAINE_OLLAMA_URL", "").strip() or OLLAMA_URL
+            try:
+                from autonomy import is_agent_enabled
+                if is_agent_enabled():
+                    from autonomy.privacy import assert_local_routing
+                    assert_local_routing(target_url, context="core_router.pin_reflex_in_vram")
+            except ImportError:
+                pass
+            resp = requests.post(target_url, json=payload, timeout=10)
             wall_time = time.perf_counter() - t0
             raw_json = resp.json() if resp.status_code == 200 else {}
             try:
@@ -143,7 +151,9 @@ class TieredBrainRouter:
                 pass
             self.pinned_warm = (resp.status_code == 200)
             return self.pinned_warm
-        except Exception:
+        except Exception as exc:
+            if type(exc).__name__ == "PrivacyViolationError":
+                raise
             return False
 
     def classify_task_tier(self, prompt: str) -> str:

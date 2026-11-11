@@ -34,6 +34,21 @@ from autonomy.cancel import (
     unregister_active_run,
 )
 from autonomy.guards import preapproved_tool_scope, require_side_effect_approval
+from autonomy.memory_bridge import retrieve_step_memory
+from autonomy.privacy import (
+    PrivacyViolationError,
+    assert_local_routing,
+    get_privacy_state,
+    mark_session_private,
+    scoped_privacy_session,
+)
+from autonomy.sandbox import resolve_sandbox_path
+from autonomy.scratchpad import (
+    RunScratchpad,
+    RunScratchpadStore,
+    build_resume_context,
+    flush_run_to_vault,
+)
 from autonomy.tool_validation import (
     ToolValidationResult,
     looks_like_tool_attempt,
@@ -150,8 +165,10 @@ def _default_ollama_stream(payload: Dict[str, Any], cancel_token: CancelToken, t
                 break
 
     watcher: Optional[threading.Thread] = None
+    target_url = os.getenv("ZAINE_OLLAMA_URL", "").strip() or OLLAMA_URL
+    assert_local_routing(target_url, context="ollama_stream")
     try:
-        resp = requests.post(OLLAMA_URL, json=payload, stream=True, timeout=(10.0, timeout_s))
+        resp = requests.post(target_url, json=payload, stream=True, timeout=(10.0, timeout_s))
         resp.raise_for_status()
         cancel_token.register_response(resp)
         watcher = threading.Thread(target=_watch, daemon=True, name="zaine-cancel-watch")
@@ -202,6 +219,8 @@ class AutonomousLoop:
         delegation_depth: int = 0,
         delegate_fn: Optional[Callable[[Dict[str, Any]], str]] = None,
         memory: Optional[Any] = None,
+        scratchpad_store: Optional[RunScratchpadStore] = None,
+        persist_scratchpad: Optional[bool] = None,
     ) -> None:
         self.config = config or LoopConfig.from_env()
         self.profile = profile
@@ -221,6 +240,8 @@ class AutonomousLoop:
         self._allow_delegation = (self._delegation_depth < 1) if allow_delegation is None else bool(allow_delegation)
         self._delegate_fn = delegate_fn
         self._memory = memory
+        self._scratchpad_store = scratchpad_store
+        self._persist_scratchpad = (self._delegation_depth == 0) if persist_scratchpad is None else bool(persist_scratchpad)
         self._last_model_calls: List[Dict[str, Any]] = []
 
     @staticmethod
@@ -326,6 +347,9 @@ class AutonomousLoop:
         clean_parts: List[str] = []
         in_think = False
         metrics: Dict[str, Any] = {"model": active_model, "step": step_label}
+
+        route_url = os.getenv("ZAINE_OLLAMA_URL", "").strip() or OLLAMA_URL
+        assert_local_routing(route_url, context=f"loop.{step_label}")
 
         try:
             for chunk in self._model_stream_fn(payload, self.cancel_token, req_timeout):
@@ -652,13 +676,16 @@ class AutonomousLoop:
         envelope: Optional[TaskEnvelope] = None,
         prior_messages: Optional[List[Dict[str, str]]] = None,
         on_token: Optional[Callable[[str], None]] = None,
+        resume_from: Optional[RunScratchpad] = None,
     ) -> LoopResult:
         """
         Executes the full Plan -> Act -> Observe -> Reflect autonomous cycle cleanly.
         """
-        rid = run_id or f"RUN-{uuid.uuid4().hex[:8].upper()}"
+        rid = (resume_from.run_id if resume_from is not None else None) or run_id or f"RUN-{uuid.uuid4().hex[:8].upper()}"
         t_start = time.monotonic()
         max_steps = self.config.max_steps
+        if resume_from is not None and int(resume_from.max_steps or 0) > max_steps:
+            max_steps = int(resume_from.max_steps)
         wall_timeout = float(self.config.wall_clock_timeout_s)
         if envelope is not None:
             if envelope.max_steps:
@@ -702,11 +729,13 @@ class AutonomousLoop:
         except Exception:
             pass
 
-        tool_history: List[Dict[str, Any]] = []
+        tool_history: List[Dict[str, Any]] = (
+            [dict(r) for r in resume_from.results] if resume_from is not None else []
+        )
         steps_records: List[StepRecord] = []
-        artifacts: List[str] = []
-        errors: List[str] = []
-        plan_steps: List[str] = []
+        artifacts: List[str] = list(resume_from.artifacts) if resume_from is not None else []
+        errors: List[str] = list(resume_from.errors) if resume_from is not None else []
+        plan_steps: List[str] = list(resume_from.plan) if resume_from is not None else []
         tracker = CallTracker()
         identical_fail_counts: Dict[str, int] = {}
         seen_result_digests: Dict[str, str] = {}
@@ -715,8 +744,89 @@ class AutonomousLoop:
         untrusted_result_ids: Set[str] = set()
         role_name = str(getattr(self.profile, "role", "") or "").lower() if self.profile else ""
 
+        try:
+            ws_dir_str = str(resolve_sandbox_path("."))
+        except Exception:
+            ws_dir_str = os.getenv("ZAINE_WORKSPACE", "").strip()
+
+        active_store: Optional[RunScratchpadStore] = (
+            self._scratchpad_store if self._scratchpad_store is not None else RunScratchpadStore()
+        ) if self._persist_scratchpad else None
+        pad: Optional[RunScratchpad] = None
+        if active_store is not None:
+            if resume_from is not None:
+                pad = resume_from
+                pad.status = "running"
+                pad.resumable = True
+                pad.max_steps = max_steps
+            else:
+                pad = RunScratchpad(
+                    run_id=rid,
+                    task=goal,
+                    agent_id=profile_id,
+                    workspace_dir=ws_dir_str,
+                    privacy_taint=str(getattr(active_env, "privacy_class", "LOCAL_ONLY") or "LOCAL_ONLY"),
+                    status="running",
+                    max_steps=max_steps,
+                )
+            try:
+                active_store.save(pad)
+            except Exception:
+                pass
+
+        def _sync_pad(
+            *,
+            step_record: Optional[StepRecord] = None,
+            current_step: Optional[int] = None,
+            final_status: Optional[str] = None,
+            final_summary: str = "",
+        ) -> None:
+            if pad is None or active_store is None:
+                return
+            pad.plan = list(plan_steps)
+            pad.max_steps = max_steps
+            pad.artifacts = list(artifacts)
+            pad.errors = list(errors)
+            pad.results = [dict(x) for x in tool_history[-30:]]
+            if current_step is not None:
+                pad.current_step = int(current_step)
+            if step_record is not None:
+                pad.completed_steps = max(int(pad.completed_steps or 0), int(step_record.step))
+                pad.current_step = int(step_record.step)
+                pad.progress.append(
+                    {
+                        "step": step_record.step,
+                        "phase": step_record.phase,
+                        "tool": step_record.tool,
+                        "outcome": step_record.outcome_status,
+                        "progress": step_record.progress_made,
+                        "note": (step_record.reflection or "")[:200],
+                    }
+                )
+            priv_st = get_privacy_state()
+            if priv_st is not None:
+                pad.privacy_taint = priv_st.taint
+            if final_status is not None:
+                pad.status = final_status
+                pad.final_summary = (final_summary or "")[:2000]
+            try:
+                active_store.save(pad)
+            except Exception:
+                pass
+
         def _finish(status: str, summary: str, stop_reason: str) -> LoopResult:
             elapsed = round(time.monotonic() - t_start, 3)
+            _sync_pad(final_status=status, final_summary=summary)
+            if (
+                status == "completed"
+                and pad is not None
+                and self._delegation_depth == 0
+                and os.getenv("ZAINE_OBSIDIAN_VAULT_PATH", "").strip()
+            ):
+                try:
+                    flush_run_to_vault(pad)
+                except Exception:
+                    pass
             usage = {
                 "model_calls": len(self._last_model_calls),
                 "prompt_tokens": sum(int(m.get("prompt_eval_count") or 0) for m in self._last_model_calls),
@@ -743,79 +853,149 @@ class AutonomousLoop:
                 usage=usage,
             )
 
+        initial_taint = (
+            resume_from.privacy_taint
+            if (resume_from is not None and resume_from.privacy_taint)
+            else ("LOCAL_ONLY" if (self._memory_context or str(getattr(active_env, "privacy_class", "LOCAL_ONLY")).upper() == "LOCAL_ONLY") else "CLEAN")
+        )
+
         try:
-            # ── 1. PLAN ──────────────────────────────────────────────────────
-            plan_steps, direct_hint, interrupted = self.plan(goal, run_id=rid, deadline=deadline)
-            if interrupted:
-                reason = "Cancelled by operator." if interrupted == "cancelled" else f"Wall-clock timeout ({wall_timeout:.1f}s) exceeded during planning."
-                self._emit(interrupted, "loop", {"run_id": rid, "reason": reason})
-                return _finish(interrupted, reason, reason)
+            with scoped_privacy_session(initial_taint=initial_taint):
+                if self._memory_context:
+                    mark_session_private("initial_memory_context", "LOCAL_ONLY")
 
-            sys_prompt = self._build_act_system_prompt()
-            messages: List[Dict[str, str]] = [{"role": "system", "content": sys_prompt}]
-            if prior_messages:
-                # Keep bounded recent conversational turns only when under context budget
-                for pm in prior_messages[-4:]:
-                    if pm.get("role") in ("user", "assistant") and pm.get("content"):
-                        messages.append({"role": pm["role"], "content": str(pm["content"])[:500]})
+                # ── 1. PLAN (or restore plan on resume) ──────────────────────
+                start_step = 1
+                if resume_from is not None and resume_from.plan:
+                    plan_steps = list(resume_from.plan)
+                    direct_hint = False
+                    start_step = max(1, int(resume_from.completed_steps or 0) + 1)
+                    self._emit(
+                        "resume",
+                        "loop",
+                        {
+                            "run_id": rid,
+                            "completed_steps": int(resume_from.completed_steps or 0),
+                            "start_step": start_step,
+                            "max_steps": max_steps,
+                            "plan": plan_steps,
+                        },
+                    )
+                else:
+                    plan_steps, direct_hint, interrupted = self.plan(goal, run_id=rid, deadline=deadline)
+                    if interrupted:
+                        reason = "Cancelled by operator." if interrupted == "cancelled" else f"Wall-clock timeout ({wall_timeout:.1f}s) exceeded during planning."
+                        self._emit(interrupted, "loop", {"run_id": rid, "reason": reason})
+                        return _finish(interrupted, reason, reason)
+                    _sync_pad(current_step=0)
 
-            plan_block = "\n".join(f"{idx + 1}. {s}" for idx, s in enumerate(plan_steps))
-            messages.append(
-                {
-                    "role": "user",
-                    "content": (
+                base_sys_prompt = self._build_act_system_prompt()
+                messages: List[Dict[str, str]] = [{"role": "system", "content": base_sys_prompt}]
+                if prior_messages:
+                    # Keep bounded recent conversational turns only when under context budget
+                    for pm in prior_messages[-4:]:
+                        if pm.get("role") in ("user", "assistant") and pm.get("content"):
+                            messages.append({"role": pm["role"], "content": str(pm["content"])[:500]})
+
+                plan_block = "\n".join(f"{idx + 1}. {s}" for idx, s in enumerate(plan_steps))
+                if resume_from is not None and resume_from.completed_steps > 0:
+                    resume_brief = build_resume_context(
+                        resume_from,
+                        max_chars=min(1600, max(600, int(self.config.max_memory_chars or 2000))),
+                    )
+                    initial_user_msg = (
+                        f"Goal: {goal}\n\n{resume_brief}\n\n"
+                        f"Resume cleanly at step {start_step}/{max_steps} using a valid JSON tool call if tools are needed, or provide the final answer when complete."
+                    )
+                else:
+                    initial_user_msg = (
                         f"Goal: {goal}\n\nPlan:\n{plan_block}\n\n"
                         + (
                             "No tools seem necessary; respond directly unless verification is needed."
                             if direct_hint
                             else "Execute step 1 now using a valid JSON tool call if tools are needed, or provide the final answer when complete."
                         )
-                    ),
-                }
-            )
-
-            # ── 2. ACT -> OBSERVE -> REFLECT ─────────────────────────────────
-            for step_idx in range(1, max_steps + 1):
-                budget_stop = self._check_budget(deadline, step_idx)
-                if budget_stop:
-                    reason = (
-                        "Cancelled by operator."
-                        if budget_stop == "cancelled"
-                        else f"Wall-clock timeout ({wall_timeout:.1f}s) exceeded at step {step_idx}/{max_steps}."
                     )
-                    self._emit(budget_stop, "loop", {"run_id": rid, "step": step_idx, "reason": reason})
-                    return _finish(budget_stop, self._format_stop_report(reason, tool_history), reason)
+                messages.append({"role": "user", "content": initial_user_msg})
 
-                step_t0 = time.monotonic()
-                plan_item = plan_steps[min(step_idx - 1, len(plan_steps) - 1)] if plan_steps else goal[:120]
-                self._emit(
-                    "step",
-                    profile_id,
-                    {
-                        "run_id": rid,
-                        "step": step_idx,
-                        "max_steps": max_steps,
-                        "phase": "act",
-                        "plan_step": plan_item,
-                    },
-                )
+                initial_mem_len = len(self._memory_context[:1200]) if self._memory_context else 0
 
-                tool_calls, text_out, act_err = self._act_with_validation(
-                    messages, step_idx=step_idx, deadline=deadline
-                )
-                if act_err == "cancelled":
-                    reason = "Cancelled by operator."
-                    self._emit("cancelled", "loop", {"run_id": rid, "step": step_idx, "reason": reason})
-                    return _finish("cancelled", reason, reason)
-                if act_err == "stopped_timeout":
-                    reason = f"Wall-clock timeout ({wall_timeout:.1f}s) exceeded during step {step_idx}/{max_steps}."
-                    self._emit("stopped_timeout", "loop", {"run_id": rid, "step": step_idx, "reason": reason})
-                    return _finish("stopped_timeout", self._format_stop_report(reason, tool_history), reason)
-                if act_err == "failed_validation":
-                    reason = f"Stopped at step {step_idx}/{max_steps}: malformed tool-call JSON persisted after 1 repair and 1 retry ({text_out})."
-                    errors.append(reason)
-                    steps_records.append(
-                        StepRecord(
+                # ── 2. ACT -> OBSERVE -> REFLECT ─────────────────────────────────
+                for step_idx in range(start_step, max_steps + 1):
+                    budget_stop = self._check_budget(deadline, step_idx)
+                    if budget_stop:
+                        reason = (
+                            "Cancelled by operator."
+                            if budget_stop == "cancelled"
+                            else f"Wall-clock timeout ({wall_timeout:.1f}s) exceeded at step {step_idx}/{max_steps}."
+                        )
+                        self._emit(budget_stop, "loop", {"run_id": rid, "step": step_idx, "reason": reason})
+                        return _finish(budget_stop, self._format_stop_report(reason, tool_history), reason)
+
+                    step_t0 = time.monotonic()
+                    plan_item = plan_steps[min(step_idx - 1, len(plan_steps) - 1)] if plan_steps else goal[:120]
+                    _sync_pad(current_step=step_idx)
+
+                    step_mem_budget = max(0, min(int(self.config.max_memory_chars or 2000), 2000) - initial_mem_len)
+                    step_mem_text = ""
+                    step_mem_meta: Dict[str, Any] = {"count": 0, "chars": 0, "taint": "CLEAN", "keywords": []}
+                    if step_mem_budget >= 150:
+                        try:
+                            step_mem_text, step_mem_meta = retrieve_step_memory(
+                                goal,
+                                plan_item,
+                                max_chars=step_mem_budget,
+                                mark_taint=True,
+                            )
+                        except Exception:
+                            step_mem_text = ""
+                    if step_mem_text:
+                        messages[0] = {
+                            "role": "system",
+                            "content": f"{base_sys_prompt}\n\n[STEP RELEVANT MEMORY]\n{step_mem_text}",
+                        }
+                        self._emit(
+                            "memory",
+                            "memory_bridge",
+                            {
+                                "run_id": rid,
+                                "step": step_idx,
+                                "count": step_mem_meta.get("count", 0),
+                                "chars": step_mem_meta.get("chars", len(step_mem_text)),
+                                "taint": step_mem_meta.get("taint", "LOCAL_ONLY"),
+                                "keywords": step_mem_meta.get("keywords", []),
+                            },
+                        )
+                    else:
+                        messages[0] = {"role": "system", "content": base_sys_prompt}
+
+                    self._emit(
+                        "step",
+                        profile_id,
+                        {
+                            "run_id": rid,
+                            "step": step_idx,
+                            "max_steps": max_steps,
+                            "phase": "act",
+                            "plan_step": plan_item,
+                        },
+                    )
+
+                    tool_calls, text_out, act_err = self._act_with_validation(
+                        messages, step_idx=step_idx, deadline=deadline
+                    )
+                    if act_err == "cancelled":
+                        reason = "Cancelled by operator."
+                        self._emit("cancelled", "loop", {"run_id": rid, "step": step_idx, "reason": reason})
+                        return _finish("cancelled", reason, reason)
+                    if act_err == "stopped_timeout":
+                        reason = f"Wall-clock timeout ({wall_timeout:.1f}s) exceeded during step {step_idx}/{max_steps}."
+                        self._emit("stopped_timeout", "loop", {"run_id": rid, "step": step_idx, "reason": reason})
+                        return _finish("stopped_timeout", self._format_stop_report(reason, tool_history), reason)
+                    if act_err == "failed_validation":
+                        reason = f"Stopped at step {step_idx}/{max_steps}: malformed tool-call JSON persisted after 1 repair and 1 retry ({text_out})."
+                        errors.append(reason)
+                        rec = StepRecord(
                             step=step_idx,
                             max_steps=max_steps,
                             phase="act",
@@ -825,24 +1005,47 @@ class AutonomousLoop:
                             reflection=reason,
                             duration_s=round(time.monotonic() - step_t0, 3),
                         )
-                    )
-                    return _finish("failed_validation", self._format_stop_report(reason, tool_history), reason)
-
-                # Plain text (no tool calls) -> Reflect & complete cleanly
-                if not tool_calls:
-                    reply = (text_out or "").strip()
-                    if not reply:
-                        no_progress_streak += 1
-                        rec = StepRecord(
-                            step=step_idx,
-                            max_steps=max_steps,
-                            phase="reflect",
-                            outcome_status="empty",
-                            progress_made=False,
-                            reflection="Model emitted empty output.",
-                            duration_s=round(time.monotonic() - step_t0, 3),
-                        )
                         steps_records.append(rec)
+                        _sync_pad(step_record=rec)
+                        return _finish("failed_validation", self._format_stop_report(reason, tool_history), reason)
+
+                    # Plain text (no tool calls) -> Reflect & complete cleanly
+                    if not tool_calls:
+                        reply = (text_out or "").strip()
+                        if not reply:
+                            no_progress_streak += 1
+                            rec = StepRecord(
+                                step=step_idx,
+                                max_steps=max_steps,
+                                phase="reflect",
+                                outcome_status="empty",
+                                progress_made=False,
+                                reflection="Model emitted empty output.",
+                                duration_s=round(time.monotonic() - step_t0, 3),
+                            )
+                            steps_records.append(rec)
+                            _sync_pad(step_record=rec)
+                            self._emit(
+                                "reflect",
+                                "loop",
+                                {
+                                    "run_id": rid,
+                                    "step": step_idx,
+                                    "max_steps": max_steps,
+                                    "progress": False,
+                                    "no_progress_streak": no_progress_streak,
+                                    "decision": "stop" if no_progress_streak >= self.config.no_progress_limit else "continue",
+                                    "note": rec.reflection,
+                                },
+                            )
+                            if no_progress_streak >= self.config.no_progress_limit:
+                                reason = f"Circuit breaker tripped: no progress for {no_progress_streak} consecutive steps (empty responses)."
+                                errors.append(reason)
+                                self._emit("circuit_breaker", "loop", {"run_id": rid, "step": step_idx, "reason": reason})
+                                return _finish("stopped_circuit_breaker", self._format_stop_report(reason, tool_history), reason)
+                            messages.append({"role": "user", "content": "[SYSTEM NOTE]: Provide a tool call JSON or a non-empty final answer."})
+                            continue
+
                         self._emit(
                             "reflect",
                             "loop",
@@ -850,35 +1053,13 @@ class AutonomousLoop:
                                 "run_id": rid,
                                 "step": step_idx,
                                 "max_steps": max_steps,
-                                "progress": False,
+                                "progress": True,
                                 "no_progress_streak": no_progress_streak,
-                                "decision": "stop" if no_progress_streak >= self.config.no_progress_limit else "continue",
-                                "note": rec.reflection,
+                                "decision": "complete",
+                                "note": "Goal answered cleanly without pending tool calls.",
                             },
                         )
-                        if no_progress_streak >= self.config.no_progress_limit:
-                            reason = f"Circuit breaker tripped: no progress for {no_progress_streak} consecutive steps (empty responses)."
-                            errors.append(reason)
-                            self._emit("circuit_breaker", "loop", {"run_id": rid, "step": step_idx, "reason": reason})
-                            return _finish("stopped_circuit_breaker", self._format_stop_report(reason, tool_history), reason)
-                        messages.append({"role": "user", "content": "[SYSTEM NOTE]: Provide a tool call JSON or a non-empty final answer."})
-                        continue
-
-                    self._emit(
-                        "reflect",
-                        "loop",
-                        {
-                            "run_id": rid,
-                            "step": step_idx,
-                            "max_steps": max_steps,
-                            "progress": True,
-                            "no_progress_streak": no_progress_streak,
-                            "decision": "complete",
-                            "note": "Goal answered cleanly without pending tool calls.",
-                        },
-                    )
-                    steps_records.append(
-                        StepRecord(
+                        rec = StepRecord(
                             step=step_idx,
                             max_steps=max_steps,
                             phase="complete",
@@ -888,295 +1069,295 @@ class AutonomousLoop:
                             result_preview=reply[:240],
                             duration_s=round(time.monotonic() - step_t0, 3),
                         )
-                    )
-                    return _finish("completed", reply, "completed")
+                        steps_records.append(rec)
+                        _sync_pad(step_record=rec)
+                        return _finish("completed", reply, "completed")
 
-                # ── 3. EXECUTE + OBSERVE (sequential for single-GPU/approval safety) ──
-                step_feedbacks: List[str] = []
-                step_outcomes: List[ToolOutcome] = []
-                step_progress = False
-                breaker_tripped_reason: Optional[str] = None
+                    # ── 3. EXECUTE + OBSERVE (sequential for single-GPU/approval safety) ──
+                    step_feedbacks: List[str] = []
+                    step_outcomes: List[ToolOutcome] = []
+                    step_progress = False
+                    breaker_tripped_reason: Optional[str] = None
 
-                for tc in tool_calls:
-                    if self._is_cancelled():
-                        reason = "Cancelled by operator."
-                        self._emit("cancelled", "loop", {"run_id": rid, "step": step_idx, "reason": reason})
-                        return _finish("cancelled", reason, reason)
+                    for tc in tool_calls:
+                        if self._is_cancelled():
+                            reason = "Cancelled by operator."
+                            self._emit("cancelled", "loop", {"run_id": rid, "step": step_idx, "reason": reason})
+                            return _finish("cancelled", reason, reason)
 
-                    raw_tname = str(tc.get("tool", "")).strip()
-                    targs = dict(tc.get("args") or {})
-                    resolved_name, perm_err = self._check_tool_permission(raw_tname)
-                    if not perm_err and resolved_name in injected_suspects:
-                        perm_err = (
-                            f"Security block: tool '{resolved_name}' was referenced in an untrusted "
-                            "prompt-injection payload and is blocked for this run."
-                        )
-
-                    target_key = self._extract_target_for_breaker(targs)
-                    sig = CallTracker.signature(resolved_name, targs)
-                    prev_count = tracker.calls.get(sig, 0)
-                    prev_digest = seen_result_digests.get(sig)
-
-                    self._emit("start", resolved_name, targs)
-
-                    if perm_err:
-                        tool_result = perm_err
-                        outcome = ToolOutcome(status="denied", error_kind="agent_permission", key_line=perm_err[:200])
-                    elif resolved_name == "read_result":
-                        rid_arg = str(targs.get("id") or targs.get("result_id") or "")
-                        tool_result = self._result_store.read(
-                            rid_arg,
-                            int(targs.get("start", 0) or 0),
-                            int(targs.get("length", 2400) or 2400),
-                        )
-                        outcome = tool_outcome(tool_result)
-                    elif resolved_name == "delegate":
-                        t_tool0 = time.monotonic()
-                        try:
-                            from approval import set_current_tool_name
-                            set_current_tool_name("delegate")
-                        except Exception:
-                            pass
-                        try:
-                            if self._delegate_fn is not None:
-                                tool_result = str(self._delegate_fn(targs))
-                            else:
-                                from autonomy.subagents import execute_delegate
-                                inherited_exec = (
-                                    self._tool_exec_fn
-                                    if self._tool_exec_fn != self._fallback_tool_exec
-                                    else None
-                                )
-                                tool_result = execute_delegate(
-                                    targs,
-                                    caller_profile=self.profile,
-                                    delegation_depth=self._delegation_depth,
-                                    model_name=self.config.model_name,
-                                    model_stream_fn=self._model_stream_fn,
-                                    tool_exec_fn=inherited_exec,
-                                    tool_alias_fn=self._tool_alias_fn,
-                                    on_event=self._on_event,
-                                    result_store=self._result_store,
-                                    memory=self._memory,
-                                    request_id=self.request_id,
-                                    cancel_token=self.cancel_token,
-                                    cancel_check=self._external_cancel_check,
-                                    breaker=self._breaker,
-                                )
-                        except Exception as exc:
-                            tool_result = json.dumps(
-                                {
-                                    "status": "failed",
-                                    "summary": f"Delegation error: {exc}",
-                                    "artifacts": [],
-                                    "errors": [str(exc)],
-                                },
-                                ensure_ascii=False,
+                        raw_tname = str(tc.get("tool", "")).strip()
+                        targs = dict(tc.get("args") or {})
+                        resolved_name, perm_err = self._check_tool_permission(raw_tname)
+                        if not perm_err and resolved_name in injected_suspects:
+                            perm_err = (
+                                f"Security block: tool '{resolved_name}' was referenced in an untrusted "
+                                "prompt-injection payload and is blocked for this run."
                             )
-                        finally:
+
+                        target_key = self._extract_target_for_breaker(targs)
+                        sig = CallTracker.signature(resolved_name, targs)
+                        prev_count = tracker.calls.get(sig, 0)
+                        prev_digest = seen_result_digests.get(sig)
+
+                        self._emit("start", resolved_name, targs)
+
+                        if perm_err:
+                            tool_result = perm_err
+                            outcome = ToolOutcome(status="denied", error_kind="agent_permission", key_line=perm_err[:200])
+                        elif resolved_name == "read_result":
+                            rid_arg = str(targs.get("id") or targs.get("result_id") or "")
+                            tool_result = self._result_store.read(
+                                rid_arg,
+                                int(targs.get("start", 0) or 0),
+                                int(targs.get("length", 2400) or 2400),
+                            )
+                            outcome = tool_outcome(tool_result)
+                        elif resolved_name == "delegate":
+                            t_tool0 = time.monotonic()
                             try:
                                 from approval import set_current_tool_name
-                                set_current_tool_name(None)
+                                set_current_tool_name("delegate")
                             except Exception:
                                 pass
-
-                        outcome = tool_outcome(tool_result)
-                        try:
-                            parsed_del = json.loads(tool_result)
-                            if isinstance(parsed_del, dict):
-                                d_status = str(parsed_del.get("status") or "").lower()
-                                d_summary = str(parsed_del.get("summary") or "")
-                                for dart in (parsed_del.get("artifacts") or []):
-                                    s_art = str(dart).strip()
-                                    if s_art and s_art not in artifacts:
-                                        artifacts.append(s_art)
-                                if d_status == "blocked":
-                                    outcome = ToolOutcome(
-                                        status="denied",
-                                        error_kind="delegation_blocked",
-                                        key_line=d_summary[:200],
-                                    )
-                                elif d_status in ("failed", "cancelled"):
-                                    outcome = ToolOutcome(
-                                        status="error",
-                                        error_kind=f"delegation_{d_status}",
-                                        key_line=d_summary[:200],
-                                    )
+                            try:
+                                if self._delegate_fn is not None:
+                                    tool_result = str(self._delegate_fn(targs))
                                 else:
-                                    outcome = ToolOutcome(
-                                        status="ok",
-                                        error_kind="",
-                                        key_line=d_summary[:200],
+                                    from autonomy.subagents import execute_delegate
+                                    inherited_exec = (
+                                        self._tool_exec_fn
+                                        if self._tool_exec_fn != self._fallback_tool_exec
+                                        else None
                                     )
-                        except Exception:
-                            pass
-                    else:
-                        ok_ap, msg_ap = require_side_effect_approval(resolved_name, targs)
-                        if not ok_ap:
-                            tool_result = msg_ap
-                            outcome = ToolOutcome(
-                                status="denied",
-                                error_kind="approval_denied",
-                                key_line=msg_ap[:200],
-                            )
-                        else:
-                            allowed_cb, cb_reason = self._breaker.can_execute(resolved_name, target=target_key)
-                            if not allowed_cb:
-                                tool_result = cb_reason or f"[UNAVAILABLE: '{resolved_name}' circuit is OPEN]"
-                                outcome = ToolOutcome(status="error", error_kind="circuit_open", key_line=tool_result[:200])
-                            else:
-                                t_tool0 = time.time()
+                                    tool_result = execute_delegate(
+                                        targs,
+                                        caller_profile=self.profile,
+                                        delegation_depth=self._delegation_depth,
+                                        model_name=self.config.model_name,
+                                        model_stream_fn=self._model_stream_fn,
+                                        tool_exec_fn=inherited_exec,
+                                        tool_alias_fn=self._tool_alias_fn,
+                                        on_event=self._on_event,
+                                        result_store=self._result_store,
+                                        memory=self._memory,
+                                        request_id=self.request_id,
+                                        cancel_token=self.cancel_token,
+                                        cancel_check=self._external_cancel_check,
+                                        breaker=self._breaker,
+                                    )
+                            except Exception as exc:
+                                tool_result = json.dumps(
+                                    {
+                                        "status": "failed",
+                                        "summary": f"Delegation error: {exc}",
+                                        "artifacts": [],
+                                        "errors": [str(exc)],
+                                    },
+                                    ensure_ascii=False,
+                                )
+                            finally:
                                 try:
                                     from approval import set_current_tool_name
-                                    set_current_tool_name(resolved_name)
+                                    set_current_tool_name(None)
                                 except Exception:
                                     pass
-                                try:
-                                    with preapproved_tool_scope(resolved_name):
-                                        tool_result = str(self._tool_exec_fn({"tool": resolved_name, "args": targs}))
-                                except Exception as exc:
-                                    tool_result = f"Error running tool '{resolved_name}': {exc}"
-                                finally:
+
+                            outcome = tool_outcome(tool_result)
+                            try:
+                                parsed_del = json.loads(tool_result)
+                                if isinstance(parsed_del, dict):
+                                    d_status = str(parsed_del.get("status") or "").lower()
+                                    d_summary = str(parsed_del.get("summary") or "")
+                                    for dart in (parsed_del.get("artifacts") or []):
+                                        s_art = str(dart).strip()
+                                        if s_art and s_art not in artifacts:
+                                            artifacts.append(s_art)
+                                    if d_status == "blocked":
+                                        outcome = ToolOutcome(
+                                            status="denied",
+                                            error_kind="delegation_blocked",
+                                            key_line=d_summary[:200],
+                                        )
+                                    elif d_status in ("failed", "cancelled"):
+                                        outcome = ToolOutcome(
+                                            status="error",
+                                            error_kind=f"delegation_{d_status}",
+                                            key_line=d_summary[:200],
+                                        )
+                                    else:
+                                        outcome = ToolOutcome(
+                                            status="ok",
+                                            error_kind="",
+                                            key_line=d_summary[:200],
+                                        )
+                            except Exception:
+                                pass
+                        else:
+                            ok_ap, msg_ap = require_side_effect_approval(resolved_name, targs)
+                            if not ok_ap:
+                                tool_result = msg_ap
+                                outcome = ToolOutcome(
+                                    status="denied",
+                                    error_kind="approval_denied",
+                                    key_line=msg_ap[:200],
+                                )
+                            else:
+                                allowed_cb, cb_reason = self._breaker.can_execute(resolved_name, target=target_key)
+                                if not allowed_cb:
+                                    tool_result = cb_reason or f"[UNAVAILABLE: '{resolved_name}' circuit is OPEN]"
+                                    outcome = ToolOutcome(status="error", error_kind="circuit_open", key_line=tool_result[:200])
+                                else:
+                                    t_tool0 = time.time()
                                     try:
                                         from approval import set_current_tool_name
-                                        set_current_tool_name(None)
+                                        set_current_tool_name(resolved_name)
                                     except Exception:
                                         pass
+                                    try:
+                                        with preapproved_tool_scope(resolved_name):
+                                            tool_result = str(self._tool_exec_fn({"tool": resolved_name, "args": targs}))
+                                    except Exception as exc:
+                                        tool_result = f"Error running tool '{resolved_name}': {exc}"
+                                    finally:
+                                        try:
+                                            from approval import set_current_tool_name
+                                            set_current_tool_name(None)
+                                        except Exception:
+                                            pass
 
-                                outcome = tool_outcome(tool_result)
-                                if outcome.ok:
-                                    self._breaker.record_success(resolved_name, target=target_key)
-                                elif outcome.status == "error":
-                                    dur_ms = int((time.time() - t_tool0) * 1000)
-                                    self._breaker.record_failure(
-                                        tool=resolved_name,
-                                        error_class=outcome.error_kind or "ToolError",
-                                        message=outcome.key_line or tool_result[:300],
-                                        target=target_key,
-                                        request_id=self.request_id,
-                                        agent_id=profile_id,
-                                        duration_ms=dur_ms,
-                                    )
+                                    outcome = tool_outcome(tool_result)
+                                    if outcome.ok:
+                                        self._breaker.record_success(resolved_name, target=target_key)
+                                    elif outcome.status == "error":
+                                        dur_ms = int((time.time() - t_tool0) * 1000)
+                                        self._breaker.record_failure(
+                                            tool=resolved_name,
+                                            error_class=outcome.error_kind or "ToolError",
+                                            message=outcome.key_line or tool_result[:300],
+                                            target=target_key,
+                                            request_id=self.request_id,
+                                            agent_id=profile_id,
+                                            duration_ms=dur_ms,
+                                        )
 
-                    self._emit("done", resolved_name, tool_result)
-                    tool_history.append(
-                        {"step": step_idx, "tool": resolved_name, "args": targs, "result": tool_result, "status": outcome.status}
-                    )
-                    if not outcome.ok and outcome.key_line:
-                        errors.append(f"{resolved_name}: {outcome.key_line}")
+                        self._emit("done", resolved_name, tool_result)
+                        tool_history.append(
+                            {"step": step_idx, "tool": resolved_name, "args": targs, "result": tool_result, "status": outcome.status}
+                        )
+                        if not outcome.ok and outcome.key_line:
+                            errors.append(f"{resolved_name}: {outcome.key_line}")
 
-                    # Track created/modified file artifacts cleanly
-                    if outcome.ok and resolved_name in ("write_workspace_file", "edit_workspace_file", "write_external_file", "download_web_file"):
-                        fpath = str(targs.get("filepath") or targs.get("path") or targs.get("save_as") or "").strip()
-                        if fpath and fpath not in artifacts:
-                            artifacts.append(fpath)
+                        # Track created/modified file artifacts cleanly
+                        if outcome.ok and resolved_name in ("write_workspace_file", "edit_workspace_file", "write_external_file", "download_web_file"):
+                            fpath = str(targs.get("filepath") or targs.get("path") or targs.get("save_as") or "").strip()
+                            if fpath and fpath not in artifacts:
+                                artifacts.append(fpath)
 
-                    # Quarantine untrusted external outputs (images, OCR, web pages, vision file reads)
-                    rid_arg_for_untrusted = (
-                        str(targs.get("id") or targs.get("result_id") or "")
-                        if resolved_name == "read_result"
-                        else ""
-                    )
-                    from_untrusted = (
-                        (resolved_name in UNTRUSTED_SOURCE_TOOLS)
-                        or (role_name == "vision" and resolved_name in ("read_workspace_file", "search_vault", "list_vault_documents"))
-                        or (resolved_name == "read_result" and rid_arg_for_untrusted in untrusted_result_ids)
-                    )
-                    if from_untrusted and outcome.ok and contains_injection_attempt(tool_result):
-                        for suspect in extract_injected_tool_names(tool_result):
-                            injected_suspects.add(self._tool_alias_fn(suspect))
-                            injected_suspects.add(suspect)
+                        # Quarantine untrusted external outputs (images, OCR, web pages, vision file reads)
+                        rid_arg_for_untrusted = (
+                            str(targs.get("id") or targs.get("result_id") or "")
+                            if resolved_name == "read_result"
+                            else ""
+                        )
+                        from_untrusted = (
+                            (resolved_name in UNTRUSTED_SOURCE_TOOLS)
+                            or (role_name == "vision" and resolved_name in ("read_workspace_file", "search_vault", "list_vault_documents"))
+                            or (resolved_name == "read_result" and rid_arg_for_untrusted in untrusted_result_ids)
+                        )
+                        if from_untrusted and outcome.ok and contains_injection_attempt(tool_result):
+                            for suspect in extract_injected_tool_names(tool_result):
+                                injected_suspects.add(self._tool_alias_fn(suspect))
+                                injected_suspects.add(suspect)
 
-                    # Record in CallTracker & digest store (never re-compact read_result itself)
-                    if resolved_name == "read_result":
-                        compacted_body, shortened = str(tool_result), False
-                    else:
-                        compacted_body, shortened = compact(tool_result, result_char_limit(resolved_name), outcome.key_line)
-                    if from_untrusted:
-                        compacted_body = wrap_untrusted_content(resolved_name, compacted_body)
-                    if shortened:
-                        stored_id = self._result_store.put(resolved_name, tool_result)
+                        # Record in CallTracker & digest store (never re-compact read_result itself)
+                        if resolved_name == "read_result":
+                            compacted_body, shortened = str(tool_result), False
+                        else:
+                            compacted_body, shortened = compact(tool_result, result_char_limit(resolved_name), outcome.key_line)
                         if from_untrusted:
-                            untrusted_result_ids.add(stored_id)
-                        compacted_body += (
-                            f'\n[shortened; full result is {stored_id}. Call '
-                            f'{{"tool": "read_result", "args": {{"id": "{stored_id}", "start": 0}}}} if needed]'
+                            compacted_body = wrap_untrusted_content(resolved_name, compacted_body)
+                        if shortened:
+                            stored_id = self._result_store.put(resolved_name, tool_result)
+                            if from_untrusted:
+                                untrusted_result_ids.add(stored_id)
+                            compacted_body += (
+                                f'\n[shortened; full result is {stored_id}. Call '
+                                f'{{"tool": "read_result", "args": {{"id": "{stored_id}", "start": 0}}}} if needed]'
+                            )
+
+                        warnings = tracker.record(resolved_name, targs, tool_result, outcome)
+                        cur_digest = tracker.results.get(sig, "")
+                        seen_result_digests[sig] = cur_digest
+
+                        is_duplicate_noop = (prev_count > 0 and prev_digest == cur_digest)
+                        if outcome.ok and not is_duplicate_noop:
+                            step_progress = True
+
+                        if outcome.status in ("error", "blocked", "denied"):
+                            identical_fail_counts[sig] = identical_fail_counts.get(sig, 0) + 1
+                        else:
+                            identical_fail_counts.pop(sig, None)
+
+                        step_outcomes.append(outcome)
+                        fb_lines = [f"[TOOL RESULT for {resolved_name} ({outcome.label()})]: {compacted_body}"]
+                        for w in warnings:
+                            fb_lines.append(f"[SYSTEM NOTE]: {w}")
+                        step_feedbacks.append("\n".join(fb_lines))
+
+                        self._emit(
+                            "observe",
+                            resolved_name,
+                            {
+                                "run_id": rid,
+                                "step": step_idx,
+                                "max_steps": max_steps,
+                                "tool": resolved_name,
+                                "outcome": outcome.status,
+                                "error_kind": outcome.error_kind,
+                                "progress": outcome.ok and not is_duplicate_noop,
+                                "summary": compacted_body[:300],
+                            },
                         )
 
-                    warnings = tracker.record(resolved_name, targs, tool_result, outcome)
-                    cur_digest = tracker.results.get(sig, "")
-                    seen_result_digests[sig] = cur_digest
+                        # Check identical failing tool-call circuit breaker
+                        if identical_fail_counts.get(sig, 0) >= self.config.identical_failure_limit:
+                            breaker_tripped_reason = (
+                                f"Circuit breaker tripped at step {step_idx}/{max_steps}: "
+                                f"{identical_fail_counts[sig]} identical failing calls to '{resolved_name}' "
+                                f"({outcome.key_line or outcome.status})."
+                            )
+                            break
+                        if tracker.stuck():
+                            breaker_tripped_reason = (
+                                f"Circuit breaker tripped at step {step_idx}/{max_steps}: "
+                                f"repeated identical call or error loop on '{resolved_name}' "
+                                f"({outcome.key_line or outcome.status})."
+                            )
+                            break
 
-                    is_duplicate_noop = (prev_count > 0 and prev_digest == cur_digest)
-                    if outcome.ok and not is_duplicate_noop:
-                        step_progress = True
-
-                    if outcome.status in ("error", "blocked", "denied"):
-                        identical_fail_counts[sig] = identical_fail_counts.get(sig, 0) + 1
+                    if step_progress:
+                        no_progress_streak = 0
                     else:
-                        identical_fail_counts.pop(sig, None)
+                        no_progress_streak += 1
 
-                    step_outcomes.append(outcome)
-                    fb_lines = [f"[TOOL RESULT for {resolved_name} ({outcome.label()})]: {compacted_body}"]
-                    for w in warnings:
-                        fb_lines.append(f"[SYSTEM NOTE]: {w}")
-                    step_feedbacks.append("\n".join(fb_lines))
-
-                    self._emit(
-                        "observe",
-                        resolved_name,
-                        {
-                            "run_id": rid,
-                            "step": step_idx,
-                            "max_steps": max_steps,
-                            "tool": resolved_name,
-                            "outcome": outcome.status,
-                            "error_kind": outcome.error_kind,
-                            "progress": outcome.ok and not is_duplicate_noop,
-                            "summary": compacted_body[:300],
-                        },
-                    )
-
-                    # Check identical failing tool-call circuit breaker
-                    if identical_fail_counts.get(sig, 0) >= self.config.identical_failure_limit:
+                    if not breaker_tripped_reason and no_progress_streak >= self.config.no_progress_limit:
                         breaker_tripped_reason = (
                             f"Circuit breaker tripped at step {step_idx}/{max_steps}: "
-                            f"{identical_fail_counts[sig]} identical failing calls to '{resolved_name}' "
-                            f"({outcome.key_line or outcome.status})."
+                            f"no progress for {no_progress_streak} consecutive steps."
                         )
-                        break
-                    if tracker.stuck():
-                        breaker_tripped_reason = (
-                            f"Circuit breaker tripped at step {step_idx}/{max_steps}: "
-                            f"repeated identical call or error loop on '{resolved_name}' "
-                            f"({outcome.key_line or outcome.status})."
+
+                    reflection_note = (
+                        breaker_tripped_reason
+                        if breaker_tripped_reason
+                        else (
+                            "Step succeeded with forward progress."
+                            if step_progress
+                            else f"No progress in step {step_idx} ({no_progress_streak}/{self.config.no_progress_limit})."
                         )
-                        break
-
-                if step_progress:
-                    no_progress_streak = 0
-                else:
-                    no_progress_streak += 1
-
-                if not breaker_tripped_reason and no_progress_streak >= self.config.no_progress_limit:
-                    breaker_tripped_reason = (
-                        f"Circuit breaker tripped at step {step_idx}/{max_steps}: "
-                        f"no progress for {no_progress_streak} consecutive steps."
                     )
+                    decision = "stop" if breaker_tripped_reason else "continue"
 
-                reflection_note = (
-                    breaker_tripped_reason
-                    if breaker_tripped_reason
-                    else (
-                        "Step succeeded with forward progress."
-                        if step_progress
-                        else f"No progress in step {step_idx} ({no_progress_streak}/{self.config.no_progress_limit})."
-                    )
-                )
-                decision = "stop" if breaker_tripped_reason else "continue"
-
-                steps_records.append(
-                    StepRecord(
+                    rec = StepRecord(
                         step=step_idx,
                         max_steps=max_steps,
                         phase="reflect",
@@ -1188,49 +1369,56 @@ class AutonomousLoop:
                         result_preview=str(tool_history[-1]["result"])[:240] if tool_history else "",
                         duration_s=round(time.monotonic() - step_t0, 3),
                     )
-                )
-                self._emit(
-                    "reflect",
-                    "loop",
-                    {
-                        "run_id": rid,
-                        "step": step_idx,
-                        "max_steps": max_steps,
-                        "progress": step_progress,
-                        "no_progress_streak": no_progress_streak,
-                        "decision": decision,
-                        "note": reflection_note,
-                    },
-                )
-
-                if breaker_tripped_reason:
-                    errors.append(breaker_tripped_reason)
+                    steps_records.append(rec)
+                    _sync_pad(step_record=rec)
                     self._emit(
-                        "circuit_breaker",
+                        "reflect",
                         "loop",
-                        {"run_id": rid, "step": step_idx, "reason": breaker_tripped_reason},
-                    )
-                    return _finish(
-                        "stopped_circuit_breaker",
-                        self._format_stop_report(breaker_tripped_reason, tool_history),
-                        breaker_tripped_reason,
+                        {
+                            "run_id": rid,
+                            "step": step_idx,
+                            "max_steps": max_steps,
+                            "progress": step_progress,
+                            "no_progress_streak": no_progress_streak,
+                            "decision": decision,
+                            "note": reflection_note,
+                        },
                     )
 
-                # Feed concise observation & reflection back to model for next step
-                messages.append({"role": "assistant", "content": text_out})
-                next_hint = (
-                    "[REFLECTION]: An error or block occurred; fix the root cause or try a different approach."
-                    if any(o.status != "ok" for o in step_outcomes)
-                    else "[REFLECTION]: Step completed. Call the next tool if needed, or provide the final answer in plain text."
-                )
-                if step_idx == max_steps:
-                    next_hint = "[REFLECTION]: Final step reached."
-                messages.append({"role": "user", "content": "\n".join(step_feedbacks) + f"\n{next_hint}"})
+                    if breaker_tripped_reason:
+                        errors.append(breaker_tripped_reason)
+                        self._emit(
+                            "circuit_breaker",
+                            "loop",
+                            {"run_id": rid, "step": step_idx, "reason": breaker_tripped_reason},
+                        )
+                        return _finish(
+                            "stopped_circuit_breaker",
+                            self._format_stop_report(breaker_tripped_reason, tool_history),
+                            breaker_tripped_reason,
+                        )
 
-            # Hard max-steps budget reached
-            reason = f"Reached hard step budget ({max_steps}/{max_steps} steps)."
-            self._emit("stopped_max_steps", "loop", {"run_id": rid, "max_steps": max_steps, "reason": reason})
-            return _finish("stopped_max_steps", self._format_stop_report(reason, tool_history), reason)
+                    # Feed concise observation & reflection back to model for next step
+                    messages.append({"role": "assistant", "content": text_out})
+                    next_hint = (
+                        "[REFLECTION]: An error or block occurred; fix the root cause or try a different approach."
+                        if any(o.status != "ok" for o in step_outcomes)
+                        else "[REFLECTION]: Step completed. Call the next tool if needed, or provide the final answer in plain text."
+                    )
+                    if step_idx == max_steps:
+                        next_hint = "[REFLECTION]: Final step reached."
+                    messages.append({"role": "user", "content": "\n".join(step_feedbacks) + f"\n{next_hint}"})
+
+                # Hard max-steps budget reached
+                reason = f"Reached hard step budget ({max_steps}/{max_steps} steps)."
+                self._emit("stopped_max_steps", "loop", {"run_id": rid, "max_steps": max_steps, "reason": reason})
+                return _finish("stopped_max_steps", self._format_stop_report(reason, tool_history), reason)
+
+        except PrivacyViolationError as pve:
+            errors.append(str(pve))
+            _sync_pad(final_status="error", final_summary=str(pve))
+            self._emit("privacy_blocked", "privacy", {"run_id": rid, "reason": str(pve)})
+            raise
 
         finally:
             if installed_listener:
@@ -1243,6 +1431,55 @@ class AutonomousLoop:
             unregister_active_run(rid)
             current_envelope_var.reset(tok_env)
             current_agent_var.reset(tok_agent)
+
+    def resume(
+        self,
+        run_id: str,
+        *,
+        scratchpad_store: Optional[RunScratchpadStore] = None,
+        additional_steps: Optional[int] = None,
+        envelope: Optional[TaskEnvelope] = None,
+        on_token: Optional[Callable[[str], None]] = None,
+    ) -> LoopResult:
+        """Resumes an interrupted, paused, cancelled, or budget-stopped run from its scratchpad."""
+        store = scratchpad_store or self._scratchpad_store or RunScratchpadStore()
+        pad = store.load(run_id)
+        if pad is None:
+            raise FileNotFoundError(f"No scratchpad found for run_id '{run_id}'.")
+        if pad.status == "completed":
+            return LoopResult(
+                run_id=pad.run_id,
+                status="completed",
+                summary=pad.final_summary or "Run already completed.",
+                plan=list(pad.plan),
+                steps_executed=0,
+                max_steps=pad.max_steps,
+                artifacts=list(pad.artifacts),
+                tool_history=list(pad.results),
+                stop_reason="already_completed",
+                errors=list(pad.errors),
+            )
+
+        if additional_steps is not None and additional_steps > 0:
+            pad.max_steps = max(int(pad.max_steps or 0), int(pad.completed_steps or 0)) + int(additional_steps)
+        if int(pad.max_steps or 0) > self.config.max_steps:
+            self.config.max_steps = int(pad.max_steps)
+        if int(pad.completed_steps or 0) >= self.config.max_steps:
+            self.config.max_steps = int(pad.completed_steps or 0) + 2
+            pad.max_steps = self.config.max_steps
+
+        prev_store = self._scratchpad_store
+        self._scratchpad_store = store
+        try:
+            return self.run(
+                pad.task,
+                run_id=pad.run_id,
+                envelope=envelope,
+                on_token=on_token,
+                resume_from=pad,
+            )
+        finally:
+            self._scratchpad_store = prev_store
 
     @staticmethod
     def _format_stop_report(reason: str, history: List[Dict[str, Any]]) -> str:

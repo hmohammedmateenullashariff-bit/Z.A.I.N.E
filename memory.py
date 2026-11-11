@@ -20,6 +20,15 @@ _EPISODE_THREAD_ACTIVE = False
 
 
 
+def _ensure_privacy_column(conn: sqlite3.Connection, table: str) -> None:
+    """Adds privacy_taint (default LOCAL_ONLY) to legacy SQLite memory tables without data loss."""
+    cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if "privacy_taint" not in cols:
+        conn.execute(
+            f"ALTER TABLE {table} ADD COLUMN privacy_taint TEXT NOT NULL DEFAULT 'LOCAL_ONLY'"
+        )
+
+
 def _get_memory_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
@@ -27,7 +36,8 @@ def _get_memory_conn():
         CREATE TABLE IF NOT EXISTS memories (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            privacy_taint TEXT NOT NULL DEFAULT 'LOCAL_ONLY'
         )
         """
     )
@@ -39,7 +49,8 @@ def _get_memory_conn():
             status TEXT NOT NULL,
             lesson_learned TEXT NOT NULL,
             keywords TEXT NOT NULL,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            privacy_taint TEXT NOT NULL DEFAULT 'LOCAL_ONLY'
         )
         """
     )
@@ -52,10 +63,14 @@ def _get_memory_conn():
             topic_summary TEXT NOT NULL,
             key_points TEXT NOT NULL,
             keywords TEXT NOT NULL,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            privacy_taint TEXT NOT NULL DEFAULT 'LOCAL_ONLY'
         )
         """
     )
+    _ensure_privacy_column(conn, "memories")
+    _ensure_privacy_column(conn, "task_learnings")
+    _ensure_privacy_column(conn, "conversation_episodes")
     return conn
 
 
@@ -82,25 +97,85 @@ def save_memory(
     except Exception:
         pass
 
+    agent_mode = False
+    active_agent = None
+    try:
+        from autonomy import is_agent_enabled
+        agent_mode = is_agent_enabled()
+        if agent_mode:
+            from core.task_envelope import current_agent_var
+            active_agent = current_agent_var.get(None)
+    except Exception:
+        pass
+
+    source_was_explicit = source is not None
+
     # Resolve source and trust
     try:
-        from memory_types import MemorySource, TrustLevel
+        from memory_types import MemorySource, PrivacyTaint, TrustLevel
         if source is None:
-            source = MemorySource.USER
-        if trust is None:
+            source = (
+                MemorySource.AGENT_INFERENCE
+                if (agent_mode and active_agent is not None)
+                else MemorySource.USER
+            )
+        src_val = source.value if isinstance(source, MemorySource) else str(source).strip().lower()
+        if agent_mode and src_val != MemorySource.USER.value:
+            trust = (
+                TrustLevel.UNTRUSTED
+                if src_val in (MemorySource.WEB.value, MemorySource.TOOL.value)
+                else TrustLevel.PROVISIONAL
+            )
+        elif trust is None:
             trust = TrustLevel.AUTHORITATIVE if source == MemorySource.USER else TrustLevel.PROVISIONAL
+        privacy_tag = PrivacyTaint.LOCAL_ONLY.value
     except ImportError:
-        source = "user"
-        trust = "authoritative"
+        src_val = str(source or ("agent_inference" if (agent_mode and active_agent) else "user")).strip().lower()
+        if source is None:
+            source = src_val
+        trust = "provisional" if (agent_mode and src_val != "user") else "authoritative"
+        privacy_tag = "LOCAL_ONLY"
 
     conn = _get_memory_conn()
+
+    # Constraint #5 (ZAINE_AGENT=1): never autonomously promote trust or silently overwrite
+    # repeated/inferred facts; route repeated assertions strictly to the review queue.
+    if agent_mode:
+        existing_row = conn.execute(
+            "SELECT value, privacy_taint FROM memories WHERE key = ?",
+            (key,),
+        ).fetchone()
+        explicit_user_write = source_was_explicit and src_val == "user" and active_agent is None
+        if existing_row is not None and not explicit_user_write:
+            conn.close()
+            try:
+                from autonomy.memory_review import submit_fact_candidate
+                res = submit_fact_candidate(
+                    title=key,
+                    content=value,
+                    mem_type="fact",
+                    source=src_val,
+                    trust=trust.value if hasattr(trust, "value") else str(trust),
+                    privacy_taint=privacy_tag,
+                )
+                return (
+                    f"Queued repeated/inferred fact '{key}' for review "
+                    f"(repeat_count={res.get('repeat_count', 1)}, status={res.get('status', 'pending_review')}); "
+                    f"trust not promoted."
+                )
+            except Exception as exc:
+                return f"Review queue error for '{key}': {exc}"
+
     conn.execute(
         """
-        INSERT INTO memories (key, value, updated_at)
-        VALUES (?, ?, ?)
-        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+        INSERT INTO memories (key, value, updated_at, privacy_taint)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+            value=excluded.value,
+            updated_at=excluded.updated_at,
+            privacy_taint=excluded.privacy_taint
         """,
-        (key, value, datetime.datetime.now().isoformat()),
+        (key, value, datetime.datetime.now().isoformat(), privacy_tag),
     )
     conn.commit()
     conn.close()
@@ -120,6 +195,7 @@ def save_memory(
                 trust=trust if isinstance(trust, TrustLevel) else TrustLevel.AUTHORITATIVE,
                 tags=[key.replace('_', '-')],
                 source_ref=f"sqlite_memories_{key}",
+                privacy_taint=privacy_tag,
             )
     except Exception:
         pass
@@ -156,6 +232,19 @@ def get_all_memories() -> dict:
     return {k: v for k, v in rows}
 
 
+def get_all_memories_with_taint() -> Dict[str, Dict[str, str]]:
+    """Returns all saved persistent memories with their privacy_taint labels."""
+    conn = _get_memory_conn()
+    rows = conn.execute(
+        "SELECT key, value, privacy_taint FROM memories ORDER BY key"
+    ).fetchall()
+    conn.close()
+    return {
+        k: {"value": v, "privacy_taint": (t or "LOCAL_ONLY")}
+        for k, v, t in rows
+    }
+
+
 def record_task_learning(task_summary: str, status: str, lesson_learned: str, keywords: str) -> str:
     """Saves an acquired lesson, pattern, or technical insight from a task execution after policy validation."""
     task_summary = task_summary.strip()
@@ -177,10 +266,10 @@ def record_task_learning(task_summary: str, status: str, lesson_learned: str, ke
     conn = _get_memory_conn()
     conn.execute(
         """
-        INSERT INTO task_learnings (task_summary, status, lesson_learned, keywords, created_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO task_learnings (task_summary, status, lesson_learned, keywords, created_at, privacy_taint)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (task_summary, status, lesson_learned, keywords, datetime.datetime.now().isoformat()),
+        (task_summary, status, lesson_learned, keywords, datetime.datetime.now().isoformat(), "LOCAL_ONLY"),
     )
     conn.commit()
     conn.close()
@@ -396,10 +485,10 @@ def record_conversation_episode(
     conn = _get_memory_conn()
     conn.execute(
         """
-        INSERT INTO conversation_episodes (session_start, session_end, topic_summary, key_points, keywords, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO conversation_episodes (session_start, session_end, topic_summary, key_points, keywords, created_at, privacy_taint)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (session_start, session_end, topic_summary, key_points, keywords, datetime.datetime.now().isoformat()),
+        (session_start, session_end, topic_summary, key_points, keywords, datetime.datetime.now().isoformat(), "LOCAL_ONLY"),
     )
     conn.commit()
     conn.close()

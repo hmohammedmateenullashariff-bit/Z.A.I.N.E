@@ -1795,7 +1795,14 @@ class ZaineAgent:
             except Exception:
                 pass
 
-        mem_ctx = self.memory.get_persistent_context(current_prompt=user_message)
+        if agent_enabled and not is_plain_code:
+            try:
+                from autonomy.memory_bridge import retrieve_step_memory
+                mem_ctx, _ = retrieve_step_memory(user_message, max_chars=2000, mark_taint=False)
+            except Exception:
+                mem_ctx = self.memory.get_persistent_context(current_prompt=user_message)[:2000]
+        else:
+            mem_ctx = self.memory.get_persistent_context(current_prompt=user_message)
         system_prompt = build_clustered_system_prompt(
             "",
             ultron_mode=self.ultron_mode,

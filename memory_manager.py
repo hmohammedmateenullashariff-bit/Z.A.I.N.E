@@ -29,7 +29,7 @@ from typing import Optional, List, Dict, Any, Tuple
 
 from memory_types import (
     MemoryEntry, MemoryType, MemoryStatus, TrustLevel, MemorySource,
-    generate_memory_id
+    PrivacyTaint, generate_memory_id
 )
 from obsidian_adapter import ObsidianAdapter
 
@@ -180,6 +180,7 @@ class MemoryManager:
             vault_path: Path to Obsidian vault. If None, reads from env var
                         ZAINE_OBSIDIAN_VAULT_PATH.
         """
+        self._configured_vault_env = os.environ.get("ZAINE_OBSIDIAN_VAULT_PATH", "")
         self.adapter = ObsidianAdapter(vault_path=vault_path)
         self.policy = MemoryPolicy()
 
@@ -216,6 +217,7 @@ class MemoryManager:
         evidence: str = "",
         notes: str = "",
         related: Optional[List[str]] = None,
+        privacy_taint: str = PrivacyTaint.LOCAL_ONLY.value,
     ) -> Tuple[Optional[MemoryEntry], str]:
         """Creates a new memory entry after policy validation.
         
@@ -238,6 +240,7 @@ class MemoryManager:
             evidence=evidence,
             notes=notes,
             related=related or [],
+            privacy_taint=privacy_taint,
         )
 
         # Policy validation
@@ -260,6 +263,7 @@ class MemoryManager:
         source: MemorySource = MemorySource.AGENT_INFERENCE,
         tags: Optional[List[str]] = None,
         source_ref: Optional[str] = None,
+        privacy_taint: str = PrivacyTaint.LOCAL_ONLY.value,
     ) -> Tuple[Optional[MemoryEntry], str]:
         """Creates a candidate/provisional memory.
         Per Memory-Policy.md Section 25: strongly useful inferred information
@@ -273,6 +277,29 @@ class MemoryManager:
             trust=TrustLevel.PROVISIONAL,
             tags=tags,
             source_ref=source_ref,
+            privacy_taint=privacy_taint,
+        )
+
+    def submit_fact(
+        self,
+        title: str,
+        content: str,
+        mem_type: MemoryType = MemoryType.FACT,
+        source: MemorySource = MemorySource.AGENT_INFERENCE,
+        privacy_taint: str = PrivacyTaint.LOCAL_ONLY.value,
+        tags: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Queues repeated or inferred facts into the review queue without autonomous trust promotion."""
+        from autonomy.memory_review import record_agent_fact
+
+        return record_agent_fact(
+            title=title,
+            content=content,
+            mem_type=mem_type,
+            source=source,
+            privacy_taint=privacy_taint,
+            tags=tags,
+            memory_manager=self,
         )
 
     def update(
@@ -283,6 +310,8 @@ class MemoryManager:
         trust: Optional[TrustLevel] = None,
         tags: Optional[List[str]] = None,
         notes: Optional[str] = None,
+        privacy_taint: Optional[str] = None,
+        user_approved: bool = False,
     ) -> Tuple[Optional[MemoryEntry], str]:
         """Updates an existing memory entry.
         Per Memory-Schema.md Section 8: prefer creating a new memory and
@@ -291,6 +320,25 @@ class MemoryManager:
         entry = self.adapter.read(memory_id)
         if entry is None:
             return None, f"Memory {memory_id} not found"
+
+        if trust is not None and not user_approved:
+            agent_enabled = False
+            try:
+                from autonomy import is_agent_enabled
+                agent_enabled = is_agent_enabled()
+            except Exception:
+                pass
+            if agent_enabled:
+                trust_order = [
+                    TrustLevel.REJECTED,
+                    TrustLevel.UNTRUSTED,
+                    TrustLevel.PROVISIONAL,
+                    TrustLevel.DERIVED,
+                    TrustLevel.VERIFIED,
+                    TrustLevel.AUTHORITATIVE,
+                ]
+                if trust_order.index(trust) > trust_order.index(entry.trust):
+                    return None, "Autonomous trust promotion blocked: submit to review queue instead."
 
         if title is not None:
             entry.title = title.strip()
@@ -302,6 +350,8 @@ class MemoryManager:
             entry.tags = tags
         if notes is not None:
             entry.notes = notes
+        if privacy_taint is not None:
+            entry.privacy_taint = privacy_taint
 
         entry.updated = datetime.date.today().isoformat()
 
@@ -442,6 +492,14 @@ class MemoryManager:
         sections = []
         total_chars = 0
 
+        agent_enabled = False
+        try:
+            from autonomy import is_agent_enabled
+            from autonomy.privacy import mark_session_private
+            agent_enabled = is_agent_enabled()
+        except Exception:
+            mark_session_private = None
+
         # ── Section 1: Obsidian vault memories ──
         if self.available and current_prompt:
             try:
@@ -450,28 +508,45 @@ class MemoryManager:
                 vault_memories = []
 
             if vault_memories:
+                wrapper_overhead = len("<retrieved_memory>\nRelevant memories from vault:\n\n</retrieved_memory>")
                 mem_lines = []
                 for mem in vault_memories:
-                    if total_chars >= self.max_chars:
+                    formatted = mem.format_for_context(
+                        include_trust=True,
+                        include_privacy=agent_enabled,
+                    )
+                    projected = total_chars + wrapper_overhead + len(formatted) + (1 if mem_lines else 0)
+                    if projected > self.max_chars:
+                        if not agent_enabled and not mem_lines:
+                            mem_lines.append(formatted)
+                            total_chars += len(formatted)
                         break
-                    formatted = mem.format_for_context(include_trust=True)
-                    total_chars += len(formatted)
+                    if agent_enabled and mark_session_private is not None:
+                        taint_val = getattr(mem, "privacy_taint", PrivacyTaint.LOCAL_ONLY.value)
+                        if str(taint_val).upper() == PrivacyTaint.LOCAL_ONLY.value:
+                            mark_session_private(f"vault:{mem.id}", PrivacyTaint.LOCAL_ONLY.value)
+                    total_chars += len(formatted) + (1 if mem_lines else 0)
                     mem_lines.append(formatted)
                 if mem_lines:
-                    sections.append(
+                    block = (
                         "<retrieved_memory>\n"
                         "Relevant memories from vault:\n" +
                         "\n".join(mem_lines) +
                         "\n</retrieved_memory>"
                     )
+                    total_chars += wrapper_overhead
+                    sections.append(block)
 
         # ── Section 2: Legacy SQLite memories (backward compatibility) ──
         if include_legacy:
             legacy_context = self._get_legacy_context(current_prompt)
             if legacy_context:
-                remaining = self.max_chars - total_chars
-                if remaining > 200:
+                wrapper_overhead = len("<legacy_memory>\n\n</legacy_memory>")
+                remaining = self.max_chars - total_chars - wrapper_overhead - (2 if sections else 0)
+                if remaining > (40 if agent_enabled else 200):
                     truncated = legacy_context[:remaining]
+                    if agent_enabled and mark_session_private is not None:
+                        mark_session_private("sqlite:legacy", PrivacyTaint.LOCAL_ONLY.value)
                     sections.append(
                         "<legacy_memory>\n" +
                         truncated +
@@ -558,9 +633,13 @@ _manager_instance: Optional[MemoryManager] = None
 
 def get_memory_manager() -> MemoryManager:
     """Returns the global MemoryManager singleton.
-    Lazy initialization ensures the vault path is read at first use.
+    Lazy initialization ensures the vault path is read at first use and refreshes if env changes.
     """
     global _manager_instance
-    if _manager_instance is None:
+    current_env = os.environ.get("ZAINE_OBSIDIAN_VAULT_PATH", "")
+    if _manager_instance is None or (
+        isinstance(_manager_instance, MemoryManager)
+        and getattr(_manager_instance, "_configured_vault_env", None) != current_env
+    ):
         _manager_instance = MemoryManager()
     return _manager_instance
