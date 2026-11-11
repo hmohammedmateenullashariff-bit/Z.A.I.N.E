@@ -99,6 +99,8 @@ async def stream_chat_events(
     default_first_token_timeout: float = 60.0,
     idle_gap_timeout: float = 30.0,
     client: Optional[httpx.AsyncClient] = None,
+    force_autonomous: bool = False,
+    resume_run_id: Optional[str] = None,
 ) -> AsyncIterator[Dict[str, Any]]:
     """
     Streams SSE events from CoreService POST /api/chat/stream.
@@ -107,11 +109,15 @@ async def stream_chat_events(
     root_url = base_url or get_core_service_url()
     stream_url = f"{root_url}/api/chat/stream"
     req_id = request_id or f"term-{uuid.uuid4().hex[:8]}"
-    payload = {
+    payload: Dict[str, Any] = {
         "message": message,
         "client": client_id,
         "request_id": req_id,
     }
+    if force_autonomous:
+        payload["force_autonomous"] = True
+    if resume_run_id:
+        payload["resume_run_id"] = resume_run_id
 
     first_token_timeout = default_first_token_timeout
     has_received_token = False
@@ -384,15 +390,33 @@ async def respond_to_approval(
         return {"ok": False, "message": str(e)}
 
 
-async def cancel_chat_request(
-    request_id: str,
-    base_url: Optional[str] = None
-) -> Dict[str, Any]:
-    """Posts request cancellation to /api/chat/cancel."""
-    url = (base_url or get_core_service_url()) + "/api/chat/cancel"
+async def get_runs(resumable_only: bool = False, base_url: Optional[str] = None) -> Dict[str, Any]:
+    """Fetches autonomous run scratchpads from GET /api/runs (authenticated with X-Zaine-Token)."""
+    suffix = "/api/runs?resumable=1" if resumable_only else "/api/runs"
+    url = (base_url or get_core_service_url()) + suffix
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.post(url, json={"request_id": request_id}, headers=get_auth_headers())
+            resp = await client.get(url, headers=get_auth_headers())
+            if resp.status_code == 200:
+                return resp.json()
+            return {"ok": False, "runs": [], "message": f"HTTP {resp.status_code}: {resp.text}"}
+    except Exception as e:
+        return {"ok": False, "runs": [], "message": str(e)}
+
+
+async def cancel_chat_request(
+    request_id: str = "",
+    base_url: Optional[str] = None,
+    run_id: str = "",
+) -> Dict[str, Any]:
+    """Posts request/run cancellation to /api/chat/cancel."""
+    url = (base_url or get_core_service_url()) + "/api/chat/cancel"
+    payload: Dict[str, Any] = {"request_id": request_id}
+    if run_id:
+        payload["run_id"] = run_id
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.post(url, json=payload, headers=get_auth_headers())
             return resp.json() if resp.status_code == 200 else {"ok": False, "message": resp.text}
     except Exception as e:
         return {"ok": False, "message": str(e)}

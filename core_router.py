@@ -49,6 +49,8 @@ class TieredBrainRouter:
 
     @property
     def reflex_model(self) -> str:
+        if os.getenv("ZAINE_AGENT", "0").strip().lower() in ("1", "true", "yes", "on") and self.single_model:
+            return os.getenv("ZAINE_AGENT_MODEL", "zaine-reflex-7b")
         return "zaine-fast-3b" if self.fast_mode else REFLEX_MODEL
 
     @property
@@ -57,6 +59,8 @@ class TieredBrainRouter:
 
     @property
     def coder_model(self) -> str:
+        if os.getenv("ZAINE_AGENT", "0").strip().lower() in ("1", "true", "yes", "on") and self.single_model:
+            return self.reflex_model
         return CODER_MODEL
 
     def get_installed_models(self) -> set:

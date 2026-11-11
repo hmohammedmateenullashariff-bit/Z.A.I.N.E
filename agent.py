@@ -12,6 +12,7 @@ import inspect
 import threading
 import requests
 import time
+from typing import Optional
 
 from tools import TOOL_REGISTRY, TOOL_DESCRIPTIONS
 from memory import ConversationMemory
@@ -1591,6 +1592,7 @@ class ZaineAgent:
         on_tool_event=None,
         cancel_check=None,
         request_id=None,
+        resume_run_id: Optional[str] = None,
     ):
         """Runs a gated autonomous Plan -> Act -> Observe -> Reflect turn when ZAINE_AGENT=1."""
         from autonomy.loop import AutonomousLoop, LoopConfig
@@ -1631,7 +1633,14 @@ class ZaineAgent:
         )
         self._in_autonomous_loop = True
         try:
-            result = loop.run(user_message, prior_messages=prior_messages)
+            if resume_run_id:
+                try:
+                    result = loop.resume(resume_run_id)
+                except FileNotFoundError:
+                    yield f"No resumable autonomous run found for '{resume_run_id}'."
+                    return
+            else:
+                result = loop.run(user_message, prior_messages=prior_messages)
         finally:
             self._in_autonomous_loop = False
 
@@ -1654,7 +1663,15 @@ class ZaineAgent:
 
         yield reply_text
 
-    def chat_stream(self, user_message: str, on_tool_event=None, cancel_check=None, request_id=None):
+    def chat_stream(
+        self,
+        user_message: str,
+        on_tool_event=None,
+        cancel_check=None,
+        request_id=None,
+        force_autonomous: bool = False,
+        resume_run_id: Optional[str] = None,
+    ):
         """
         Streaming generator that yields sentences as they are generated.
         High-level turn coordination is managed by RequestCoordinator to provide queue visibility;
@@ -1665,9 +1682,19 @@ class ZaineAgent:
             on_tool_event=on_tool_event,
             cancel_check=cancel_check,
             request_id=request_id,
+            force_autonomous=force_autonomous,
+            resume_run_id=resume_run_id,
         )
 
-    def _chat_stream_impl(self, user_message: str, on_tool_event=None, cancel_check=None, request_id=None):
+    def _chat_stream_impl(
+        self,
+        user_message: str,
+        on_tool_event=None,
+        cancel_check=None,
+        request_id=None,
+        force_autonomous: bool = False,
+        resume_run_id: Optional[str] = None,
+    ):
         """
         Internal implementation of streaming generator.
         Executes tool calls silently in the background (or reports them via on_tool_event)
@@ -1753,6 +1780,7 @@ class ZaineAgent:
         self.last_turn_calls = []
         is_demo = os.getenv("ZAINE_DEMO", "0").strip().lower() in ("1", "true", "yes")
         is_plain_code = is_demo and is_plain_code_request(user_message)
+        use_autonomous = agent_enabled and (bool(force_autonomous) or bool(resume_run_id) or not is_plain_code)
 
         # VisionQuest sub-agent for this turn: @mention > /agent pin > cluster routing > default.
         selection = select_agent(raw_message, task_tier)
@@ -1762,7 +1790,7 @@ class ZaineAgent:
 
         # Dynamic lean tool clustering (reduces prompt from 2500 -> 350 tokens), limited to the agent's tools
         active_clusters = self._agent_clusters(profile, user_message)
-        if is_plain_code:
+        if is_plain_code and not use_autonomous:
             active_clusters = [c for c in active_clusters if c != "DEV_CODE"]
 
         # Route to appropriate cognitive tier with dynamic installation resolver
@@ -1795,7 +1823,7 @@ class ZaineAgent:
             except Exception:
                 pass
 
-        if agent_enabled and not is_plain_code:
+        if use_autonomous:
             try:
                 from autonomy.memory_bridge import retrieve_step_memory
                 mem_ctx, _ = retrieve_step_memory(user_message, max_chars=2000, mark_taint=False)
@@ -1814,10 +1842,10 @@ class ZaineAgent:
             model_display = derive_model_display_name(active_model)
             system_prompt += "\nAnswer concisely and directly within 1-2 paragraphs without conversational filler."
             system_prompt += f"\nYou run locally on {model_display} through Ollama on an NVIDIA RTX 2050 4GB laptop."
-        if is_plain_code:
+        if is_plain_code and not use_autonomous:
             system_prompt += "\nProvide the requested code implementation directly in a clean markdown code block with minimal essential docstrings. Do NOT call external tools."
 
-        if agent_enabled and not is_plain_code:
+        if use_autonomous:
             yield from self._run_autonomous_turn(
                 user_message=user_message,
                 profile=profile,
@@ -1827,6 +1855,7 @@ class ZaineAgent:
                 on_tool_event=on_tool_event,
                 cancel_check=cancel_check,
                 request_id=request_id,
+                resume_run_id=resume_run_id,
             )
             return
 

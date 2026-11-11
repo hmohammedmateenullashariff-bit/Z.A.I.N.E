@@ -75,6 +75,33 @@ class AgentStateHUD(Widget):
         self.agent_reason = ""
         self.agent_color = COLOR_EMERALD
         self.agent_pinned = False
+        # Real-time autonomous execution & coordinator state (never fake: "n/a" when idle/unknown)
+        self.run_id = "n/a"
+        self.run_status = "n/a"
+        self.step_display = "n/a"
+        self.tool_in_use = "n/a"
+        self.queue_display = "n/a"
+
+    def update_execution_state(
+        self,
+        *,
+        step: Optional[str] = None,
+        tool_in_use: Optional[str] = None,
+        queue: Optional[str] = None,
+        run_id: Optional[str] = None,
+        run_status: Optional[str] = None,
+    ) -> None:
+        if step is not None:
+            self.step_display = step or "n/a"
+        if tool_in_use is not None:
+            self.tool_in_use = tool_in_use or "n/a"
+        if queue is not None:
+            self.queue_display = queue or "n/a"
+        if run_id is not None:
+            self.run_id = run_id or "n/a"
+        if run_status is not None:
+            self.run_status = run_status or "n/a"
+        self.refresh()
 
     def update_agent(self, name: str, title: str = "", reason: str = "", color: str = "", pinned: Optional[bool] = None) -> None:
         self.agent_name = name or "n/a"
@@ -151,6 +178,13 @@ class AgentStateHUD(Widget):
             if len(c_str) > val_w:
                 c_str = c_str[: val_w - 1] + "…"
             _row(t, "Consulted", c_str, f"bold {COLOR_CYAN}")
+        run_label = "n/a" if (self.run_id == "n/a" and self.run_status == "n/a") else (
+            self.run_id if self.run_status == "n/a" else f"{self.run_id} ({self.run_status})"
+        )
+        _row(t, "Run", run_label, COLOR_TEXT_DIM if run_label == "n/a" else f"bold {COLOR_CYAN}", max_w=val_w)
+        _row(t, "Step", self.step_display, COLOR_TEXT_DIM if self.step_display == "n/a" else f"bold {COLOR_AMBER}", max_w=val_w)
+        _row(t, "Tool", self.tool_in_use, COLOR_TEXT_DIM if self.tool_in_use == "n/a" else f"bold {COLOR_CYAN}", max_w=val_w)
+        _row(t, "Queue", self.queue_display, COLOR_TEXT_DIM if self.queue_display == "n/a" else COLOR_TEXT, max_w=val_w)
 
         _section(t, "ACTIVE PERSONA")
         _row(t, "Persona", f"Z.A.I.N.E {self.persona}", f"bold {COLOR_EMERALD if self.persona == 'JARVIS' else COLOR_ROSE}")

@@ -148,6 +148,10 @@ def collect_system_graph(core_url: str) -> SystemGraph:
     tg = _port_open(TELEGRAM_LOCK_PORT)
     g.add("telegram", "channel", "Telegram", "poller online" if tg else "poller off", "online" if tg else "offline", parent="guard")
 
+    queue_info = status.get("queue") if (core_up and isinstance(status, dict)) else None
+    if core_up and queue_info is None:
+        queue_info = _get_json(f"{core_url}/api/queue")
+
     g.facts = {
         "core_up": core_up,
         "core_status": status if core_up else {},
@@ -155,5 +159,7 @@ def collect_system_graph(core_url: str) -> SystemGraph:
         "loaded_models": [(n.replace(":latest", ""), (m.get("size_vram") or 0) / 1024 ** 3) for n, m in loaded.items()],
         "pending_approvals": pending,
         "telegram_online": tg,
+        "queue": queue_info if isinstance(queue_info, dict) else None,
+        "agent_enabled": bool(status.get("agent_enabled")) if (core_up and isinstance(status, dict)) else False,
     }
     return g

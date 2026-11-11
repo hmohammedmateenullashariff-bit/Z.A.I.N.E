@@ -908,6 +908,8 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
             telem["pid"] = os.getpid()
             telem["config"] = core_runtime_config()
             telem["agent"] = agent_state(agent)
+            telem["agent_enabled"] = _env_flag("ZAINE_AGENT")
+            telem["queue"] = _coordinator.get_queue_telemetry()
             self._send_json(200, telem)
             return
 
@@ -1064,6 +1066,27 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": True, "session_id": sid, "messages": messages})
                 return
 
+        # 13. Autonomous Runs Scratchpad Listing (/api/runs)
+        if path == "/api/runs":
+            if not self._validate_auth():
+                return
+            qs = urllib.parse.parse_qs(parsed.query)
+            resumable_only = str((qs.get("resumable") or [""])[0]).strip().lower() in ("1", "true", "yes")
+            try:
+                limit = max(1, min(100, int((qs.get("limit") or ["30"])[0])))
+            except (TypeError, ValueError):
+                limit = 30
+            from autonomy import RunScratchpadStore, get_active_runs
+            store = RunScratchpadStore()
+            runs = store.list_runs(limit=limit, resumable_only=resumable_only)
+            self._send_json(200, {
+                "ok": True,
+                "agent_enabled": _env_flag("ZAINE_AGENT"),
+                "runs": runs,
+                "active_runs": get_active_runs(),
+            })
+            return
+
         self.send_error(404, "Endpoint not found on Z.A.I.N.E Core Service")
 
     def do_POST(self):
@@ -1167,13 +1190,18 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
 
         # 5. Request Cancellation (/api/chat/cancel or /api/cancel)
         if path in ("/api/chat/cancel", "/api/cancel"):
-            target_req_id = req_data.get("request_id", "").strip()
+            target_req_id = str(req_data.get("request_id") or "").strip()
+            target_run_id = str(req_data.get("run_id") or "").strip()
+            if not target_req_id:
+                q_telem = _coordinator.get_queue_telemetry()
+                target_req_id = str(q_telem.get("running") or "").strip()
             if target_req_id:
                 _coordinator.cancel_request(target_req_id)
+            cancelled_runs = 0
             if _env_flag("ZAINE_AGENT"):
                 try:
                     from autonomy import cancel_run
-                    cancel_run(target_req_id)
+                    cancelled_runs = cancel_run(target_run_id or target_req_id)
                 except Exception:
                     pass
             from approval import ApprovalRegistry
@@ -1181,7 +1209,13 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
                 ApprovalRegistry.deny(p["id"], note="Cancelled via client abort")
             if self.core_service:
                 self.core_service.set_status("idle")
-            self._send_json(200, {"ok": True, "request_id": target_req_id, "status": "cancelled"})
+            self._send_json(200, {
+                "ok": True,
+                "request_id": target_req_id,
+                "run_id": target_run_id,
+                "cancelled_runs": cancelled_runs,
+                "status": "cancelled",
+            })
             return
 
         # 6. Standard Chat (/api/chat)
@@ -1266,9 +1300,37 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
             self._send_json(200, resp_dict)
             return
 
-        # 5. Streaming Chat (/api/chat/stream)
-        if path == "/api/chat/stream":
-            user_msg = req_data.get("message", "").strip()
+        # 5. Streaming Chat & Autonomous Runs (/api/chat/stream, /api/run, /api/runs/resume)
+        if path in ("/api/chat/stream", "/api/run", "/api/runs/resume"):
+            is_run_ep = path == "/api/run"
+            is_resume_ep = path == "/api/runs/resume"
+            agent_flag = _env_flag("ZAINE_AGENT")
+            resume_run_id = str(
+                req_data.get("resume_run_id") or (req_data.get("run_id") if is_resume_ep else "") or ""
+            ).strip() or None
+            req_force_autonomous = bool(req_data.get("force_autonomous"))
+
+            if (is_run_ep or is_resume_ep or req_force_autonomous or resume_run_id) and not agent_flag:
+                self._send_json(400, {
+                    "ok": False,
+                    "error": "Autonomous agent mode is disabled (set ZAINE_AGENT=1 to enable /run and resume).",
+                })
+                return
+            if is_resume_ep and not resume_run_id:
+                self._send_json(400, {"ok": False, "error": "run_id required"})
+                return
+
+            user_msg = str(req_data.get("message") or "").strip()
+            if resume_run_id:
+                from autonomy import RunScratchpadStore
+                pad = RunScratchpadStore().load(resume_run_id)
+                if pad is None:
+                    self._send_json(404, {"ok": False, "error": f"Run '{resume_run_id}' not found."})
+                    return
+                if not user_msg:
+                    user_msg = f"Resume run {resume_run_id}: {pad.task}"
+
+            force_autonomous = bool(req_data.get("force_autonomous")) or is_run_ep or is_resume_ep or bool(resume_run_id)
             if not user_msg:
                 self.send_error(400, "Message empty")
                 return
@@ -1435,6 +1497,10 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
                         stream_kwargs["cancel_check"] = lambda rid=request_id: _coordinator.is_request_cancelled(rid)
                     if "request_id" in _sig_params:
                         stream_kwargs["request_id"] = request_id
+                    if force_autonomous and "force_autonomous" in _sig_params:
+                        stream_kwargs["force_autonomous"] = True
+                    if resume_run_id and "resume_run_id" in _sig_params:
+                        stream_kwargs["resume_run_id"] = resume_run_id
                 for sentence in agent.chat_stream(user_msg, **stream_kwargs):
                     if _coordinator.is_request_cancelled(request_id):
                         if agent_flag:

@@ -312,6 +312,36 @@ class ExecGraph:
                     appr.meta["outcome"] = outcome
                     self._log("GUARD", f"{appr.meta.get('proposal_id', '')} {outcome}")
             self._log("TOOL", f"{tool} -> {tool_status}: {_short(data, 70)}")
+        elif stage in ("plan_start", "plan", "resume"):
+            info = data if isinstance(data, dict) else {}
+            rid = info.get("run_id", "")
+            if stage == "plan_start":
+                self._log("PLAN", f"run {rid}: planning {_short(info.get('goal'), 70)}")
+            elif stage == "resume":
+                self._log("RESUME", f"run {rid}: step {info.get('start_step', '?')}/{info.get('max_steps', '?')}")
+            else:
+                steps = info.get("plan") or []
+                self._log("PLAN", f"{len(steps)} step(s) planned")
+        elif stage == "step":
+            info = data if isinstance(data, dict) else {}
+            s_num = info.get("step", "?")
+            m_num = info.get("max_steps", "?")
+            self._log("STEP", f"{s_num}/{m_num} ({tool or 'loop'}): {_short(info.get('plan_step'), 70)}")
+        elif stage == "observe":
+            info = data if isinstance(data, dict) else {}
+            self._log("OBS", f"{tool}: {info.get('status', 'ok')} ({_short(info.get('preview'), 60)})")
+        elif stage == "reflect":
+            info = data if isinstance(data, dict) else {}
+            self._log("REFLECT", f"step {info.get('step', '?')}: {info.get('action', '')}")
+        elif stage in ("circuit_breaker", "stopped_timeout", "stopped_max_steps", "cancelled", "privacy_blocked"):
+            info = data if isinstance(data, dict) else {}
+            self._log("STOP", f"{stage}: {_short(info.get('reason') or data, 80)}")
+        elif stage == "tool_validation":
+            info = data if isinstance(data, dict) else {}
+            self._log("VALID", f"step {info.get('step', '?')}: {info.get('stage', '')}")
+        elif stage == "memory":
+            info = data if isinstance(data, dict) else {}
+            self._log("MEM", f"{info.get('count', 0)} snippet(s) · {info.get('chars', 0)} chars · {info.get('taint', 'LOCAL_ONLY')}")
 
     def finish_turn(self, reply: str = "") -> None:
         if self.started is None or self.ended is not None:

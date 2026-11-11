@@ -84,6 +84,7 @@ from tui.client import (
     cancel_chat_request,
     get_agents,
     set_agent,
+    get_runs,
     StreamTimeoutError,
     StreamCancelledError,
 )
@@ -198,6 +199,27 @@ class ZaineTUI(App):
             return "WARMING UP"
         return "READY" if status.get("model_loaded") else "NO MODEL"
 
+    @staticmethod
+    def _format_queue_display(queue_info: Optional[Dict[str, Any]]) -> str:
+        """Formats real RequestCoordinator queue telemetry without fake numbers."""
+        if not isinstance(queue_info, dict) or not queue_info.get("ok", True):
+            return "n/a"
+        depth = int(queue_info.get("queue_depth") or 0)
+        running = bool(queue_info.get("running"))
+        if running:
+            return f"{depth} queued (1 active)"
+        return f"{depth} queued"
+
+    @staticmethod
+    def _agent_mode_enabled(facts: Optional[Dict[str, Any]] = None) -> bool:
+        """Checks whether autonomous agent mode (ZAINE_AGENT=1) is enabled locally or on CoreService."""
+        raw = os.getenv("ZAINE_AGENT")
+        if raw is not None and raw.strip() != "":
+            return raw.strip().lower() in ("1", "true", "yes", "on")
+        if isinstance(facts, dict) and facts.get("core_up"):
+            return bool(facts.get("agent_enabled"))
+        return False
+
     def _apply_system_graph(self, graph: Any) -> None:
         """Pushes the real system topology to the graph view and derives the idle status line from it."""
         facts = getattr(graph, "facts", {}) or {}
@@ -217,6 +239,10 @@ class ZaineTUI(App):
             if facts.get("core_up") and not self.is_streaming:
                 header.agent_pinned = bool(agent_info.get("pinned"))
                 hud.agent_pinned = header.agent_pinned
+            if not facts.get("core_up"):
+                hud.queue_display = "n/a"
+            elif isinstance(facts.get("queue"), dict) and not self.is_streaming:
+                hud.queue_display = self._format_queue_display(facts.get("queue"))
             if not self.is_streaming:
                 label = self._idle_status()
                 header.status_label = label
@@ -435,6 +461,11 @@ class ZaineTUI(App):
             self.query_one(InputWell).set_generating(False)
             self.query_one(HeaderBar).status_label = self._idle_status()
             self.query_one(FooterBar).status = self._idle_status()
+            hud = self.query_one(AgentStateHUD)
+            hud.update_execution_state(
+                tool_in_use="n/a",
+                run_status="cancelled" if hud.run_id != "n/a" else None,
+            )
         except Exception:
             pass
 
@@ -568,6 +599,18 @@ class ZaineTUI(App):
             self.handle_agent_command(text)
             return
 
+        if cmd == "/run" or cmd.startswith("/run "):
+            self.handle_run_command(text)
+            return
+
+        if cmd == "/runs" or cmd.startswith("/runs "):
+            self.handle_runs_command(text)
+            return
+
+        if cmd == "/stop" or cmd.startswith("/stop "):
+            self.handle_stop_command(text)
+            return
+
         # 3. Standard User Natural Language Chat Turn (Streamed SSE)
         self.stream_agent_response(text)
 
@@ -589,6 +632,9 @@ class ZaineTUI(App):
             "| `/history` | View episodic memory session summaries |\n"
             "| `/models` | Inspect cognitive model tier configurations |\n"
             "| `/agent [name\\|auto]` | List VisionQuest agents, pin one, or restore auto routing |\n"
+            "| `/run <goal>` | Start an autonomous loop run (requires `ZAINE_AGENT=1`) |\n"
+            "| `/runs [resumable\\|resume <id>]` | List autonomous runs & resume interrupted scratchpads |\n"
+            "| `/stop` | Stop the active stream or autonomous run cleanly |\n"
             "| `@edith …` / `@ultron …` | Send one message to a specific agent |\n"
             "| `/clear` | Clear chat viewport back to initial banner |\n"
             "| `/hud` or `F2` | Toggle Agent State HUD sidebar |\n"
@@ -836,6 +882,150 @@ class ZaineTUI(App):
         rows.append("\nAgents can consult each other with `ask_agent` (one level deep). `/agent auto` restores automatic routing.")
         chat_log.add_assistant_message("\n".join(rows), latency="0.01s")
 
+    def handle_run_command(self, user_text: str) -> None:
+        """/run <goal> launches an autonomous run; /run --resume <run_id> resumes from scratchpad."""
+        chat_log = self.query_one(ChatLog)
+        parts = user_text.strip().split(maxsplit=1)
+        arg = parts[1].strip() if len(parts) > 1 else ""
+        if not arg:
+            chat_log.add_user_message(user_text)
+            chat_log.add_system_card(
+                title="AUTONOMOUS RUN USAGE",
+                message="Usage: `/run <goal>` or `/run --resume <run_id>`.\nInspect persisted runs via `/runs`.",
+                level="info",
+            )
+            return
+
+        if not self._agent_mode_enabled(self.system_facts):
+            chat_log.add_user_message(user_text)
+            chat_log.add_system_card(
+                title="AUTONOMOUS MODE DISABLED",
+                message="Autonomous `/run` requires `ZAINE_AGENT=1`. Leave flag off for standard chat.",
+                level="warning",
+            )
+            return
+
+        resume_id: Optional[str] = None
+        tokens = arg.split(maxsplit=1)
+        head = tokens[0].lower()
+        if head in ("--resume", "resume"):
+            resume_id = tokens[1].strip() if len(tokens) > 1 else ""
+            if not resume_id:
+                chat_log.add_user_message(user_text)
+                chat_log.add_system_card(
+                    title="MISSING RUN ID",
+                    message="Specify a run ID: `/run --resume <run_id>` (see `/runs`).",
+                    level="warning",
+                )
+                return
+            self.stream_agent_response(
+                f"Resume run {resume_id}",
+                force_autonomous=True,
+                resume_run_id=resume_id,
+                display_prompt=user_text,
+            )
+            return
+
+        self.stream_agent_response(arg, force_autonomous=True, display_prompt=user_text)
+
+    @work
+    async def handle_runs_command(self, user_text: str) -> None:
+        """/runs lists autonomous runs from scratchpad store; /runs resume <id> resumes one."""
+        chat_log = self.query_one(ChatLog)
+        parts = user_text.strip().split()
+        if len(parts) >= 3 and parts[1].lower() in ("resume", "--resume"):
+            target_id = parts[2].strip()
+            if not self._agent_mode_enabled(self.system_facts):
+                chat_log.add_user_message(user_text)
+                chat_log.add_system_card(
+                    title="AUTONOMOUS MODE DISABLED",
+                    message="Resuming an autonomous run requires `ZAINE_AGENT=1`.",
+                    level="warning",
+                )
+                return
+            self.stream_agent_response(
+                f"Resume run {target_id}",
+                force_autonomous=True,
+                resume_run_id=target_id,
+                display_prompt=user_text,
+            )
+            return
+
+        chat_log.add_user_message(user_text)
+        resumable_only = len(parts) >= 2 and parts[1].lower() in ("resumable", "--resumable", "pending")
+        res = await get_runs(resumable_only=resumable_only, base_url=self.core_url)
+        if not res.get("ok"):
+            chat_log.add_system_card(
+                title="RUNS UNAVAILABLE",
+                message=res.get("message", "Could not query /api/runs on CoreService."),
+                level="warning",
+            )
+            return
+
+        runs = res.get("runs") or []
+        if not runs:
+            chat_log.add_system_card(
+                title="NO AUTONOMOUS RUNS",
+                message="No persisted scratchpad runs found yet. Start one with `/run <goal>` (under `ZAINE_AGENT=1`).",
+                level="info",
+            )
+            return
+
+        rows = [
+            "### Autonomous Run Scratchpads\n",
+            "| Run ID | Agent | Status | Steps | Updated | Goal |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- |",
+        ]
+        resumable_ids = []
+        for r in runs[:15]:
+            rid = str(r.get("run_id") or "")
+            agent_id = str(r.get("agent_id") or "n/a")
+            eff_status = str(r.get("effective_status") or r.get("status") or "unknown")
+            if r.get("resumable"):
+                resumable_ids.append(rid)
+            steps = f"{r.get('completed_steps', 0)}/{r.get('max_steps', '?')}"
+            updated = str(r.get("updated_at") or "")[:19].replace("T", " ")
+            goal = str(r.get("task") or "").replace("|", "\\|").replace("\n", " ")[:60]
+            rows.append(f"| `{rid}` | {agent_id} | {eff_status} | {steps} | {updated} | {goal} |")
+
+        if resumable_ids:
+            rows.append(f"\nResumable runs found ({len(resumable_ids)}). Use `/run --resume {resumable_ids[0]}` or `/runs resume {resumable_ids[0]}`.")
+        if not res.get("agent_enabled", True):
+            rows.append("\n*Note: `ZAINE_AGENT=0` currently; enable `ZAINE_AGENT=1` to launch or resume runs.*")
+        chat_log.add_assistant_message("\n".join(rows), latency="0.01s")
+
+    @work
+    async def handle_stop_command(self, user_text: str) -> None:
+        """/stop cancels the active stream or running autonomous task cleanly."""
+        chat_log = self.query_one(ChatLog)
+        chat_log.add_user_message(user_text)
+        req_id = self.active_request_id or ""
+        parts = user_text.strip().split(maxsplit=1)
+        run_id = parts[1].strip() if len(parts) > 1 else ""
+
+        if self.is_streaming:
+            self.cancel_active_stream()
+
+        res = await cancel_chat_request(request_id=req_id, base_url=self.core_url, run_id=run_id)
+        try:
+            hud = self.query_one(AgentStateHUD)
+            hud.update_execution_state(
+                tool_in_use="n/a",
+                run_status="cancelled" if res.get("ok") else hud.run_status,
+            )
+        except Exception:
+            pass
+
+        cancelled_n = res.get("cancelled_runs", 0)
+        msg = "Active request and autonomous run cancelled cleanly." if res.get("ok") else res.get("message", "Cancel sent.")
+        if cancelled_n:
+            msg += f" ({cancelled_n} active autonomous run(s) stopped.)"
+        chat_log.add_system_card(
+            title="RUN STOPPED" if res.get("ok") else "STOP SENT",
+            message=msg,
+            level="cancelled" if res.get("ok") else "warning",
+        )
+
     def handle_memory_command(self, user_text: str) -> None:
         chat_log = self.query_one(ChatLog)
         chat_log.add_user_message(user_text)
@@ -878,7 +1068,14 @@ class ZaineTUI(App):
     # --- SSE Stream Chat Turn Runner ---
 
     @work(exclusive=True)
-    async def stream_agent_response(self, prompt: str) -> None:
+    async def stream_agent_response(
+        self,
+        prompt: str,
+        *,
+        force_autonomous: bool = False,
+        resume_run_id: Optional[str] = None,
+        display_prompt: Optional[str] = None,
+    ) -> None:
         """Streams assistant response over SSE from CoreService."""
         self.is_streaming = True
         self.current_stream_worker = get_current_worker()
@@ -889,15 +1086,22 @@ class ZaineTUI(App):
         hud = self.query_one(AgentStateHUD)
         input_well = self.query_one(InputWell)
 
+        shown_prompt = display_prompt or prompt
         # 1. Mount User Turn Card and start this turn's execution graph
-        chat_log.add_user_message(prompt)
-        self.exec_graph.start_turn(prompt)
+        chat_log.add_user_message(shown_prompt)
+        self.exec_graph.start_turn(shown_prompt)
         self._refresh_graph_views()
 
         # 2. Update visual status
         header.status_label = "THINKING"
         footer.status = "THINKING"
         input_well.set_generating(True)
+        hud.update_execution_state(
+            step="n/a",
+            tool_in_use="n/a",
+            run_id=resume_run_id or "n/a",
+            run_status="starting" if (force_autonomous or resume_run_id) else "n/a",
+        )
 
         # Telemetry measurement trackers
         t_start = time.perf_counter()
@@ -922,6 +1126,8 @@ class ZaineTUI(App):
                 request_id=req_id,
                 default_first_token_timeout=90.0,
                 idle_gap_timeout=float(os.getenv("ZAINE_IDLE_TIMEOUT", "60.0")),
+                force_autonomous=force_autonomous,
+                resume_run_id=resume_run_id,
             ):
                 # Check for cancellation
                 if not self.is_streaming:
@@ -941,11 +1147,13 @@ class ZaineTUI(App):
                     pos = event.get("position", 1)
                     header.status_label = f"QUEUED #{pos}"
                     footer.status = f"QUEUED #{pos}"
+                    hud.update_execution_state(queue=f"pos #{pos} queued")
 
                 # B. Running / Thinking
                 elif ev_type == "running":
                     header.status_label = "THINKING"
                     footer.status = "THINKING"
+                    hud.update_execution_state(queue="0 queued (1 active)")
 
                 # C. Tool & Cognitive Tier Events
                 elif ev_type == "tool_event":
@@ -1014,8 +1222,51 @@ class ZaineTUI(App):
                             args_sum = str(data)[:60] if data else ""
                         tool_line = chat_log.start_tool_line(tool_name, args_sum)
                         active_tool_lines.setdefault(tool_name, []).append((tool_line, time.perf_counter()))
+                        hud.update_execution_state(tool_in_use=tool_name or "n/a")
                         header.status_label = f"TOOL: {tool_name}"
                         footer.status = f"TOOL: {tool_name}"
+
+                    elif stage == "plan_start":
+                        info = data if isinstance(data, dict) else {}
+                        hud.update_execution_state(
+                            run_id=str(info.get("run_id") or hud.run_id),
+                            step=f"0/{info.get('max_steps', '?')}",
+                            run_status="planning",
+                        )
+                        header.status_label = "PLANNING"
+                        footer.status = "PLANNING"
+
+                    elif stage == "plan":
+                        info = data if isinstance(data, dict) else {}
+                        hud.update_execution_state(
+                            run_id=str(info.get("run_id") or hud.run_id),
+                            run_status="running",
+                        )
+
+                    elif stage == "resume":
+                        info = data if isinstance(data, dict) else {}
+                        hud.update_execution_state(
+                            run_id=str(info.get("run_id") or resume_run_id or hud.run_id),
+                            step=f"{info.get('start_step', '?')}/{info.get('max_steps', '?')}",
+                            run_status="resumed",
+                        )
+                        header.status_label = f"RESUMING STEP {info.get('start_step', '?')}"
+                        footer.status = header.status_label
+
+                    elif stage == "step":
+                        info = data if isinstance(data, dict) else {}
+                        s_val = info.get("step", "?")
+                        m_val = info.get("max_steps", "?")
+                        hud.update_execution_state(
+                            run_id=str(info.get("run_id") or hud.run_id),
+                            step=f"{s_val}/{m_val}",
+                            run_status=str(info.get("phase") or "running"),
+                        )
+                        header.status_label = f"STEP {s_val}/{m_val}"
+                        footer.status = f"STEP {s_val}/{m_val}"
+
+                    elif stage in ("circuit_breaker", "stopped_timeout", "stopped_max_steps", "cancelled", "privacy_blocked"):
+                        hud.update_execution_state(run_status=stage, tool_in_use="n/a")
 
                     elif stage == "approval_required":
                         prop_data = data if isinstance(data, dict) else {}
@@ -1047,6 +1298,7 @@ class ZaineTUI(App):
                             note = "Action executed" if outcome == "APPROVED" else str(data)[:160]
                             self.active_approval_card.set_resolved(outcome, note)
                         self.active_approval_card = None
+                        hud.update_execution_state(tool_in_use="n/a")
                         lines = active_tool_lines.get(tool_name) or []
                         if lines:
                             tool_line, t_tstart = lines.pop(0)
@@ -1086,6 +1338,16 @@ class ZaineTUI(App):
                     summary = self.exec_graph.summary()
                     th_str = f"{summary['tok_s']:.1f} tok/s" if summary["tok_s"] else "n/a"
                     hud.update_metrics(stream_active=False)
+                    agent_run = event.get("agent_run")
+                    if isinstance(agent_run, dict):
+                        hud.update_execution_state(
+                            run_id=str(agent_run.get("run_id") or hud.run_id),
+                            step=f"{agent_run.get('steps_executed', '?')}/{agent_run.get('max_steps', '?')}",
+                            tool_in_use="n/a",
+                            run_status=str(agent_run.get("status") or "completed"),
+                        )
+                    else:
+                        hud.update_execution_state(tool_in_use="n/a")
 
                     mode = event.get("mode")
                     if mode:
@@ -1164,6 +1426,8 @@ class ZaineTUI(App):
                 self.current_stream_worker = None
                 self.active_request_id = None
                 self.active_approval_card = None
+                q_display = self._format_queue_display(self.system_facts.get("queue")) if self.system_facts.get("core_up") else "n/a"
+                hud.update_execution_state(tool_in_use="n/a", queue=q_display)
                 header.status_label = self._idle_status()
                 footer.status = self._idle_status()
                 input_well.set_generating(False)

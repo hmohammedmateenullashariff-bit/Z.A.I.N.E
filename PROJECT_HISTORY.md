@@ -1323,3 +1323,12 @@ um_ctx=4096) peak VRAM at 2608 MiB.
   - Updated `memory_types.py`, `memory.py`, `memory_manager.py`, `core_router.py`, `autonomy/guards.py`, `autonomy/loop.py`, `agent.py`, `autonomy/__init__.py`
   - Added `autonomy/privacy.py`, `autonomy/memory_review.py`, `autonomy/memory_bridge.py`, `autonomy/scratchpad.py`, `tests/test_memory_resume.py`
 - **Verification**: Full suite `148 passed` under `ZAINE_AGENT=0` against dev Obsidian vault; live `zaine-reflex-7b` (`num_ctx=4096`) smoke & resume checks stayed single-model at ~2520-2529 MiB GPU VRAM; live vault untouched (`552` files).
+﻿
+
+## Phase F - TUI Integration, Real HUD Telemetry & Autonomous Run Commands (agent-core)
+- **Date**: 2026-11-12
+- **Goal**: Wire real autonomous agent state into `AgentStateHUD` (`agent`, `run_id`/`status`, `step n/max`, `tool in use`, `queue`, defaulting strictly to `"n/a"`), add `/run <goal>`, `/run --resume <id>`, `/runs`, and `/stop` while leaving `/agent` and `/agents` untouched, expose `X-Zaine-Token`-authenticated `/api/runs`, `/api/run`, `/api/runs/resume`, `/api/status` queue telemetry, and ensure single-model routing stays on `zaine-reflex-7b` under `ZAINE_AGENT=1`.
+- **Files Changed**:
+  - Updated `agent.py`, `core_router.py`, `core_service.py`, `tui/app.py`, `tui/client.py`, `tui/exec_graph.py`, `tui/system_graph.py`, `tui/widgets/hud.py`
+  - Added `tests/test_tui_phase_f.py`
+- **Verification**: Ran full pytest suite after final edit (`ZAINE_AGENT=0`) + Phase F Textual Pilot / CoreService tests + live `zaine-reflex-7b` (`num_ctx=4096`) `/api/run` + `/api/runs` + `/api/status` check (~2531 MiB GPU VRAM, single resident model).
