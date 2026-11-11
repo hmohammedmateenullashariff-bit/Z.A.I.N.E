@@ -62,6 +62,7 @@ def core_runtime_config() -> dict:
         "fast": _env_flag("ZAINE_FAST"),
         "demo": _env_flag("ZAINE_DEMO"),
         "single_model": _env_flag("ZAINE_SINGLE_MODEL", "1"),
+        "agent_enabled": _env_flag("ZAINE_AGENT"),
         "num_ctx": int(os.getenv("ZAINE_NUM_CTX", "4096") or 4096),
         "workspace": str(get_workspace_dir()),
     }
@@ -1169,6 +1170,12 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
             target_req_id = req_data.get("request_id", "").strip()
             if target_req_id:
                 _coordinator.cancel_request(target_req_id)
+            if _env_flag("ZAINE_AGENT"):
+                try:
+                    from autonomy import cancel_run
+                    cancel_run(target_req_id)
+                except Exception:
+                    pass
             from approval import ApprovalRegistry
             for p in ApprovalRegistry.list_pending():
                 ApprovalRegistry.deny(p["id"], note="Cancelled via client abort")
@@ -1416,16 +1423,46 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
 
             full_reply_parts = []
             try:
-                for sentence in agent.chat_stream(user_msg, on_tool_event=on_tool_event):
+                agent_flag = _env_flag("ZAINE_AGENT")
+                stream_kwargs = {"on_tool_event": on_tool_event}
+                if agent_flag:
+                    import inspect as _inspect
+                    try:
+                        _sig_params = _inspect.signature(agent.chat_stream).parameters
+                    except (TypeError, ValueError):
+                        _sig_params = {}
+                    if "cancel_check" in _sig_params:
+                        stream_kwargs["cancel_check"] = lambda rid=request_id: _coordinator.is_request_cancelled(rid)
+                    if "request_id" in _sig_params:
+                        stream_kwargs["request_id"] = request_id
+                for sentence in agent.chat_stream(user_msg, **stream_kwargs):
                     if _coordinator.is_request_cancelled(request_id):
+                        if agent_flag:
+                            try:
+                                from autonomy import cancel_run
+                                cancel_run(request_id)
+                            except Exception:
+                                pass
                         break
                     full_reply_parts.append(sentence)
                     chunk_payload = json.dumps({"type": "token", "token": sentence, "content": sentence, "text": sentence})
                     if not safe_write(f"data: {chunk_payload}\n\n".encode("utf-8")):
                         _coordinator.cancel_request(request_id)
+                        if agent_flag:
+                            try:
+                                from autonomy import cancel_run
+                                cancel_run(request_id)
+                            except Exception:
+                                pass
                         break
             except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError, OSError):
                 _coordinator.cancel_request(request_id)
+                if _env_flag("ZAINE_AGENT"):
+                    try:
+                        from autonomy import cancel_run
+                        cancel_run(request_id)
+                    except Exception:
+                        pass
                 if self.core_service:
                     self.core_service.set_status("idle")
                 return
@@ -1463,6 +1500,17 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
                 "waited_seconds": waited_seconds,
                 "model_calls": getattr(agent, "last_turn_calls", []),
             }
+            loop_res = getattr(agent, "last_loop_result", None) if agent is not None else None
+            if loop_res is not None and _env_flag("ZAINE_AGENT"):
+                final_dict["agent_run"] = {
+                    "run_id": loop_res.run_id,
+                    "status": loop_res.status,
+                    "steps_executed": loop_res.steps_executed,
+                    "max_steps": loop_res.max_steps,
+                    "plan": loop_res.plan,
+                    "stop_reason": loop_res.stop_reason,
+                    "elapsed_s": loop_res.elapsed_s,
+                }
             _coordinator.complete_request(request_id, final_dict)
 
             if self.core_service:

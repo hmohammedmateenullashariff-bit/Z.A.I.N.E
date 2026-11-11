@@ -50,6 +50,290 @@ MODEL_NAME = router.reflex_model
 CODER_MODEL_NAME = router.coder_model
 DEEP_MODEL_NAME = router.deep_model
 
+_TOOL_ALIAS_MAP = {
+    "write_python_script": "write_workspace_file",
+    "write_file": "write_workspace_file",
+    "create_file": "write_workspace_file",
+    "read_file": "read_workspace_file",
+    "view_file": "read_workspace_file",
+    "run_script": "run_python_script",
+    "execute_script": "run_python_script",
+    "run_python": "run_python_script",
+    "check_system": "system_status",
+    "system_health": "system_status",
+    "check_battery": "system_status",
+    "launch_app": "open_application",
+    "open_app": "open_application",
+    "check_email": "check_emails",
+    "read_emails": "check_emails",
+    "fetch_emails": "check_emails",
+    "get_emails": "check_emails",
+    "send_mail": "send_email",
+    "compose_email": "send_email",
+    "play_music": "play_on_youtube",
+    "play_song": "play_on_youtube",
+    "play_video": "play_on_youtube",
+    "youtube": "play_on_youtube",
+    "open_website": "open_url",
+    "open_browser": "open_url",
+    "close_app": "close_application",
+    "close_window": "close_application",
+    "close_tab": "close_application",
+    "close_youtube": "close_application",
+    "stop_video": "close_application",
+    "ultron": "toggle_ultron_mode",
+    "ultron_mode": "toggle_ultron_mode",
+    "activate_ultron": "toggle_ultron_mode",
+    "stop_holding_back": "toggle_ultron_mode",
+    "ponytail": "ponytail_coder",
+    "ponytail_code": "ponytail_coder",
+    "ponytail_coder": "ponytail_coder",
+    "think_code": "code_assistant",
+    "instagram": "open_instagram",
+    "insta": "open_instagram",
+    "ig": "open_instagram",
+    "facebook": "open_facebook",
+    "fb": "open_facebook",
+    "twitter": "open_x",
+    "tweet": "open_x",
+    "x": "open_x",
+    "linkedin": "open_linkedin",
+    "unstop": "search_unstop",
+    "hackathons": "search_unstop",
+    "competitions": "search_unstop",
+    "internships": "search_unstop",
+    "social": "access_social_platform",
+    "social_media": "access_social_platform",
+    "code_review": "code_review",
+    "review_code": "code_review",
+    "coderabbit": "code_review",
+    "code_rabbit": "code_review",
+    "audit_code": "code_review",
+    "algorithm": "lookup_algorithm",
+    "algo": "lookup_algorithm",
+    "thealgorithms": "lookup_algorithm",
+    "system_design": "system_design_advisor",
+    "system_design_primer": "system_design_advisor",
+    "architecture_blueprint": "get_architecture_blueprint",
+    "build_your_own": "get_architecture_blueprint",
+    "byox": "get_architecture_blueprint",
+    "free_for_dev": "find_free_developer_services",
+    "free_dev": "find_free_developer_services",
+    "oss_alternative": "find_oss_alternatives",
+    "oss_alt": "find_oss_alternatives",
+    "open_source_alternative": "find_oss_alternatives",
+    "career_roadmap": "get_career_roadmap",
+    "roadmap": "get_career_roadmap",
+    "roadmap_sh": "get_career_roadmap",
+    "llm_architecture": "lookup_llm_architecture",
+    "llm_from_scratch": "lookup_llm_architecture",
+    "dev_knowledge": "search_developer_knowledge",
+    "skip_ad": "media_control",
+    "skip_ads": "media_control",
+    "skip_song": "media_control",
+    "skip_video": "media_control",
+    "pause_music": "media_control",
+    "resume_music": "media_control",
+    "next_song": "media_control",
+    "next_video": "media_control",
+    "edit_file": "edit_workspace_file",
+    "replace_code": "edit_workspace_file",
+    "patch_file": "edit_workspace_file",
+    "run_command": "execute_command",
+    "run_shell": "execute_command",
+    "run_terminal": "execute_command",
+    "terminal": "execute_command",
+    "bash": "execute_command",
+    "cmd": "execute_command",
+    "shell": "execute_command",
+    "inspect_code": "read_code_definitions",
+    "code_outline": "read_code_definitions",
+    "learn_skill": "learn_lesson",
+    "save_lesson": "learn_lesson",
+    "record_learning": "learn_lesson",
+    "host_website": "start_local_server",
+    "serve_website": "start_local_server",
+    "host_local_server": "start_local_server",
+    "run_server": "start_local_server",
+    "start_server": "start_local_server",
+    "serve": "start_local_server",
+    "stop_server": "stop_local_server",
+    "stop_hosting": "stop_local_server",
+    "close_server": "stop_local_server",
+    "kill_server": "stop_local_server",
+    "shutdown_server": "stop_local_server",
+    "search_notes": "search_vault",
+    "search_second_brain": "search_vault",
+    "query_vault": "search_vault",
+    "vault_search": "search_vault",
+    "save_note": "add_to_vault",
+    "create_note": "add_to_vault",
+    "add_note": "add_to_vault",
+    "list_notes": "list_vault_documents",
+    "show_vault": "list_vault_documents",
+    "heartbeat": "trigger_proactive_check",
+    "check_heartbeat": "trigger_proactive_check",
+    "remind_me": "set_reminder",
+    "add_reminder": "set_reminder",
+    "set_timer": "set_reminder",
+    "timer": "set_reminder",
+    "show_reminders": "list_reminders",
+    "get_reminders": "list_reminders",
+    "look_at_screen": "see_screen",
+    "inspect_screen": "see_screen",
+    "read_screen": "see_screen",
+    "check_screen": "see_screen",
+    "screen_capture": "see_screen",
+    "screen": "see_screen",
+    "look_at_camera": "see_camera",
+    "check_camera": "see_camera",
+    "inspect_camera": "see_camera",
+    "webcam": "see_camera",
+    "camera": "see_camera",
+    "identify_me": "identify_face",
+    "identify_face": "identify_face",
+    "who_am_i": "identify_face",
+    "face_id": "identify_face",
+    "scan_face": "identify_face",
+    "recognize_me": "identify_face",
+    "recognize_face": "identify_face",
+    "check_face": "identify_face",
+    "enroll_face": "enroll_face",
+    "enroll_me": "enroll_face",
+    "switch_voice": "change_voice",
+    "set_voice": "change_voice",
+    "voice": "change_voice",
+    "weather": "get_weather",
+    "forecast": "get_weather",
+    "check_weather": "get_weather",
+    "get_forecast": "get_weather",
+    "weather_forecast": "get_weather",
+    "crypto": "get_crypto_price",
+    "bitcoin": "get_crypto_price",
+    "crypto_price": "get_crypto_price",
+    "get_crypto": "get_crypto_price",
+    "check_crypto": "get_crypto_price",
+    "get_bitcoin_price": "get_crypto_price",
+    "exchange_rate": "convert_currency",
+    "currency": "convert_currency",
+    "convert": "convert_currency",
+    "currency_converter": "convert_currency",
+    "forex": "convert_currency",
+    "define": "get_word_definition",
+    "dictionary": "get_word_definition",
+    "word_meaning": "get_word_definition",
+    "lookup_word": "get_word_definition",
+    "lookup_definition": "get_word_definition",
+    "define_word": "get_word_definition",
+    "word_definition": "get_word_definition",
+    "get_definition": "get_word_definition",
+    "joke": "get_random_joke",
+    "tell_joke": "get_random_joke",
+    "quote": "get_inspirational_quote",
+    "search_all": "deep_search",
+    "find_all": "deep_search",
+    "global_search": "deep_search",
+    "vscode": "open_vscode",
+    "code_editor": "open_vscode",
+    "cascade": "open_vscode",
+    "start_cascade": "open_vscode",
+    "browse": "browse_web",
+    "scrape": "browse_web",
+    "read_page": "browse_web",
+    "read_webpage": "browse_web",
+    "fetch_webpage": "browse_web",
+    "deep_research": "search_and_extract",
+    "web_research": "search_and_extract",
+    "download_file": "download_web_file",
+    "download": "download_web_file",
+    "multi_agent": "hive_mind",
+    "subagents": "hive_mind",
+    "sub_agents": "hive_mind",
+    "hive": "hive_mind",
+    "create_short": "generate_youtube_short",
+    "generate_short": "generate_youtube_short",
+    "youtube_short": "generate_youtube_short",
+    "make_short": "generate_youtube_short",
+    "create_youtube_short": "generate_youtube_short",
+    "upload_short": "upload_youtube_video",
+    "upload_youtube": "upload_youtube_video",
+    "youtube_stats": "get_youtube_stats",
+    "channel_stats": "get_youtube_stats",
+    "youtube_analytics": "get_youtube_stats",
+    "youtube_studio_status": "youtube_studio_status",
+    "studio_status": "youtube_studio_status",
+    "trigger_youtube_pipeline": "trigger_youtube_pipeline",
+    "run_youtube_pipeline": "trigger_youtube_pipeline",
+    "trending_topics": "track_viral_trends",
+    "viral_trends": "track_viral_trends",
+    "get_trends": "track_viral_trends",
+    "sync_playlists": "create_channel_playlists",
+    "create_playlists": "create_channel_playlists",
+    "ensure_playlists": "create_channel_playlists",
+    "manga_recap": "generate_manga_recap",
+    "manhwa_recap": "generate_manga_recap",
+    "create_manga_video": "generate_manga_recap",
+    "gesture_capture": "capture_gesture",
+    "detect_gesture": "capture_gesture",
+    "hand_gesture": "capture_gesture",
+    "toggle_gesture": "toggle_gesture_control",
+    "gesture_tracking": "toggle_gesture_control",
+    "toggle_hand_tracking": "toggle_gesture_control",
+    "hand_tracking": "toggle_gesture_control",
+    # Tasks & Todos
+    "task_add": "add_task",
+    "create_task": "add_task",
+    "new_task": "add_task",
+    "todo": "add_task",
+    "add_todo": "add_task",
+    "tasks": "list_tasks",
+    "show_tasks": "list_tasks",
+    "get_tasks": "list_tasks",
+    "list_todo": "list_tasks",
+    "mark_task_done": "complete_task",
+    "mark_done": "complete_task",
+    "done_task": "complete_task",
+    "finish_task": "complete_task",
+    "complete": "complete_task",
+    "remove_task": "delete_task",
+    "drop_task": "delete_task",
+    # Reminders
+    "remind": "set_reminder",
+    "reminder": "set_reminder",
+    "create_reminder": "set_reminder",
+    # Memory & Recall
+    "search_memory": "recall",
+    "memory_search": "recall",
+    "total_recall": "recall",
+    "query_memory": "recall",
+    # Web Search
+    "web_search": "search_web",
+    "google_search": "search_web",
+    "google": "search_web",
+    "find_on_web": "search_web",
+    # Workspace Files
+    "modify_file": "edit_workspace_file",
+    "update_file": "edit_workspace_file",
+    # System Status
+    "system_info": "system_status",
+    "status": "system_status",
+    "sys_status": "system_status",
+    "get_system_status": "system_status",
+    # Sub-agent consultation
+    "delegate": "ask_agent",
+    "ask": "ask_agent",
+    "consult_agent": "ask_agent",
+    "ask_subagent": "ask_agent",
+    "ask_agents": "ask_agent",
+}
+
+
+def resolve_tool_alias(raw_name: str) -> str:
+    """Resolves legacy and model-invented tool aliases to canonical TOOL_REGISTRY names."""
+    raw = str(raw_name or "").strip()
+    clean_raw = raw.lower().replace("-", "_")
+    return _TOOL_ALIAS_MAP.get(raw, _TOOL_ALIAS_MAP.get(clean_raw, raw))
+
 
 def is_coding_intent(prompt: str) -> bool:
     """Detects if the user prompt is a programming, debugging, or script execution task."""
@@ -403,6 +687,8 @@ class ZaineAgent:
         self._turn_model = None
         self._turn_thread = None
         self._delegation_depth = 0
+        self.last_loop_result = None
+        self._in_autonomous_loop = False
         # Full text of tool results that were shortened for the prompt (read back with read_result)
         self._results = ResultStore()
         # Pre-warm and permanently pin Tier 0 Reflex Core into GPU VRAM
@@ -599,257 +885,11 @@ class ZaineAgent:
         return calls
 
     def _execute_tool(self, tool_call: dict) -> str:
+        from autonomy import is_agent_enabled
+
         raw_name = tool_call.get("tool", "")
         args = dict(tool_call.get("args", {}))
-
-        # Tool aliases
-        aliases = {
-            "write_python_script": "write_workspace_file",
-            "write_file": "write_workspace_file",
-            "create_file": "write_workspace_file",
-            "read_file": "read_workspace_file",
-            "view_file": "read_workspace_file",
-            "run_script": "run_python_script",
-            "execute_script": "run_python_script",
-            "run_python": "run_python_script",
-            "check_system": "system_status",
-            "system_health": "system_status",
-            "check_battery": "system_status",
-            "launch_app": "open_application",
-            "open_app": "open_application",
-            "check_email": "check_emails",
-            "read_emails": "check_emails",
-            "fetch_emails": "check_emails",
-            "get_emails": "check_emails",
-            "send_mail": "send_email",
-            "compose_email": "send_email",
-            "play_music": "play_on_youtube",
-            "play_song": "play_on_youtube",
-            "play_video": "play_on_youtube",
-            "youtube": "play_on_youtube",
-            "open_website": "open_url",
-            "open_browser": "open_url",
-            "close_app": "close_application",
-            "close_window": "close_application",
-            "close_tab": "close_application",
-            "close_youtube": "close_application",
-            "stop_video": "close_application",
-            "ultron": "toggle_ultron_mode",
-            "ultron_mode": "toggle_ultron_mode",
-            "activate_ultron": "toggle_ultron_mode",
-            "stop_holding_back": "toggle_ultron_mode",
-            "ponytail": "ponytail_coder",
-            "ponytail_code": "ponytail_coder",
-            "ponytail_coder": "ponytail_coder",
-            "think_code": "code_assistant",
-            "instagram": "open_instagram",
-            "insta": "open_instagram",
-            "ig": "open_instagram",
-            "facebook": "open_facebook",
-            "fb": "open_facebook",
-            "twitter": "open_x",
-            "tweet": "open_x",
-            "x": "open_x",
-            "linkedin": "open_linkedin",
-            "unstop": "search_unstop",
-            "hackathons": "search_unstop",
-            "competitions": "search_unstop",
-            "internships": "search_unstop",
-            "social": "access_social_platform",
-            "social_media": "access_social_platform",
-            "code_review": "code_review",
-            "review_code": "code_review",
-            "coderabbit": "code_review",
-            "code_rabbit": "code_review",
-            "audit_code": "code_review",
-            "algorithm": "lookup_algorithm",
-            "algo": "lookup_algorithm",
-            "thealgorithms": "lookup_algorithm",
-            "system_design": "system_design_advisor",
-            "system_design_primer": "system_design_advisor",
-            "architecture_blueprint": "get_architecture_blueprint",
-            "build_your_own": "get_architecture_blueprint",
-            "byox": "get_architecture_blueprint",
-            "free_for_dev": "find_free_developer_services",
-            "free_dev": "find_free_developer_services",
-            "oss_alternative": "find_oss_alternatives",
-            "oss_alt": "find_oss_alternatives",
-            "open_source_alternative": "find_oss_alternatives",
-            "career_roadmap": "get_career_roadmap",
-            "roadmap": "get_career_roadmap",
-            "roadmap_sh": "get_career_roadmap",
-            "llm_architecture": "lookup_llm_architecture",
-            "llm_from_scratch": "lookup_llm_architecture",
-            "dev_knowledge": "search_developer_knowledge",
-            "skip_ad": "media_control",
-            "skip_ads": "media_control",
-            "skip_song": "media_control",
-            "skip_video": "media_control",
-            "pause_music": "media_control",
-            "resume_music": "media_control",
-            "next_song": "media_control",
-            "next_video": "media_control",
-            "edit_file": "edit_workspace_file",
-            "replace_code": "edit_workspace_file",
-            "patch_file": "edit_workspace_file",
-            "run_command": "execute_command",
-            "run_shell": "execute_command",
-            "run_terminal": "execute_command",
-            "terminal": "execute_command",
-            "bash": "execute_command",
-            "cmd": "execute_command",
-            "shell": "execute_command",
-            "inspect_code": "read_code_definitions",
-            "code_outline": "read_code_definitions",
-            "learn_skill": "learn_lesson",
-            "save_lesson": "learn_lesson",
-            "record_learning": "learn_lesson",
-            "host_website": "start_local_server",
-            "serve_website": "start_local_server",
-            "host_local_server": "start_local_server",
-            "run_server": "start_local_server",
-            "start_server": "start_local_server",
-            "serve": "start_local_server",
-            "stop_server": "stop_local_server",
-            "stop_hosting": "stop_local_server",
-            "close_server": "stop_local_server",
-            "kill_server": "stop_local_server",
-            "shutdown_server": "stop_local_server",
-            "search_notes": "search_vault",
-            "search_second_brain": "search_vault",
-            "query_vault": "search_vault",
-            "save_note": "add_to_vault",
-            "create_note": "add_to_vault",
-            "add_note": "add_to_vault",
-            "list_notes": "list_vault_documents",
-            "show_vault": "list_vault_documents",
-            "heartbeat": "trigger_proactive_check",
-            "check_heartbeat": "trigger_proactive_check",
-            "remind_me": "set_reminder",
-            "add_reminder": "set_reminder",
-            "set_timer": "set_reminder",
-            "timer": "set_reminder",
-            "show_reminders": "list_reminders",
-            "get_reminders": "list_reminders",
-            "look_at_screen": "see_screen",
-            "inspect_screen": "see_screen",
-            "read_screen": "see_screen",
-            "check_screen": "see_screen",
-            "screen_capture": "see_screen",
-            "screen": "see_screen",
-            "look_at_camera": "see_camera",
-            "check_camera": "see_camera",
-            "inspect_camera": "see_camera",
-            "webcam": "see_camera",
-            "camera": "see_camera",
-            "identify_me": "identify_face",
-            "identify_face": "identify_face",
-            "who_am_i": "identify_face",
-            "face_id": "identify_face",
-            "scan_face": "identify_face",
-            "recognize_me": "identify_face",
-            "recognize_face": "identify_face",
-            "check_face": "identify_face",
-            "enroll_face": "enroll_face",
-            "enroll_me": "enroll_face",
-            "switch_voice": "change_voice",
-            "set_voice": "change_voice",
-            "voice": "change_voice",
-            "weather": "get_weather",
-            "forecast": "get_weather",
-            "check_weather": "get_weather",
-            "crypto": "get_crypto_price",
-            "bitcoin": "get_crypto_price",
-            "crypto_price": "get_crypto_price",
-            "exchange_rate": "convert_currency",
-            "currency": "convert_currency",
-            "convert": "convert_currency",
-            "define": "get_word_definition",
-            "dictionary": "get_word_definition",
-            "word_meaning": "get_word_definition",
-            "joke": "get_random_joke",
-            "tell_joke": "get_random_joke",
-            "quote": "get_inspirational_quote",
-            "search_all": "deep_search",
-            "find_all": "deep_search",
-            "global_search": "deep_search",
-            "vscode": "open_vscode",
-            "code_editor": "open_vscode",
-            "cascade": "open_vscode",
-            "start_cascade": "open_vscode",
-            "browse": "browse_web",
-            "scrape": "browse_web",
-            "read_page": "browse_web",
-            "read_webpage": "browse_web",
-            "fetch_webpage": "browse_web",
-            "deep_research": "search_and_extract",
-            "web_research": "search_and_extract",
-            "download_file": "download_web_file",
-            "download": "download_web_file",
-            "multi_agent": "hive_mind",
-            "subagents": "hive_mind",
-            "sub_agents": "hive_mind",
-            "hive": "hive_mind",
-            "create_short": "generate_youtube_short",
-            "generate_short": "generate_youtube_short",
-            "youtube_short": "generate_youtube_short",
-            "make_short": "generate_youtube_short",
-            "create_youtube_short": "generate_youtube_short",
-            "upload_short": "upload_youtube_video",
-            "upload_youtube": "upload_youtube_video",
-            "youtube_stats": "get_youtube_stats",
-            "channel_stats": "get_youtube_stats",
-            "youtube_analytics": "get_youtube_stats",
-            "youtube_studio_status": "youtube_studio_status",
-            "studio_status": "youtube_studio_status",
-            "trigger_youtube_pipeline": "trigger_youtube_pipeline",
-            "run_youtube_pipeline": "trigger_youtube_pipeline",
-            # Tasks & Todos
-            "task_add": "add_task",
-            "create_task": "add_task",
-            "new_task": "add_task",
-            "todo": "add_task",
-            "add_todo": "add_task",
-            "tasks": "list_tasks",
-            "show_tasks": "list_tasks",
-            "get_tasks": "list_tasks",
-            "list_todo": "list_tasks",
-            "mark_task_done": "complete_task",
-            "mark_done": "complete_task",
-            "done_task": "complete_task",
-            "finish_task": "complete_task",
-            "complete": "complete_task",
-            "remove_task": "delete_task",
-            "drop_task": "delete_task",
-            # Reminders
-            "remind": "set_reminder",
-            "reminder": "set_reminder",
-            "create_reminder": "set_reminder",
-            # Memory & Recall
-            "search_memory": "recall",
-            "memory_search": "recall",
-            "total_recall": "recall",
-            "query_memory": "recall",
-            # Web Search
-            "web_search": "search_web",
-            "google_search": "search_web",
-            "google": "search_web",
-            "find_on_web": "search_web",
-            # Workspace Files
-            "read_file": "read_workspace_file",
-            "write_file": "write_workspace_file",
-            "create_file": "write_workspace_file",
-            "edit_file": "edit_workspace_file",
-            "modify_file": "edit_workspace_file",
-            "update_file": "edit_workspace_file",
-            # System Status
-            "system_info": "system_status",
-            "status": "system_status",
-            "sys_status": "system_status",
-            "get_system_status": "system_status",
-        }
-        clean_raw = str(raw_name).strip().lower().replace("-", "_")
-        name = aliases.get(raw_name, aliases.get(clean_raw, raw_name))
+        name = resolve_tool_alias(raw_name)
         self.last_tool_called = name
 
         # Biometric Permission Tier Gate (Admin vs Guest vs Unknown)
@@ -865,6 +905,23 @@ class ZaineAgent:
                 )
         except Exception:
             pass
+
+        agent_profile = getattr(self, "active_agent", None)
+        agent_enabled = is_agent_enabled()
+        profile_agent_id = (
+            getattr(agent_profile, "agent_id", getattr(agent_profile, "name", None))
+            if agent_profile is not None
+            else None
+        )
+        if agent_enabled:
+            if agent_profile is not None and not agent_profile.allows(name):
+                return (
+                    f"Tool '{name}' is outside {agent_profile.display_name}'s permissions "
+                    f"({agent_profile.title}). Answer without it, or ask Sir to switch with /agent or @jarvis."
+                )
+            permitted, deny_reason = is_tool_permitted(name, profile_agent_id)
+            if not permitted:
+                return deny_reason
 
         # Flexible argument normalization
         if name in ("enroll_face", "enroll_person", "meet_friend"):
@@ -1191,16 +1248,12 @@ class ZaineAgent:
                 args["video_path"] = args.pop("file")
             elif "path" in args and "video_path" not in args:
                 args["video_path"] = args.pop("path")
-        elif name in ("track_viral_trends", "trending_topics", "viral_trends", "get_trends"):
-            name = "track_viral_trends"
+        elif name == "track_viral_trends":
             if "category" in args and "genre" not in args:
                 args["genre"] = args.pop("category")
             elif "type" in args and "genre" not in args:
                 args["genre"] = args.pop("type")
-        elif name in ("create_channel_playlists", "sync_playlists", "create_playlists", "ensure_playlists"):
-            name = "create_channel_playlists"
-        elif name in ("generate_manga_recap", "manga_recap", "manhwa_recap", "create_manga_video"):
-            name = "generate_manga_recap"
+        elif name == "generate_manga_recap":
             if "title" in args and "series_name" not in args:
                 args["series_name"] = args.pop("title")
             elif "manga" in args and "series_name" not in args:
@@ -1213,74 +1266,64 @@ class ZaineAgent:
                 args["max_chapters"] = args.pop("chapters")
             if "upload" in args and "upload_now" not in args:
                 args["upload_now"] = args.pop("upload")
-        elif name in ("capture_gesture", "gesture_capture", "detect_gesture", "hand_gesture"):
-            name = "capture_gesture"
+        elif name == "capture_gesture":
             if "action" in args and "execute_action" not in args:
                 args["execute_action"] = args.pop("action")
-        elif name in ("toggle_gesture_control", "toggle_gesture", "gesture_tracking", "toggle_hand_tracking", "hand_tracking"):
-            name = "toggle_gesture_control"
-        elif name in ("lookup_word", "lookup_definition", "define_word", "word_definition", "get_definition"):
-            name = "get_word_definition"
+        elif name == "get_word_definition":
             if "term" in args and "word" not in args:
                 args["word"] = args.pop("term")
             elif "query" in args and "word" not in args:
                 args["word"] = args.pop("query")
-        elif name in ("get_crypto", "crypto_price", "check_crypto", "get_bitcoin_price"):
-            name = "get_crypto_price"
+        elif name == "get_crypto_price":
             if "currency" in args and "coin" not in args:
                 args["coin"] = args.pop("currency")
             elif "crypto" in args and "coin" not in args:
                 args["coin"] = args.pop("crypto")
             elif "symbol" in args and "coin" not in args:
                 args["coin"] = args.pop("symbol")
-        elif name in ("weather", "check_weather", "get_forecast", "weather_forecast"):
-            name = "get_weather"
+        elif name == "get_weather":
             if "location" in args and "city" not in args:
                 args["city"] = args.pop("location")
             elif "place" in args and "city" not in args:
                 args["city"] = args.pop("place")
-        elif name in ("convert_currency", "currency_converter", "exchange_rate", "forex"):
-            name = "convert_currency"
+        elif name == "convert_currency":
             if "value" in args and "amount" not in args:
                 args["amount"] = args.pop("value")
             if "from_currency" in args and "from_curr" not in args:
                 args["from_curr"] = args.pop("from_currency")
             if "to_currency" in args and "to_curr" not in args:
                 args["to_curr"] = args.pop("to_currency")
-        elif name in ("search_notes", "query_vault", "vault_search"):
-            name = "search_vault"
+        elif name == "search_vault":
             if "search" in args and "query" not in args:
                 args["query"] = args.pop("search")
-        elif name in ("add_note", "save_note", "create_note"):
-            name = "add_to_vault"
+        elif name == "add_to_vault":
             if "note" in args and "content" not in args:
                 args["content"] = args.pop("note")
 
-        # Sub-agent permissions: strictly enforce when explicitly requested (@mention or /agent pin),
-        # or inside a subagent consultation; allow cross-domain tools if auto-routed by keyword.
-        if name in ("delegate", "ask", "consult_agent", "ask_subagent", "ask_agents"):
-            name = "ask_agent"
-        agent_profile = getattr(self, "active_agent", None)
-        selection = getattr(self, "last_agent_selection", None)
-        is_explicit = (
-            getattr(self, "_delegation_depth", 0) > 0
-            or (selection is not None and selection.source in ("mention", "pinned"))
-            or selection is None
-        )
-        if is_explicit and agent_profile is not None and not agent_profile.allows(name):
-            return (f"Tool '{name}' is outside {agent_profile.display_name}'s permissions "
-                    f"({agent_profile.title}). Answer without it, or ask Sir to switch with /agent or @jarvis.")
+        # Sub-agent permissions (legacy path when ZAINE_AGENT=0; ZAINE_AGENT=1 enforces earlier above).
+        if not agent_enabled:
+            selection = getattr(self, "last_agent_selection", None)
+            is_explicit = (
+                getattr(self, "_delegation_depth", 0) > 0
+                or (selection is not None and selection.source in ("mention", "pinned"))
+                or selection is None
+            )
+            if is_explicit and agent_profile is not None and not agent_profile.allows(name):
+                return (f"Tool '{name}' is outside {agent_profile.display_name}'s permissions "
+                        f"({agent_profile.title}). Answer without it, or ask Sir to switch with /agent or @jarvis.")
 
-        # Envelope-level tool permission check
-        permitted, deny_reason = is_tool_permitted(name, getattr(agent_profile, "name", None))
-        if not permitted:
-            return deny_reason
+            # Envelope-level tool permission check
+            permitted, deny_reason = is_tool_permitted(name, profile_agent_id)
+            if not permitted:
+                return deny_reason
 
-        # Keyed Circuit Breaker check
-        breaker = get_circuit_breaker()
-        allowed, trip_reason = breaker.can_execute(name)
-        if not allowed:
-            return trip_reason
+        # Keyed Circuit Breaker check (AutonomousLoop manages breaker centrally when active)
+        manage_breaker = not getattr(self, "_in_autonomous_loop", False)
+        breaker = get_circuit_breaker() if manage_breaker else None
+        if breaker is not None:
+            allowed, trip_reason = breaker.can_execute(name)
+            if not allowed:
+                return trip_reason
 
         if name == "ask_agent":
             return self._delegate(args)
@@ -1306,15 +1349,17 @@ class ZaineAgent:
         t_start = time.time()
         try:
             result = str(fn(**args))
-            breaker.record_success(name)
+            if breaker is not None:
+                breaker.record_success(name)
         except Exception as e:
             duration_ms = int((time.time() - t_start) * 1000)
-            breaker.record_failure(
-                tool=name,
-                error_class=type(e).__name__,
-                message=str(e),
-                duration_ms=duration_ms
-            )
+            if breaker is not None:
+                breaker.record_failure(
+                    tool=name,
+                    error_class=type(e).__name__,
+                    message=str(e),
+                    duration_ms=duration_ms
+                )
             return f"Error running tool '{name}': {e}"
         if ignored:
             result += f"\n[note: ignored unsupported argument(s) for {name}: {', '.join(ignored)}]"
@@ -1494,21 +1539,100 @@ class ZaineAgent:
             messages.append({"role": "user", "content": "\n".join(feedback)})
         return content.strip() or "(no answer)"
 
-    def chat_stream(self, user_message: str, on_tool_event=None):
+    def _run_autonomous_turn(
+        self,
+        *,
+        user_message: str,
+        profile,
+        active_model: str,
+        system_prompt: str,
+        mem_ctx: str,
+        on_tool_event=None,
+        cancel_check=None,
+        request_id=None,
+    ):
+        """Runs a gated autonomous Plan -> Act -> Observe -> Reflect turn when ZAINE_AGENT=1."""
+        from autonomy.loop import AutonomousLoop, LoopConfig
+
+        req_id = request_id
+        if not req_id:
+            try:
+                from approval import get_current_request_id
+                req_id = get_current_request_id()
+            except Exception:
+                req_id = None
+
+        raw_steps_env = os.getenv("ZAINE_AGENT_MAX_STEPS", "").strip()
+        default_hops = getattr(profile, "max_tool_hops", 8) if profile is not None else 8
+        max_steps = int(raw_steps_env) if raw_steps_env else max(1, int(default_hops or 8))
+        cfg = LoopConfig.from_env(model_name=active_model, max_steps=max_steps)
+
+        history = self.memory.get_messages()
+        if history and history[-1].get("role") == "user" and history[-1].get("content") == user_message:
+            prior_messages = history[:-1]
+        else:
+            prior_messages = history
+
+        loop = AutonomousLoop(
+            config=cfg,
+            profile=profile,
+            tool_exec_fn=self._execute_tool,
+            tool_alias_fn=resolve_tool_alias,
+            system_prompt=system_prompt,
+            memory_context=mem_ctx,
+            request_id=req_id,
+            cancel_check=cancel_check,
+            on_event=on_tool_event,
+            result_store=self._result_store(),
+        )
+        self._in_autonomous_loop = True
+        try:
+            result = loop.run(user_message, prior_messages=prior_messages)
+        finally:
+            self._in_autonomous_loop = False
+
+        self.last_loop_result = result
+        self.last_turn_calls = list(loop._last_model_calls)
+        if result.tool_history:
+            self.last_tool_called = result.tool_history[-1].get("tool")
+
+        reply_text = (result.summary or "").strip() or "I have completed the autonomous run."
+        with self._chat_lock:
+            self.memory.add("assistant", reply_text)
+
+        try:
+            from db.sessions import session_manager
+            session_id = getattr(self, "active_session_id", "ses-default")
+            session_manager.append_message(session_id, "user", user_message)
+            session_manager.append_message(session_id, "assistant", reply_text, model=active_model)
+        except Exception:
+            pass
+
+        yield reply_text
+
+    def chat_stream(self, user_message: str, on_tool_event=None, cancel_check=None, request_id=None):
         """
         Streaming generator that yields sentences as they are generated.
         High-level turn coordination is managed by RequestCoordinator to provide queue visibility;
         internal memory mutations are guarded by self._chat_lock.
         """
-        yield from self._chat_stream_impl(user_message, on_tool_event=on_tool_event)
+        yield from self._chat_stream_impl(
+            user_message,
+            on_tool_event=on_tool_event,
+            cancel_check=cancel_check,
+            request_id=request_id,
+        )
 
-    def _chat_stream_impl(self, user_message: str, on_tool_event=None):
+    def _chat_stream_impl(self, user_message: str, on_tool_event=None, cancel_check=None, request_id=None):
         """
         Internal implementation of streaming generator.
         Executes tool calls silently in the background (or reports them via on_tool_event)
         before streaming final conversational speech.
         """
+        from autonomy import is_agent_enabled
+
         self.last_tool_called = None
+        self.last_loop_result = None
         # "@edith fix this" addresses a sub-agent; the model and memory see only "fix this".
         from agents import parse_mention, select_agent
         raw_message = user_message
@@ -1568,9 +1692,10 @@ class ZaineAgent:
             return
 
         # Tiered Dual-Brain intent classification
+        agent_enabled = is_agent_enabled()
         task_tier = router.classify_task_tier(user_message)
         instant_ack = router.get_instant_acknowledgment(task_tier, user_message, self.ultron_mode)
-        if instant_ack:
+        if instant_ack and not agent_enabled:
             yield instant_ack
 
         # Touch session activity and get active biometrically verified identity
@@ -1597,7 +1722,9 @@ class ZaineAgent:
             active_clusters = [c for c in active_clusters if c != "DEV_CODE"]
 
         # Route to appropriate cognitive tier with dynamic installation resolver
-        if task_tier == "DEEP_CODE":
+        if agent_enabled and getattr(router, "single_model", ZAINE_SINGLE_MODEL):
+            target_model = os.getenv("ZAINE_AGENT_MODEL", "zaine-reflex-7b")
+        elif task_tier == "DEEP_CODE":
             target_model = router.coder_model
         elif task_tier == "DEEP_REASONING":
             target_model = router.deep_model
@@ -1638,6 +1765,19 @@ class ZaineAgent:
             system_prompt += f"\nYou run locally on {model_display} through Ollama on an NVIDIA RTX 2050 4GB laptop."
         if is_plain_code:
             system_prompt += "\nProvide the requested code implementation directly in a clean markdown code block with minimal essential docstrings. Do NOT call external tools."
+
+        if agent_enabled and not is_plain_code:
+            yield from self._run_autonomous_turn(
+                user_message=user_message,
+                profile=profile,
+                active_model=active_model,
+                system_prompt=system_prompt,
+                mem_ctx=mem_ctx,
+                on_tool_event=on_tool_event,
+                cancel_check=cancel_check,
+                request_id=request_id,
+            )
+            return
 
         # Slot 0 is byte-identical across turns (100% KV-cache hit in Ollama/llama.cpp)
         messages = [{"role": "system", "content": system_prompt}]
