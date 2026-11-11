@@ -59,6 +59,16 @@ def install_python_package(package_name: str) -> str:
 
     # Validate package name syntax
     clean_pkg = "".join(c for c in pkg if c.isalnum() or c in ("-", "_", ".", ">", "<", "=", "~"))
+
+    from autonomy import is_agent_enabled
+
+    if is_agent_enabled():
+        from autonomy.guards import require_side_effect_approval
+
+        ok_ap, msg_ap = require_side_effect_approval("install_python_package", {"package_name": clean_pkg})
+        if not ok_ap:
+            return f"Error: {msg_ap}"
+
     print(f"[Toolmaker Engine] Installing Python package: '{clean_pkg}'...")
 
     try:
@@ -172,6 +182,18 @@ def create_custom_tool(
             return f"Security Exception: Tool code contains disallowed destructive pattern: '{pattern}'. Guardian Protocol rejected."
 
     # 2. Interactive Action Authorization via Telegram
+    from autonomy import is_agent_enabled
+
+    if is_agent_enabled():
+        from autonomy.guards import require_side_effect_approval
+
+        ok_ap, msg_ap = require_side_effect_approval(
+            "create_custom_tool", {"tool_name": safe_name, "python_code": python_code}
+        )
+        if not ok_ap:
+            return f"Error: {msg_ap}"
+        require_approval = False
+
     if require_approval:
         try:
             from approval import ApprovalRegistry

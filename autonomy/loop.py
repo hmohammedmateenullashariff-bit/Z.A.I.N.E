@@ -686,6 +686,22 @@ class AutonomousLoop:
         tok_env = current_envelope_var.set(active_env)
         register_active_run(rid, self.request_id, self.cancel_token)
 
+        prev_approval_listener = None
+        installed_listener = False
+        try:
+            from approval import get_approval_listener, set_approval_listener
+
+            prev_approval_listener = get_approval_listener()
+            if prev_approval_listener is None and self._on_event is not None:
+                def _loop_event_bridge(stage: str, tool_name: str, data: Any) -> bool:
+                    self._emit(stage, tool_name, data)
+                    return True
+
+                set_approval_listener(_loop_event_bridge)
+                installed_listener = True
+        except Exception:
+            pass
+
         tool_history: List[Dict[str, Any]] = []
         steps_records: List[StepRecord] = []
         artifacts: List[str] = []
@@ -1050,7 +1066,7 @@ class AutonomousLoop:
                         errors.append(f"{resolved_name}: {outcome.key_line}")
 
                     # Track created/modified file artifacts cleanly
-                    if outcome.ok and resolved_name in ("write_workspace_file", "edit_workspace_file", "download_web_file"):
+                    if outcome.ok and resolved_name in ("write_workspace_file", "edit_workspace_file", "write_external_file", "download_web_file"):
                         fpath = str(targs.get("filepath") or targs.get("path") or targs.get("save_as") or "").strip()
                         if fpath and fpath not in artifacts:
                             artifacts.append(fpath)
@@ -1217,6 +1233,13 @@ class AutonomousLoop:
             return _finish("stopped_max_steps", self._format_stop_report(reason, tool_history), reason)
 
         finally:
+            if installed_listener:
+                try:
+                    from approval import set_approval_listener
+
+                    set_approval_listener(prev_approval_listener)
+                except Exception:
+                    pass
             unregister_active_run(rid)
             current_envelope_var.reset(tok_env)
             current_agent_var.reset(tok_agent)

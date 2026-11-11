@@ -68,12 +68,15 @@ TOOL_CLUSTERS = {
             "ponytail", "custom_code_benchmarker", "hive_mind", "search_developer_knowledge",
             "lookup_llm_architecture", "get_career_roadmap", "find_free_developer_services", "find_oss_alternatives",
             "reverse_engineer_github", "reverse_engineer_repo", "scaffold_modern_website",
-            "delete_workspace_files", "delete_workspace_file"
+            "delete_workspace_files", "delete_workspace_file",
+            "read_external_file", "write_external_file"
         ],
         "prompt_snippet": """DEVELOPER, CODE & CASCADE CLUSTER TOOLS:
 - write_workspace_file(filepath, content): Creates or overwrites project file.
 - edit_workspace_file(filepath, target_snippet, replacement_snippet): Edits file cleanly.
 - read_workspace_file(filepath): Reads workspace code or file.
+- read_external_file(filepath): Read-only inspection of non-sensitive files outside workspace.
+- write_external_file(filepath, content): Writes non-Zone-0 file outside workspace (diff + approval required).
 - list_workspace_files(subfolder): Lists repository files.
 - run_python_script(script_path, args): Executes python script and returns output.
 - run_workspace_tests(target): Runs pytest tests strictly inside the workspace sandbox.

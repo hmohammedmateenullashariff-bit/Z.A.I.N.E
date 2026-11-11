@@ -409,26 +409,9 @@ WORKSPACE_DIR = get_workspace_dir()
 
 def _resolve_workspace_path(filepath: str) -> Path:
     """Safely resolves a filepath inside active workspace root, preventing sandbox escapes."""
-    ws = get_workspace_dir()
-    clean = str(filepath).strip().replace("\\", "/")
-    ws_name = ws.name
-    if clean.startswith(f"{ws_name}/"):
-        clean = clean[len(f"{ws_name}/"):]
-    elif clean.startswith(f"./{ws_name}/"):
-        clean = clean[len(f"./{ws_name}/"):]
-    elif clean.startswith("workspace/"):
-        clean = clean[len("workspace/"):]
-    elif clean.startswith("./workspace/"):
-        clean = clean[len("./workspace/"):]
-    elif clean.startswith("./"):
-        clean = clean[2:]
+    from autonomy.sandbox import resolve_sandbox_path
 
-    resolved = (ws / clean).resolve()
-    try:
-        resolved.relative_to(ws)
-    except ValueError:
-        raise ValueError(f"Access denied: '{filepath}' attempts to leave the workspace sandbox.")
-    return resolved
+    return resolve_sandbox_path(filepath, get_workspace_dir())
 
 
 def read_workspace_file(filepath: str) -> str:
@@ -452,10 +435,42 @@ def write_workspace_file(filepath: str, content: str) -> str:
     try:
         path = _resolve_workspace_path(filepath)
         path.parent.mkdir(parents=True, exist_ok=True)
+        diff_text = ""
+        from autonomy import is_agent_enabled
+
+        if is_agent_enabled() and path.exists() and path.is_file():
+            from autonomy.sandbox import compute_unified_diff, emit_diff_preview
+
+            try:
+                old_raw = path.read_bytes()
+                old_text = "" if b"\x00" in old_raw[:4096] else old_raw.decode("utf-8", errors="replace")
+            except Exception:
+                old_text = ""
+            diff_text = compute_unified_diff(filepath, old_text, content)
+            if diff_text:
+                emit_diff_preview("write_workspace_file", filepath, diff_text, is_overwrite=True)
+
         path.write_text(content, encoding="utf-8")
-        return f"Successfully wrote {len(content)} characters to '{filepath}'."
+        res = f"Successfully wrote {len(content)} characters to '{filepath}'."
+        if diff_text:
+            res += f"\n[DIFF PREVIEW]:\n{diff_text}"
+        return res
     except Exception as e:
         return f"Error writing to file '{filepath}': {e}"
+
+
+def read_external_file(filepath: str) -> str:
+    """Reads a non-sensitive file outside the workspace strictly in read-only mode."""
+    from autonomy.sandbox import read_outside_workspace
+
+    return read_outside_workspace(filepath)
+
+
+def write_external_file(filepath: str, content: str) -> str:
+    """Writes or overwrites a non-Zone-0 file outside the workspace only after diff preview + approval."""
+    from autonomy.sandbox import write_outside_workspace
+
+    return write_outside_workspace(filepath, content)
 
 
 def list_workspace_files(subfolder: str = "") -> str:
@@ -509,11 +524,27 @@ def run_python_script(script_path: str, args: str = "") -> str:
         path = _resolve_workspace_path(script_path)
         cwd_dir = get_workspace_dir()
         if not path.exists():
-            # Check project root fallback
-            candidate = (Path(__file__).parent / script_path).resolve()
-            if candidate.exists() and candidate.is_file():
+            # Check project root fallback safely (never allow escapes outside project root)
+            project_root = Path(__file__).parent.resolve()
+            candidate = (project_root / script_path).resolve()
+            try:
+                candidate.relative_to(project_root)
+                is_in_root = True
+            except ValueError:
+                is_in_root = False
+            if is_in_root and candidate.exists() and candidate.is_file():
+                from autonomy import is_agent_enabled
+
+                if is_agent_enabled():
+                    from autonomy.guards import require_side_effect_approval
+
+                    ok_ap, msg_ap = require_side_effect_approval(
+                        "run_python_script_external", {"script_path": str(candidate)}
+                    )
+                    if not ok_ap:
+                        return f"Error: {msg_ap}"
                 path = candidate
-                cwd_dir = Path(__file__).parent.resolve()
+                cwd_dir = project_root
             else:
                 return f"Error: Script '{script_path}' not found in workspace or project directory."
         cmd = [sys.executable, "-u", str(path)]
@@ -632,8 +663,21 @@ def edit_workspace_file(filepath: str, target_snippet: str, replacement_snippet:
         if target_snippet not in content:
             return f"Error: target_snippet was not found in '{filepath}'. Make sure whitespace and indentation match exactly."
         new_content = content.replace(target_snippet, replacement_snippet, 1)
+        diff_text = ""
+        from autonomy import is_agent_enabled
+
+        if is_agent_enabled():
+            from autonomy.sandbox import compute_unified_diff, emit_diff_preview
+
+            diff_text = compute_unified_diff(filepath, content, new_content)
+            if diff_text:
+                emit_diff_preview("edit_workspace_file", filepath, diff_text, is_overwrite=True)
+
         path.write_text(new_content, encoding="utf-8")
-        return f"Successfully updated '{filepath}' with edited code."
+        res = f"Successfully updated '{filepath}' with edited code."
+        if diff_text:
+            res += f"\n[DIFF PREVIEW]:\n{diff_text}"
+        return res
     except Exception as e:
         return f"Error editing '{filepath}': {e}"
 
@@ -1033,7 +1077,7 @@ def open_vscode(target_path: str = "", launch_cascade: bool = True) -> str:
             if cand2.exists():
                 base_dir = cand2
             else:
-                cand3 = WORKSPACE_DIR / target_path.strip()
+                cand3 = get_workspace_dir() / target_path.strip()
                 base_dir = cand3 if cand3.exists() else project_root
 
     code_exe = r"C:\Users\Mohemad Mateen ullah\AppData\Local\Programs\Microsoft VS Code\Code.exe"
@@ -1083,7 +1127,7 @@ def start_local_server(port: int = 8000, folder: str = "") -> str:
     import socket
     import webbrowser
 
-    target_dir = _resolve_workspace_path(folder) if folder else WORKSPACE_DIR
+    target_dir = _resolve_workspace_path(folder) if folder else get_workspace_dir()
     if not target_dir.exists() or not target_dir.is_dir():
         return f"Error: Directory '{folder}' does not exist in workspace."
 
@@ -1420,7 +1464,7 @@ def deep_search(query: str) -> str:
 
     # 3. Workspace Files Search
     try:
-        ws_dir = WORKSPACE_DIR
+        ws_dir = get_workspace_dir()
         matched_files = []
         q_lower = clean_q.lower()
         for root, dirs, files in os.walk(ws_dir):
@@ -1739,6 +1783,8 @@ TOOL_REGISTRY = {
     "read_workspace_file": read_workspace_file,
     "write_workspace_file": write_workspace_file,
     "edit_workspace_file": edit_workspace_file,
+    "read_external_file": read_external_file,
+    "write_external_file": write_external_file,
     "read_code_definitions": read_code_definitions,
     "list_workspace_files": list_workspace_files,
     "delete_workspace_files": delete_workspace_files,
@@ -1931,6 +1977,8 @@ Available tools:
 - write_workspace_file(filepath: str, content: str) -> writes/creates a script, HTML, or code file in the workspace
 - edit_workspace_file(filepath: str, target_snippet: str, replacement_snippet: str) -> replaces a specific snippet of code in a file without rewriting the whole file
 - read_workspace_file(filepath: str) -> reads the code or content of a file in the workspace
+- read_external_file(filepath: str) -> read-only access to non-sensitive files outside the workspace
+- write_external_file(filepath: str, content: str) -> writes a non-Zone-0 file outside the workspace strictly behind diff preview + operator approval
 - read_code_definitions(filepath: str) -> outlines all classes, functions, and docstrings in a Python script
 - list_workspace_files(subfolder: str = "") -> lists all files in the workspace directory
 - run_python_script(script_path: str, args: str = "") -> executes a python script in workspace and returns the output
