@@ -1,0 +1,1 @@
+{"ts_utc": "2026-11-08T13:50:58.183943+00:00", "event_type": "READ_FAILURE", "message": "no such column: task_type", "meta": {"sql": "\n            SELECT task_type, lesson, action_rule, success_signal, failure_pattern \n            FROM task_learnings \n            ORDER BY id ASC;\n        ", "params": "()"}}

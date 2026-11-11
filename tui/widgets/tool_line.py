@@ -36,12 +36,15 @@ class ToolLine(Widget):
         self.refresh()
 
     def render(self) -> Panel:
+        w = getattr(self.size, "width", 0) or 80
         t = Text()
         t.append("⚙ [TOOL] ", style=f"bold {COLOR_CYAN}")
         t.append(f"{self.tool_name} ", style=f"bold #ffffff")
 
         if self.args_summary:
-            t.append(f"({self.args_summary}) ", style=COLOR_TEXT_MUTED)
+            max_args = max(10, w - len(self.tool_name) - 32)
+            args_disp = (self.args_summary[: max_args - 1] + "…") if len(self.args_summary) > max_args else self.args_summary
+            t.append(f"({args_disp}) ", style=COLOR_TEXT_MUTED)
 
         t.append("· ", style=COLOR_TEXT_DIM)
         if self.duration_s > 0:
@@ -57,10 +60,13 @@ class ToolLine(Widget):
             status_color = COLOR_CYAN
 
         t.append(f"· {self.status}", style=f"bold {status_color}")
+        t.no_wrap = True
+        t.overflow = "ellipsis"
 
         return Panel(
             t,
             border_style=status_color if self.status in ("FAILED", "BLOCKED") else COLOR_CYAN,
             style=f"on {COLOR_SURFACE}",
-            padding=(0, 1)
+            padding=(0, 1),
+            expand=True
         )

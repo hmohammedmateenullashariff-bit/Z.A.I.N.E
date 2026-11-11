@@ -18,6 +18,7 @@ import shutil
 import psutil
 import datetime
 import threading
+import queue
 import urllib.parse
 import uuid
 from pathlib import Path
@@ -817,8 +818,48 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
-        # 0. Interactive Web Dashboard / HUD (/, /index.html, /hud, /dashboard)
-        if path in ("/", "/index.html", "/hud", "/dashboard"):
+        # 0a. Satellite Living Arc Reactor HUD (/hud)
+        if path == "/hud":
+            hud_file = PROJECT_ROOT / "satellite_hud" / "index.html"
+            if hud_file.exists():
+                try:
+                    with open(hud_file, "r", encoding="utf-8") as f:
+                        self._send_html(200, f.read())
+                    return
+                except Exception:
+                    pass
+
+        # 0b. Static assets for Satellite HUD (/static/...)
+        if path.startswith("/static/"):
+            rel_name = path[len("/static/"):].lstrip("/")
+            file_path = (PROJECT_ROOT / "satellite_hud" / "static" / rel_name).resolve()
+            if file_path.exists() and file_path.is_file():
+                mime = "text/plain"
+                if file_path.suffix == ".css":
+                    mime = "text/css"
+                elif file_path.suffix == ".js":
+                    mime = "application/javascript"
+                elif file_path.suffix in (".html", ".htm"):
+                    mime = "text/html"
+                elif file_path.suffix == ".svg":
+                    mime = "image/svg+xml"
+
+                try:
+                    with open(file_path, "rb") as f:
+                        data = f.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", mime)
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("Cache-Control", "no-cache")
+                    self._set_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+                except Exception:
+                    pass
+
+        # 0c. Interactive Web Dashboard (/, /index.html, /dashboard)
+        if path in ("/", "/index.html", "/dashboard"):
             port = self.core_service.port if self.core_service else 7860
             self._send_html(200, _render_hud_dashboard_html(port))
             return
@@ -940,6 +981,87 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
             from approval import ApprovalRegistry
             self._send_json(200, {"ok": True, "pending": ApprovalRegistry.list_pending()})
             return
+
+        # 10. Armory Job Telemetry Stream (/api/jobs/stream)
+        if path == "/api/jobs/stream":
+            from core.job_supervisor import get_job_supervisor
+            supervisor = get_job_supervisor()
+            q = supervisor.subscribe()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self._set_cors_headers()
+            self.end_headers()
+
+            try:
+                self.wfile.write(b": connected to armory job telemetry bus\n\n")
+                self.wfile.flush()
+                while True:
+                    try:
+                        event = q.get(timeout=15.0)
+                        payload = f"id: {event.get('seq')}\nevent: {event.get('type')}\ndata: {json.dumps(event)}\n\n"
+                        self.wfile.write(payload.encode("utf-8"))
+                        self.wfile.flush()
+                    except queue.Empty:
+                        self.wfile.write(b": heartbeat\n\n")
+                        self.wfile.flush()
+            except (ConnectionResetError, BrokenPipeError, OSError):
+                pass
+            finally:
+                supervisor.unsubscribe(q)
+            return
+
+        # 10b. Living Arc Reactor HUD Telemetry Stream (/api/hud/events)
+        if path == "/api/hud/events":
+            from satellite_hud.state_reducer import hud_state_reducer
+            q = hud_state_reducer.register_subscriber()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self._set_cors_headers()
+            self.end_headers()
+
+            try:
+                self.wfile.write(b": connected to arc reactor hud telemetry stream\n\n")
+                self.wfile.flush()
+                while True:
+                    try:
+                        event_msg = q.get(timeout=2.0)
+                        self.wfile.write(event_msg.encode("utf-8"))
+                        self.wfile.flush()
+                    except queue.Empty:
+                        self.wfile.write(b": ping\n\n")
+                        self.wfile.flush()
+            except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
+                pass
+            finally:
+                hud_state_reducer.unregister_subscriber(q)
+            return
+
+        # 11. Armory Jobs List (/api/jobs)
+        if path == "/api/jobs":
+            from core.job_supervisor import get_job_supervisor
+            jobs = get_job_supervisor().list_jobs()
+            self._send_json(200, {"ok": True, "jobs": jobs})
+            return
+
+        # 12. Chat Sessions API (/api/sessions)
+        if path == "/api/sessions":
+            from db.sessions import session_manager
+            sessions = session_manager.list_sessions(limit=50)
+            self._send_json(200, {"ok": True, "sessions": sessions})
+            return
+
+        if path.startswith("/api/sessions/") and path.endswith("/messages"):
+            parts = path.strip("/").split("/")
+            if len(parts) == 4:
+                sid = parts[2]
+                from db.sessions import session_manager
+                messages = session_manager.get_messages(sid)
+                self._send_json(200, {"ok": True, "session_id": sid, "messages": messages})
+                return
 
         self.send_error(404, "Endpoint not found on Z.A.I.N.E Core Service")
 
@@ -1323,12 +1445,19 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
             tool_called = getattr(agent, "last_tool_called", None)
             mode = "ultron" if getattr(agent, "ultron_mode", False) else "jarvis"
             full_reply = " ".join(full_reply_parts)
+            sel = getattr(agent, "last_agent_selection", None) if agent is not None else None
+            active_agent_id = sel.profile.agent_id if sel else "zaine-jarvis"
+            active_agent_voice = getattr(sel.profile, "voice", "en-GB-RyanNeural") if sel else "en-GB-RyanNeural"
+            is_mention = (sel.source == "mention") if sel else False
 
             final_dict = {
                 "ok": True,
                 "reply": full_reply,
                 "tool_called": tool_called,
                 "mode": mode,
+                "agent_id": active_agent_id,
+                "agent_voice": active_agent_voice,
+                "is_mention": is_mention,
                 "request_id": request_id,
                 "queued": was_queued,
                 "waited_seconds": waited_seconds,
@@ -1340,6 +1469,36 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
                 self.core_service.set_status("idle")
             self.wfile.write(f"data: {json.dumps({'type': 'done', **final_dict})}\n\n".encode("utf-8"))
             self.wfile.flush()
+            return
+
+        # 6. Armory Job Submission (/api/jobs)
+        if path == "/api/jobs":
+            command = req_data.get("command")
+            description = req_data.get("description", "Armory Task")
+            timeout_s = float(req_data.get("timeout_s", 3600.0))
+            if not command or not isinstance(command, list):
+                self._send_json(400, {"ok": False, "error": "command list required"})
+                return
+            from core.job_supervisor import get_job_supervisor
+            job_id = get_job_supervisor().submit_job(command, description, timeout_s=timeout_s)
+            self._send_json(200, {"ok": True, "job_id": job_id})
+            return
+
+        # 7. Armory Job Cancellation (/api/jobs/<id>/cancel)
+        if path.startswith("/api/jobs/") and path.endswith("/cancel"):
+            job_id = path[len("/api/jobs/"): -len("/cancel")].strip()
+            from core.job_supervisor import get_job_supervisor
+            ok = get_job_supervisor().cancel_job(job_id)
+            self._send_json(200, {"ok": ok, "job_id": job_id})
+            return
+
+        # 8. Create Chat Session (/api/sessions)
+        if path == "/api/sessions":
+            from db.sessions import session_manager
+            title = req_data.get("title", "New Conversation")
+            agent_id = req_data.get("agent_id", "jarvis")
+            sid = session_manager.create_session(title=title, agent_id=agent_id)
+            self._send_json(200, {"ok": True, "session_id": sid})
             return
 
         self.send_error(404, "Endpoint not found on Z.A.I.N.E Core Service")

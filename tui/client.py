@@ -97,7 +97,7 @@ async def stream_chat_events(
     client_id: str = "terminal-ui",
     request_id: Optional[str] = None,
     default_first_token_timeout: float = 60.0,
-    idle_gap_timeout: float = 20.0,
+    idle_gap_timeout: float = 30.0,
     client: Optional[httpx.AsyncClient] = None,
 ) -> AsyncIterator[Dict[str, Any]]:
     """
@@ -197,11 +197,9 @@ async def stream_chat_events(
                     line_str = line.strip()
 
                     # Handle heartbeat comments (: ping, : comment)
-                    # Before first token, pings count as liveness.
-                    # After first token, pings must NOT reset the progress timer unless waiting for approval.
+                    # Maintains liveness so local LLM inference or long tool hops don't hit false idle timeouts
                     if line_str.startswith(":"):
-                        if not has_received_token or is_approval_pending:
-                            last_progress_time = time.monotonic()
+                        last_progress_time = time.monotonic()
                         continue
 
                     if not line_str.startswith("data: "):
@@ -223,7 +221,7 @@ async def stream_chat_events(
                             if isinstance(route_data, dict):
                                 tier = route_data.get("tier", "")
                                 if tier in ("DEEP_REASONING", "DEEP_CODE"):
-                                    first_token_timeout = 45.0
+                                    first_token_timeout = 90.0
                         elif stage == "approval_required":
                             is_approval_pending = True
                             last_progress_time = time.monotonic()

@@ -102,7 +102,7 @@ def get_voice_status() -> dict:
 EDGE_VOICE = os.getenv("TTS_VOICE", "en-GB-RyanNeural")
 EDGE_PITCH = os.getenv("TTS_PITCH", "+0Hz")
 EDGE_RATE = os.getenv("TTS_RATE", "+0%")
-USE_EDGE_TTS = os.getenv("USE_EDGE_TTS", "true").lower() in ("true", "1", "yes")
+USE_EDGE_TTS = os.getenv("USE_EDGE_TTS", "false").lower() in ("true", "1", "yes")
 
 try:
     import edge_tts
@@ -378,15 +378,52 @@ def set_ultron_mode(enable: bool = True) -> str:
         return f"Jarvis neural voice restored ({EDGE_VOICE})."
 
 
-def speak_with_voice(text: str, voice_type: str = "jarvis", allow_barge_in: bool = False) -> bool:
+AGENT_VOICES = {
+    "zaine-jarvis": {"voice": "en-GB-RyanNeural", "pitch": "+0Hz", "rate": "+0%"},
+    "jarvis": {"voice": "en-GB-RyanNeural", "pitch": "+0Hz", "rate": "+0%"},
+    "zaine-edith": {"voice": "en-US-JennyNeural", "pitch": "+0Hz", "rate": "+5%"},
+    "edith": {"voice": "en-US-JennyNeural", "pitch": "+0Hz", "rate": "+5%"},
+    "zaine-friday": {"voice": "en-IE-EmilyNeural", "pitch": "+0Hz", "rate": "+3%"},
+    "friday": {"voice": "en-IE-EmilyNeural", "pitch": "+0Hz", "rate": "+3%"},
+    "zaine-vision": {"voice": "en-GB-ThomasNeural", "pitch": "-2Hz", "rate": "-2%"},
+    "vision": {"voice": "en-GB-ThomasNeural", "pitch": "-2Hz", "rate": "-2%"},
+    "zaine-ultron": {"voice": "en-US-ChristopherNeural", "pitch": "-12Hz", "rate": "-8%"},
+    "ultron": {"voice": "en-US-ChristopherNeural", "pitch": "-12Hz", "rate": "-8%"},
+    "zaine-dume": {"voice": "en-US-SteffanNeural", "pitch": "+8Hz", "rate": "+10%"},
+    "dume": {"voice": "en-US-SteffanNeural", "pitch": "+8Hz", "rate": "+10%"},
+}
+
+
+def speak_for_agent(text: str, agent_name_or_id: str = "jarvis", allow_barge_in: bool = True, force: bool = False) -> bool:
     """
-    Speaks a sentence explicitly using either 'jarvis' (British Jarvis) or 'ultron' (deep baritone).
+    Speaks text using the specific voice profile assigned to the given agent.
+    If force=True (or called via @agent mention), audio is outputted regardless of voice toggle state.
     """
-    if voice_type.lower() == "ultron":
+    key = str(agent_name_or_id or "jarvis").strip().lower().replace("zaine-", "")
+    cfg = AGENT_VOICES.get(key, AGENT_VOICES.get("jarvis", {"voice": "en-GB-RyanNeural", "pitch": "+0Hz", "rate": "+0%"}))
+    return speak_sentence(
+        text,
+        voice=cfg.get("voice"),
+        pitch=cfg.get("pitch"),
+        rate=cfg.get("rate"),
+        allow_barge_in=allow_barge_in,
+        force=force,
+    )
+
+
+def speak_with_voice(text: str, voice_type: str = "jarvis", allow_barge_in: bool = False, force: bool = False) -> bool:
+    """
+    Speaks a sentence explicitly using either an agent name/id or 'jarvis'/'ultron'.
+    """
+    v_lower = str(voice_type or "jarvis").lower().strip()
+    clean_k = v_lower.replace("zaine-", "")
+    if clean_k in AGENT_VOICES or any(k in clean_k for k in ("edith", "friday", "vision", "dume")):
+        return speak_for_agent(text, agent_name_or_id=clean_k, allow_barge_in=allow_barge_in, force=force)
+    if v_lower == "ultron":
         set_ultron_mode(True)
     else:
         set_ultron_mode(False)
-    return speak_sentence(text, allow_barge_in=allow_barge_in)
+    return speak_sentence(text, allow_barge_in=allow_barge_in, force=force)
 
 
 def record_audio(duration: int = RECORD_SECONDS, use_vad: bool = True) -> np.ndarray:
@@ -699,13 +736,20 @@ def _barge_in_monitor_thread(stop_event: threading.Event):
             time.sleep(0.05)
 
 
-def speak_sentence(text: str, allow_barge_in: bool = True) -> bool:
+def speak_sentence(
+    text: str,
+    voice: str = None,
+    pitch: str = None,
+    rate: str = None,
+    allow_barge_in: bool = True,
+    force: bool = False,
+) -> bool:
     """
     Synthesizes and speaks a single sentence immediately.
     Returns True if completed normally, False if interrupted by user barge-in.
     """
-    # 0. HARD GATE: Voice must be explicitly enabled! Normal operation is text-only.
-    if not is_voice_enabled():
+    # 0. HARD GATE: Voice must be explicitly enabled! Normal operation is text-only (unless force=True).
+    if not force and not is_voice_enabled():
         return True
 
     # If Zaine is muted, skip speech synthesis entirely
@@ -736,7 +780,7 @@ def speak_sentence(text: str, allow_barge_in: bool = True) -> bool:
 
         # 1. Try High-Fidelity Edge-TTS first (if online & enabled)
         if USE_EDGE_TTS and edge_tts and av:
-            audio, sr = _synthesize_edge_tts(clean)
+            audio, sr = _synthesize_edge_tts(clean, voice=voice, pitch=pitch, rate=rate)
 
         # 2. Offline Fallback to Local Piper Voice
         if audio is None or len(audio) == 0:
@@ -821,9 +865,9 @@ def speak_sentence(text: str, allow_barge_in: bool = True) -> bool:
             set_voice_state(VOICE_STATE_DISABLED)
 
 
-def speak(text: str, allow_barge_in: bool = True) -> bool:
+def speak(text: str, allow_barge_in: bool = True, force: bool = False) -> bool:
     """Speaks the given text out loud using the active neural voice."""
     if is_muted():
         return True
-    return speak_sentence(text, allow_barge_in=allow_barge_in)
+    return speak_sentence(text, allow_barge_in=allow_barge_in, force=force)
 

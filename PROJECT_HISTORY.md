@@ -1291,3 +1291,8 @@ otepad).
   - Resolved client-modules: 64 client packages failed to compose and 	ypert-loader: 25 typert contributor(s) failed to register errors by running scripts/build.ts --scope artifacts.
   - Emitted all 8 build gates: native addon (PASS), Host Typert (PASS), host compiler (PASS), Host bundle (PASS), Desktop bundle (PASS), client compiler (PASS), Client bundle (PASS), Web build (PASS) in 525.27s.
   - Verified dsh web --help and profile loader execute with exit code 0.
+
+### [2026-11-11 22:36:30 +0530] - CONFIG / DOCS / SECURITY - Author: Antigravity
+- **Scope:** .gitignore, docs/STATE_REPORT.md, PROJECT_HISTORY.md
+- **Description:** Audited and hardened .gitignore to block .env*, tokens/OAuth credentials, face-ID data & SQLite backup files (*.db.*, zaine_face_id*), virtualenvs/caches/python-packages/, model weights/checkpoints, and runtime data/runs/ / data/audit/ directories. Added Step 0 autonomous layer audit report in docs/STATE_REPORT.md prior to creating the "pre-agent-core snapshot" commit on seminar-stable.
+- **Commit:** Pending ("pre-agent-core snapshot" on seminar-stable)

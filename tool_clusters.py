@@ -53,7 +53,8 @@ TOOL_CLUSTERS = {
             "benchmark", "latency", "profile", "test", "unittest", "git", "vscode",
             "cascade", "pair programming", "coding assistant", "refactor", "function", "class", "bug", "fix",
             "toolmaker", "pip", "install", "package", "library", "hive mind", "llm architecture",
-            "transformer", "roadmap", "free dev", "open source alternative", "oss alternative", "developer knowledge"
+            "transformer", "roadmap", "free dev", "open source alternative", "oss alternative", "developer knowledge",
+            "reverse engineer", "api spec", "openapi", "website design", "web design", "frontend"
         ],
         "tools": [
             "write_workspace_file", "edit_workspace_file", "read_workspace_file",
@@ -63,7 +64,9 @@ TOOL_CLUSTERS = {
             "launch_zaine_cascade",
             "create_custom_tool", "install_python_package", "list_custom_tools", "review_code",
             "ponytail", "custom_code_benchmarker", "hive_mind", "search_developer_knowledge",
-            "lookup_llm_architecture", "get_career_roadmap", "find_free_developer_services", "find_oss_alternatives"
+            "lookup_llm_architecture", "get_career_roadmap", "find_free_developer_services", "find_oss_alternatives",
+            "reverse_engineer_github", "reverse_engineer_repo", "scaffold_modern_website",
+            "delete_workspace_files", "delete_workspace_file"
         ],
         "prompt_snippet": """DEVELOPER, CODE & CASCADE CLUSTER TOOLS:
 - write_workspace_file(filepath, content): Creates or overwrites project file.
@@ -94,13 +97,14 @@ TOOL_CLUSTERS = {
             "playlist", "trend", "viral", "manga recap", "channel",
             "export timeline", "capcut", "premiere", "davinci", "fcpxml", "edl",
             "youtube stats", "channel stats", "subscribers", "subscriber count",
-            "isolate dialogue", "editing style", "learn style", "editing profile", "generate short", "create short"
+            "isolate dialogue", "editing style", "learn style", "editing profile", "generate short", "create short",
+            "edit timeline", "video edit", "timeline cut", "ffmpeg edit"
         ],
         "tools": [
             "upload_youtube_video", "youtube_studio_status", "trigger_youtube_pipeline",
             "track_viral_trends", "create_channel_playlists", "generate_manga_recap",
             "play_on_youtube", "separate_audio_stems", "change_voice", "toggle_ultron_mode",
-            "export_timeline", "export_capcut_timeline",
+            "export_timeline", "export_capcut_timeline", "edit_video_timeline",
             "generate_youtube_short", "get_youtube_stats", "get_youtube_channel_stats",
             "isolate_dialogue", "learn_editing_style", "list_editing_styles"
         ],
@@ -219,6 +223,25 @@ TOOL_CLUSTERS = {
 - archive_idea(idea_id): Archives an idea in the Idea Engine.
 - get_inspirational_quote(): Shares an inspiring philosophical quote.
 """
+    },
+    "TACTICAL_OSINT": {
+        "description": "God's Eye Geospatial Intelligence, Airspace Flights, Orbital Satellites, Seismic Hazards, and Situational Awareness",
+        "keywords": [
+            "god's eye", "gods eye", "radar", "airspace", "flight", "plane", "aircraft",
+            "satellite", "orbit", "iss", "celestrak", "earthquake", "seismic", "hazard",
+            "cctv", "tactical", "osint", "situation report", "surveillance", "sky", "flight radar"
+        ],
+        "tools": [
+            "tactical_overview", "query_air_traffic", "get_satellite_pass",
+            "get_seismic_hazards", "get_local_tactical_status"
+        ],
+        "prompt_snippet": """GOD'S EYE TACTICAL OSINT & SITUATIONAL INTELLIGENCE TOOLS:
+- tactical_overview(): Comprehensive God's Eye situation report combining local sentinels, airspace radar, orbital satellites, and hazards.
+- query_air_traffic(lat, lon, radius_deg): Live ADS-B aircraft flight radar via OpenSky Network.
+- get_satellite_pass(norad_id): Real-time orbital trajectory telemetry via CelesTrak (default ISS 25544).
+- get_seismic_hazards(min_magnitude): Real-time USGS global earthquake hazard monitor.
+- get_local_tactical_status(): Local camera hardware mutex, face-id biometric status, and vision sentinels.
+"""
     }
 }
 
@@ -281,10 +304,18 @@ def _collaboration_block(agent_profile: Any) -> str:
             "needs that agent's tools or a second opinion; otherwise answer yourself.\n" + "\n".join(lines))
 
 
+_RUNTIME_TOOL_DOCS = {
+    "read_result": "- read_result(id, start): Read more of a long tool result that was shortened (id like \"R3\").",
+}
+
+
 def _tool_doc_lines(tool_names) -> List[str]:
     """The '- name(args): description' lines for specific tools, taken from the cluster snippets."""
     lines = []
     for name in tool_names:
+        if name in _RUNTIME_TOOL_DOCS:
+            lines.append(_RUNTIME_TOOL_DOCS[name])
+            continue
         for spec in TOOL_CLUSTERS.values():
             match = next((ln for ln in spec["prompt_snippet"].splitlines() if ln.startswith(f"- {name}(")), None)
             if match:
@@ -400,6 +431,14 @@ TOOL INVOCATION RULES:
 1. When a tool is needed, output ONLY the JSON tool call block on its own line: {{"tool": "<tool_name>", "args": {{...}}}}.
 2. NEVER output conversational commentary or filler when a tool call is needed. Output the JSON block directly.
 3. After the tool returns its result, synthesize a polished, friendly, and natural response without raw JSON.
+
+COGNITIVE THINKING & DELIBERATION:
+You have internal reasoning and chain-of-thought capabilities.
+Before executing tools or answering non-trivial engineering, mathematical, or planning tasks, deliberate within a <think>...</think> block.
+Analyze constraints, strategy, and tool requirements inside <think>...</think>. Output your final answer and tool calls cleanly outside the thinking block.
+
+CONTINUOUS LEARNING & SKILL FORMATION:
+When you discover an architectural insight, fix a tricky bug, or receive new constraints/preferences from Mateen Sir, call {{"tool": "learn_lesson", "args": {{"lesson": "<concise actionable rule>"}}}} to permanently commit it into your long-term skill memory.
 
 {_few_shot_block(agent_profile)}
 """

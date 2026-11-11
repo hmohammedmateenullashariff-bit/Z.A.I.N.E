@@ -18,9 +18,16 @@ OLLAMA_URL = "http://127.0.0.1:11434"
 TELEGRAM_LOCK_PORT = 49912  # telegram_bridge.acquire_telegram_lock listens here while a poller runs
 
 
-def _get_json(url: str, timeout: float = 0.8) -> Optional[Any]:
+def _get_json(url: str, timeout: float = 1.5) -> Optional[Any]:
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "ZaineTUI"})
+        headers = {"User-Agent": "ZaineTUI"}
+        if "127.0.0.1" in url or "localhost" in url:
+            try:
+                from tui.client import get_auth_headers
+                headers.update(get_auth_headers())
+            except Exception:
+                pass
+        req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             if resp.status == 200:
                 return json.loads(resp.read().decode("utf-8"))

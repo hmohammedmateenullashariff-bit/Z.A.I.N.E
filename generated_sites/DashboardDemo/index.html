@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DashboardDemo | Modern Web Experience</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              emerald: '#00f5a0',
+              cyan: '#00d2ff',
+              violet: '#7928ca',
+              dark: '#030712'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .glass {
+      background: rgba(11, 16, 28, 0.75);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .glow-radial {
+      background: radial-gradient(circle at 50% 0%, rgba(0, 245, 160, 0.15), transparent 70%);
+    }
+  </style>
+</head>
+<body class="bg-[#030712] text-slate-100 min-h-screen flex flex-col glow-radial selection:bg-brand-emerald selection:text-black">
+  <!-- Nav Header -->
+  <header class="sticky top-0 z-50 glass border-b border-slate-800">
+    <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <span class="w-3 h-3 rounded-full bg-brand-emerald animate-pulse"></span>
+        <span class="font-mono font-bold tracking-wider text-brand-emerald">DASHBOARDDEMO</span>
+      </div>
+      <nav class="hidden md:flex items-center space-x-8 text-sm font-medium text-slate-300">
+        <a href="#features" class="hover:text-brand-emerald transition-colors">Features</a>
+        <a href="#architecture" class="hover:text-brand-emerald transition-colors">Architecture</a>
+        <a href="#api" class="hover:text-brand-emerald transition-colors">API</a>
+      </nav>
+      <a href="#cta" class="px-4 py-2 text-xs font-semibold uppercase tracking-wider bg-brand-emerald text-black rounded hover:bg-emerald-400 transition-colors">Get Started</a>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <!-- Dashboard View -->
+  
+  <div class="flex-1 flex flex-col md:flex-row max-w-7xl mx-auto w-full px-4 sm:px-6 py-8 gap-6">
+    <aside class="w-full md:w-64 glass rounded-xl p-4 flex flex-col gap-3">
+      <div class="text-xs font-mono uppercase tracking-wider text-slate-500 mb-2">Navigation</div>
+      <a href="#" class="px-3 py-2 rounded-lg bg-brand-emerald/10 text-brand-emerald font-medium text-sm">Dashboard Overview</a>
+      <a href="#" class="px-3 py-2 rounded-lg text-slate-400 hover:text-white font-medium text-sm">Telemetry & Nodes</a>
+      <a href="#" class="px-3 py-2 rounded-lg text-slate-400 hover:text-white font-medium text-sm">API Integrations</a>
+      <a href="#" class="px-3 py-2 rounded-lg text-slate-400 hover:text-white font-medium text-sm">Security Vault</a>
+    </aside>
+    <main class="flex-1 flex flex-col gap-6">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="glass p-5 rounded-xl">
+          <div class="text-xs text-slate-400 uppercase font-mono">Total Throughput</div>
+          <div class="text-3xl font-bold text-white mt-1">43.6 <span class="text-sm font-normal text-brand-emerald">tok/s</span></div>
+        </div>
+        <div class="glass p-5 rounded-xl">
+          <div class="text-xs text-slate-400 uppercase font-mono">Active Clusters</div>
+          <div class="text-3xl font-bold text-brand-cyan mt-1">119 <span class="text-sm font-normal text-slate-400">tools</span></div>
+        </div>
+        <div class="glass p-5 rounded-xl">
+          <div class="text-xs text-slate-400 uppercase font-mono">Hardware VRAM</div>
+          <div class="text-3xl font-bold text-emerald-400 mt-1">2.3 / 4.0 <span class="text-sm font-normal text-slate-400">GB</span></div>
+        </div>
+      </div>
+      <div class="glass p-6 rounded-xl flex-1">
+        <div class="text-sm font-semibold text-slate-200 mb-4">Neural Cluster Activity</div>
+        <div class="h-48 rounded bg-slate-900/60 flex items-center justify-center text-xs font-mono text-slate-500">
+          [Real-Time Digraph Stream Active]
+        </div>
+      </div>
+    </main>
+  </div>
+  
+
+  <!-- Footer -->
+  <footer class="glass border-t border-slate-800/80 py-6 mt-12">
+    <div class="max-w-7xl mx-auto px-6 text-center text-xs text-slate-500 font-mono">
+      © 2026 DashboardDemo · Built with Z.A.I.N.E Neural Engine
+    </div>
+  </footer>
+</body>
+</html>

@@ -5,11 +5,13 @@ Z.A.I.N.E TUI Chat Log and Message Turn Widgets
 from datetime import datetime
 from textual.widget import Widget
 from textual.message import Message
+from textual.binding import Binding
 from textual.widgets import Button, Static
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.app import ComposeResult
 from rich.text import Text
 from rich.panel import Panel
+from rich.console import Group
 from rich.markdown import Markdown as RichMarkdown
 
 from tui.theme import (
@@ -44,6 +46,7 @@ class UserTurnCard(Widget):
         title.append(f"[{self.timestamp}]", style=f"dim {COLOR_TEXT_DIM}")
 
         body = Text(f"{self.text}", style=f"bold {COLOR_TEXT}")
+        body.overflow = "fold"
 
         return Panel(
             body,
@@ -72,6 +75,7 @@ class AssistantTurnCard(Widget):
         self,
         markdown_text: str = "",
         model: str = "zaine-reflex-7b",
+        agent_name: str = "jarvis",
         latency: str = "n/a",
         throughput: str = "",
         timestamp: str = "",
@@ -80,6 +84,7 @@ class AssistantTurnCard(Widget):
         super().__init__(**kwargs)
         self.markdown_text = markdown_text
         self.model = model
+        self.agent_name = agent_name
         self.latency = latency
         self.throughput = throughput
         self.timestamp = timestamp or datetime.now().strftime("%H:%M:%S")
@@ -101,21 +106,71 @@ class AssistantTurnCard(Widget):
         self.model = model
         self.refresh()
 
+    def set_agent(self, agent_name: str) -> None:
+        self.agent_name = agent_name
+        self.refresh()
+
     def render(self) -> Panel:
+        card_w = 0
+        if hasattr(self, "size") and self.size and self.size.width:
+            card_w = self.size.width
+        elif hasattr(self, "_size") and self._size and self._size.width:
+            card_w = self._size.width
+        card_w = card_w or 80
+        avail_w = max(28, card_w - 6)
+
         title = Text()
         title.append("Z.A.I.N.E ", style=f"bold {COLOR_CYAN}")
-        meta = f"[{self.model} · {self.latency}"
-        if self.throughput:
+        # Shorten model name if long
+        m_str = self.model
+        if len(m_str) > 18:
+            m_str = m_str[:15] + "…"
+        meta = f"[{m_str} · {self.latency}"
+        if self.throughput and avail_w >= 60:
             meta += f" · {self.throughput}"
         meta += "] "
         title.append(meta, style=f"dim {COLOR_TEXT_MUTED}")
-        title.append(f"[{self.timestamp}]", style=f"dim {COLOR_TEXT_DIM}")
+        if avail_w >= 50:
+            title.append(f"[{self.timestamp}]", style=f"dim {COLOR_TEXT_DIM}")
 
-        content_renderable = (
-            RichMarkdown(self.markdown_text, code_theme="monokai", justify="left")
-            if self.markdown_text
-            else Text("▶ Generating response...", style=f"italic {COLOR_TEXT_MUTED}")
-        )
+        is_streaming = "streaming" in str(self.latency).lower() or not self.markdown_text
+        st_icon = "◆" if is_streaming else "●"
+        st_color = COLOR_CYAN if is_streaming else COLOR_EMERALD
+        st_text = "STREAMING..." if is_streaming else "SYNTHESIZED"
+        if not is_streaming and (self.throughput or self.latency) and avail_w >= 55:
+            st_text += f" ({self.throughput or self.latency})"
+
+        agent_label = self.agent_name.upper()
+        if len(agent_label) > 14:
+            agent_label = agent_label[:12] + "…"
+
+        # Responsive Visual Digraph pipeline header that acts as the model answers
+        digraph_box = Text()
+        if avail_w >= 58:
+            digraph_box.append(" ┌─▶ [PROMPT] ──▶ ", style=f"dim {COLOR_TEXT_DIM}")
+            digraph_box.append(f"[@{agent_label}] ──▶ ", style=f"bold {COLOR_CYAN}")
+            digraph_box.append(f"[{st_icon} {st_text}]\n", style=f"bold {st_color}")
+            pipe_len = min(avail_w - 4, 46)
+            digraph_box.append(" └" + "─" * pipe_len + "\n\n", style=f"dim {COLOR_BORDER}")
+        elif avail_w >= 38:
+            digraph_box.append(" ┌─▶ ", style=f"dim {COLOR_TEXT_DIM}")
+            digraph_box.append(f"[@{agent_label}] ──▶ ", style=f"bold {COLOR_CYAN}")
+            digraph_box.append(f"[{st_icon} {st_text}]\n", style=f"bold {st_color}")
+            pipe_len = min(avail_w - 4, 34)
+            digraph_box.append(" └" + "─" * pipe_len + "\n\n", style=f"dim {COLOR_BORDER}")
+        else:
+            digraph_box.append(f" [@{agent_label}] · [{st_icon} {st_text}]\n\n", style=f"bold {COLOR_CYAN}")
+
+        if self.markdown_text:
+            content_renderable = Group(
+                digraph_box,
+                RichMarkdown(self.markdown_text, code_theme="monokai", justify="left")
+            )
+        else:
+            body = Text()
+            body.append_text(digraph_box)
+            body.append("▶ Generating response...", style=f"italic {COLOR_TEXT_MUTED}")
+            content_renderable = body
 
         return Panel(
             content_renderable,
@@ -183,6 +238,7 @@ class SystemCard(Widget):
             border_style=border,
             style=f"on {COLOR_SURFACE}",
             padding=(0, 1),
+            expand=True,
         )
 
 
@@ -228,8 +284,8 @@ class ApprovalCard(Widget):
         padding: 1 0 0 1;
     }
     ApprovalCard Button {
-        margin-right: 2;
-        min-width: 16;
+        margin-right: 1;
+        min-width: 12;
         height: 3;
     }
     ApprovalCard Button#btn-approve {
@@ -340,8 +396,24 @@ class ChatLog(VerticalScroll):
     }
     """
 
+    BINDINGS = [
+        Binding("up", "scroll_up", "Scroll Up", show=False),
+        Binding("down", "scroll_down", "Scroll Down", show=False),
+        Binding("pageup", "page_up", "Page Up", show=False),
+        Binding("pagedown", "page_down", "Page Down", show=False),
+        Binding("home", "scroll_home", "Top", show=False),
+        Binding("end", "scroll_end", "Bottom", show=False),
+    ]
+
     def __init__(self, **kwargs):
         super().__init__(id="chat-log", **kwargs)
+        self.can_focus = True
+
+    def on_mouse_scroll_up(self, event) -> None:
+        self.scroll_up(animate=False)
+
+    def on_mouse_scroll_down(self, event) -> None:
+        self.scroll_down(animate=False)
 
     WELCOME = (
         "Type a prompt or a /command. Live state (model, tokens, VRAM) is in the HUD on the right.\n"

@@ -3,7 +3,9 @@ Z.A.I.N.E Neural Command Textual Application
 Stage 2: Wired to Core Service SSE Endpoint with Live Streaming, CoT, Tool Events, Timeouts & Cancellation.
 """
 
+import os
 import sys
+import atexit
 from zaine_env import running_under_tests
 import json
 import time
@@ -22,6 +24,19 @@ if sys.platform == "win32":
             sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
+
+
+def _restore_terminal_modes() -> None:
+    """Disables mouse tracking and restores primary screen upon process termination."""
+    try:
+        if sys.platform == "win32":
+            sys.stdout.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l\x1b[?1049l\x1b[?25h")
+            sys.stdout.flush()
+    except Exception:
+        pass
+
+
+atexit.register(_restore_terminal_modes)
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -84,7 +99,14 @@ class ZaineTUI(App):
     BINDINGS = [
         Binding("f2", "toggle_hud", "Toggle HUD", show=False),
         Binding("f3", "toggle_workspace", "Toggle graph workspace", show=False),
+        Binding("f4", "toggle_obsidian_modal", "Obsidian Memory Graph", show=False),
         Binding("escape", "clear_focus", "Clear / Cancel", show=False),
+        Binding("pageup", "scroll_page_up", "Scroll Up", priority=True, show=False),
+        Binding("pagedown", "scroll_page_down", "Scroll Down", priority=True, show=False),
+        Binding("shift+up", "scroll_line_up", "Scroll Line Up", priority=True, show=False),
+        Binding("shift+down", "scroll_line_down", "Scroll Line Down", priority=True, show=False),
+        Binding("ctrl+home", "scroll_to_home", "Scroll to Top", priority=True, show=False),
+        Binding("ctrl+end", "scroll_to_end", "Scroll to Bottom", priority=True, show=False),
         # priority: the focused Input otherwise swallows Ctrl+C as "copy"
         Binding("ctrl+c", "quit_app", "Cancel / Quit", show=False, priority=True),
         Binding("ctrl+q", "quit_now", "Quit", show=False, priority=True),
@@ -264,6 +286,110 @@ class ZaineTUI(App):
         except Exception:
             pass
 
+    def action_toggle_obsidian_modal(self) -> None:
+        """Toggles the interactive Obsidian-style Memory Digraph modal popup (F4 or /graph)."""
+        try:
+            from tui.widgets.obsidian_modal import ObsidianMemoryModal
+            self.push_screen(ObsidianMemoryModal())
+        except Exception:
+            pass
+
+    def _is_graph_workspace_active(self) -> bool:
+        try:
+            return self.query_one(TopologyWorkspace).display
+        except Exception:
+            return False
+
+    def action_scroll_page_up(self) -> None:
+        if self._is_graph_workspace_active():
+            try:
+                topo = self.query_one(TopologyWorkspace)
+                target = topo.query_one(f"#{topo.mode}")
+                if hasattr(target, "scroll_page_up"):
+                    target.scroll_page_up(animate=False)
+            except Exception:
+                pass
+        else:
+            try:
+                self.query_one(ChatLog).scroll_page_up(animate=False)
+            except Exception:
+                pass
+
+    def action_scroll_page_down(self) -> None:
+        if self._is_graph_workspace_active():
+            try:
+                topo = self.query_one(TopologyWorkspace)
+                target = topo.query_one(f"#{topo.mode}")
+                if hasattr(target, "scroll_page_down"):
+                    target.scroll_page_down(animate=False)
+            except Exception:
+                pass
+        else:
+            try:
+                self.query_one(ChatLog).scroll_page_down(animate=False)
+            except Exception:
+                pass
+
+    def action_scroll_line_up(self) -> None:
+        if self._is_graph_workspace_active():
+            try:
+                topo = self.query_one(TopologyWorkspace)
+                target = topo.query_one(f"#{topo.mode}")
+                if hasattr(target, "scroll_up"):
+                    target.scroll_up(animate=False)
+            except Exception:
+                pass
+        else:
+            try:
+                self.query_one(ChatLog).scroll_up(animate=False)
+            except Exception:
+                pass
+
+    def action_scroll_line_down(self) -> None:
+        if self._is_graph_workspace_active():
+            try:
+                topo = self.query_one(TopologyWorkspace)
+                target = topo.query_one(f"#{topo.mode}")
+                if hasattr(target, "scroll_down"):
+                    target.scroll_down(animate=False)
+            except Exception:
+                pass
+        else:
+            try:
+                self.query_one(ChatLog).scroll_down(animate=False)
+            except Exception:
+                pass
+
+    def action_scroll_to_home(self) -> None:
+        if self._is_graph_workspace_active():
+            try:
+                topo = self.query_one(TopologyWorkspace)
+                target = topo.query_one(f"#{topo.mode}")
+                if hasattr(target, "scroll_home"):
+                    target.scroll_home(animate=False)
+            except Exception:
+                pass
+        else:
+            try:
+                self.query_one(ChatLog).scroll_home(animate=False)
+            except Exception:
+                pass
+
+    def action_scroll_to_end(self) -> None:
+        if self._is_graph_workspace_active():
+            try:
+                topo = self.query_one(TopologyWorkspace)
+                target = topo.query_one(f"#{topo.mode}")
+                if hasattr(target, "scroll_end"):
+                    target.scroll_end(animate=False)
+            except Exception:
+                pass
+        else:
+            try:
+                self.query_one(ChatLog).scroll_end(animate=False)
+            except Exception:
+                pass
+
     def action_clear_focus(self) -> None:
         """Cancel active stream or clear input line / unfocus (Esc)."""
         if self.is_streaming:
@@ -406,6 +532,10 @@ class ZaineTUI(App):
             return
 
         # 2. Backend Slash Commands
+        if cmd in ("/graph", "/digraph", "/obsidian", "/memory graph"):
+            self.action_toggle_obsidian_modal()
+            return
+
         if cmd == "/new":
             self.handle_new_session_command(text)
             return
@@ -564,6 +694,24 @@ class ZaineTUI(App):
         parts = user_text.strip().split()
         sub = parts[1].lower() if len(parts) > 1 else "toggle"
 
+        if sub in ("chat", "talk", "live"):
+            # Enable voice output if not already enabled
+            await toggle_voice(self.core_url, enable=True)
+            self.query_one(HeaderBar).voice_enabled = True
+            self.query_one(FooterBar).voice_enabled = True
+            hud = self.query_one(AgentStateHUD)
+            hud.voice_enabled = True
+            hud.refresh()
+
+            chat_log.add_system_card(
+                title="🎤 VOICE CHAT ENGAGED",
+                message="Listening for your voice... Speak your directive clearly into your microphone.\n"
+                        "Z.A.I.N.E will transcribe your speech and answer via speech and text.",
+                level="warning"
+            )
+            self.listen_voice_chat_worker()
+            return
+
         enable_flag = None
         if sub == "on":
             enable_flag = True
@@ -585,6 +733,48 @@ class ZaineTUI(App):
             message=res.get("message", f"Voice state machine is now {state_str}."),
             level="info" if enabled else "warning"
         )
+
+    @work(thread=True, name="voice_chat_listener_worker")
+    def listen_voice_chat_worker(self) -> None:
+        """Captures voice input from the microphone and dispatches into the chat stream."""
+        try:
+            import voice
+            self.call_from_thread(self._set_voice_chat_status, True)
+            spoken = voice.one_shot_listen(duration=7)
+            self.call_from_thread(self._set_voice_chat_status, False)
+            if spoken and spoken.strip():
+                self.call_from_thread(self._on_voice_turn_captured, spoken.strip())
+            else:
+                self.call_from_thread(self._on_voice_turn_silence)
+        except Exception as e:
+            self.call_from_thread(self._set_voice_chat_status, False)
+            self.call_from_thread(self._on_voice_turn_error, str(e))
+
+    def _set_voice_chat_status(self, is_listening: bool) -> None:
+        try:
+            well = self.query_one(InputWell)
+            well.set_generating(is_listening)
+            if is_listening:
+                well.query_one("#input-hints", Static).update("🎙 VOICE CHAT: Listening... Speak your prompt now (Esc to cancel)")
+        except Exception:
+            pass
+
+    def _on_voice_turn_captured(self, spoken_text: str) -> None:
+        chat_log = self.query_one(ChatLog)
+        chat_log.add_system_card(title="✓ VOICE TRANSCRIBED", message=f"Heard: \"{spoken_text}\"", level="success")
+        self._dispatch_user_turn(spoken_text)
+
+    def _on_voice_turn_silence(self) -> None:
+        chat_log = self.query_one(ChatLog)
+        chat_log.add_system_card(
+            title="VOICE CHAT: NO SPEECH DETECTED",
+            message="No speech detected during 7s listening window. Type /voice chat to listen again.",
+            level="info"
+        )
+
+    def _on_voice_turn_error(self, err_text: str) -> None:
+        chat_log = self.query_one(ChatLog)
+        chat_log.add_system_card(title="VOICE CHAT ERROR", message=f"Audio error: {err_text}", level="error")
 
     @work
     async def handle_history_command(self, user_text: str) -> None:
@@ -721,6 +911,8 @@ class ZaineTUI(App):
         # tool name -> running lines in start order (the same tool can run twice in one turn)
         active_tool_lines: Dict[str, list] = {}
         active_assistant_card: Optional[AssistantTurnCard] = None
+        active_agent_id: str = "jarvis"
+        is_mention_turn: bool = prompt.strip().startswith("@")
 
         try:
             async for event in stream_chat_events(
@@ -728,8 +920,8 @@ class ZaineTUI(App):
                 base_url=self.core_url,
                 client_id="terminal-ui",
                 request_id=req_id,
-                default_first_token_timeout=60.0,
-                idle_gap_timeout=20.0,
+                default_first_token_timeout=90.0,
+                idle_gap_timeout=float(os.getenv("ZAINE_IDLE_TIMEOUT", "60.0")),
             ):
                 # Check for cancellation
                 if not self.is_streaming:
@@ -774,8 +966,13 @@ class ZaineTUI(App):
                         name = str(info.get("display_name") or tool_name)
                         color = str(info.get("color") or "#00f5a0")
                         pinned = info.get("source") == "pinned"
+                        if info.get("source") == "mention":
+                            is_mention_turn = True
+                        active_agent_id = str(info.get("agent_id") or active_agent_id)
                         header.agent_name, header.agent_color, header.agent_pinned = name, color, pinned
                         hud.update_agent(name, str(info.get("title", "")), str(info.get("reason", "")), color, pinned)
+                        if active_assistant_card:
+                            active_assistant_card.set_agent(name)
 
                     elif stage in ("delegate_start", "delegate_done"):
                         info = data if isinstance(data, dict) else {}
@@ -877,6 +1074,7 @@ class ZaineTUI(App):
 
                     if active_assistant_card is None:
                         active_assistant_card = chat_log.start_assistant_turn(model=footer.model)
+                        active_assistant_card.set_agent(header.agent_name)
 
                     active_assistant_card.append_token(content)
                     chat_log.scroll_end(animate=False)
@@ -895,19 +1093,31 @@ class ZaineTUI(App):
                         footer.persona = mode.upper()
                         hud.update_metrics(persona=mode.upper())
 
+                    final_reply = ""
                     if active_assistant_card:
                         if event.get("reply"):
                             active_assistant_card.markdown_text = event.get("reply")
                         active_assistant_card.set_final(latency=f"{total_dur:.2f}s", throughput=th_str)
+                        final_reply = active_assistant_card.markdown_text
                     elif event.get("reply"):
+                        final_reply = event.get("reply", "")
                         # If completed without streaming token events (cached turn)
                         chat_log.add_assistant_message(
-                            event.get("reply", ""),
+                            final_reply,
                             model=footer.model,
                             latency=f"{total_dur:.2f}s",
                             throughput=th_str
                         )
                     chat_log.scroll_end(animate=False)
+
+                    # Trigger speech output if mentioned as @agentname or voice is explicitly toggled on
+                    if (is_mention_turn or getattr(header, "voice_enabled", False)) and final_reply:
+                        import voice
+                        threading.Thread(
+                            target=voice.speak_for_agent,
+                            args=(final_reply, active_agent_id, True, is_mention_turn),
+                            daemon=True
+                        ).start()
                     break
 
                 # F. Error Event

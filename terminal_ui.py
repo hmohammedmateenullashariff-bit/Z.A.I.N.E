@@ -80,6 +80,8 @@ GLYPH_SUB = "↳" if UNICODE_SUPPORTED else "->"
 GLYPH_DOT = "•" if UNICODE_SUPPORTED else "-"
 GLYPH_STANDBY = "○" if UNICODE_SUPPORTED else "o"
 CURSOR_BLOCK = "▋" if UNICODE_SUPPORTED else "_"
+GLYPH_SEP = "│" if UNICODE_SUPPORTED else "|"
+GLYPH_ELLIPSIS = "…" if UNICODE_SUPPORTED else "..."
 
 # Dynamic Animation Frames (Claude Code / Hermes engineering style)
 SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -452,6 +454,10 @@ def render_status_bar(status_text: Optional[str] = None, duration_s: Optional[fl
             label = label[6:]
         elif label == "TOOL_RUNNING":
             label = "TOOL"
+        # Responsively truncate tool label with ellipsis to avoid wrapping
+        max_lbl = 18 if cols < 95 else (28 if cols < 120 else 40)
+        if len(label) > max_lbl:
+            label = label[:max(4, max_lbl - 3)] + "..."
         st_styled = f"[{CLR_AMBER}]{GLYPH_TOOL} {label}[/{CLR_AMBER}]"
     elif "QUEUED" in st:
         st_styled = f"[{CLR_AMBER}]{st}[/{CLR_AMBER}]"
@@ -470,34 +476,47 @@ def render_status_bar(status_text: Optional[str] = None, duration_s: Optional[fl
     except Exception:
         pass
 
+    # Model display name (responsively truncated with ellipsis if long)
+    model_name = state.active_model
+    max_model_len = 16 if cols < 95 else (24 if cols < 120 else 36)
+    if len(model_name) > max_model_len:
+        model_name = model_name[:max(4, max_model_len - 3)] + "..."
+
     # Build responsive status content
-    if cols < 85:
-        bar_text = f" [bold {th['primary']}]Z.A.I.N.E[/] │ [{th['accent']}]{th['name']}[/] │ [white]{state.active_model}[/] │ {v_styled} │ {st_styled}"
+    sep = f" {GLYPH_SEP} "
+    if cols < 65:
+        bar_text = f" [bold {th['primary']}]Z.A.I.N.E[/]{sep}{st_styled}"
+    elif cols < 85:
+        bar_text = f" [bold {th['primary']}]Z.A.I.N.E[/]{sep}[white]{model_name}[/]{sep}{v_styled}{sep}{st_styled}"
     elif cols < 115:
         bar_text = (
-            f" [bold {th['primary']}]Z.A.I.N.E[/] "
-            f"│ [{th['accent']}]{th['name']}[/] "
-            f"│ [white]{state.active_model}[/] "
-            f"│ {v_styled} "
-            f"│ [dim]TOOLS: {total_tools}[/] "
-            f"│ [dim]{state.session_id}[/] "
-            f"│ {st_styled}"
+            f" [bold {th['primary']}]Z.A.I.N.E[/]{sep}"
+            f"[{th['accent']}]{th['name']}[/]{sep}"
+            f"[white]{model_name}[/]{sep}"
+            f"{v_styled}{sep}"
+            f"[dim]TOOLS: {total_tools}[/]{sep}"
+            f"[dim]{state.session_id}[/]{sep}"
+            f"{st_styled}"
         )
     else:
-        dur_str = f" │ [dim]{dur:.1f}s[/dim]" if dur > 0 else ""
+        dur_str = f"{sep}[dim]{dur:.1f}s[/dim]" if dur > 0 else ""
         bar_text = (
-            f" [bold {th['primary']}]Z.A.I.N.E[/] "
-            f"│ [{th['accent']}]{th['name']}[/] "
-            f"│ [white]{state.active_model}[/] "
-            f"│ {v_styled} "
-            f"│ [dim]TOOLS: {total_tools}[/] "
-            f"│ [dim]{state.session_id}[/] "
-            f"│ {st_styled}"
+            f" [bold {th['primary']}]Z.A.I.N.E[/]{sep}"
+            f"[{th['accent']}]{th['name']}[/]{sep}"
+            f"[white]{model_name}[/]{sep}"
+            f"{v_styled}{sep}"
+            f"[dim]TOOLS: {total_tools}[/]{sep}"
+            f"[dim]{state.session_id}[/]{sep}"
+            f"{st_styled}"
             f"{dur_str}"
         )
 
+    t_bar = Text.from_markup(bar_text)
+    t_bar.no_wrap = True
+    t_bar.overflow = "ellipsis"
+
     panel = Panel(
-        Text.from_markup(bar_text),
+        t_bar,
         border_style=CLR_BORDER,
         box=BOX_STYLE,
         padding=(0, 0),
@@ -631,7 +650,7 @@ def format_tool_args_summary(args: Any) -> str:
     """Concise single-line summary of tool arguments for telemetry traces."""
     if not isinstance(args, dict):
         s = str(args).strip().replace("\n", " ")
-        return s[:60] + "..." if len(s) > 60 else s
+        return (s[:57] + "...") if len(s) > 60 else s
     parts = []
     for k, v in args.items():
         v_str = str(v).strip().replace("\n", " ")
@@ -933,7 +952,7 @@ def render_error_card(title: str, message: str, details: Optional[str] = None):
 # 4. CHAT STREAMING & EXECUTION ENGINE
 # ==============================================================================
 
-def execute_chat_turn(user_message: str, core_url: Optional[str] = None):
+def execute_chat_turn(user_message: str, core_url: Optional[str] = None, speak_response: bool = False):
     """
     Executes a user conversation turn via SSE against CoreService.
     Preserves clean terminal UX: User -> Streaming -> Tool Activity -> Response -> Divider.
@@ -970,6 +989,9 @@ def execute_chat_turn(user_message: str, core_url: Optional[str] = None):
     cursor_active = False
     response_tokens = []
     has_shown_reasoning = False
+    current_agent_id = "jarvis"
+    current_agent_name = "J.A.R.V.I.S."
+    is_mention_turn = clean_msg.strip().startswith("@")
 
     req_id = f"term-{uuid.uuid4().hex[:8]}"
     payload = {
@@ -982,17 +1004,19 @@ def execute_chat_turn(user_message: str, core_url: Optional[str] = None):
     stream_url = f"{base_url}/api/chat/stream"
 
     try:
-        resp = requests.post(stream_url, json=payload, stream=True, timeout=(5.0, 45.0))
+        resp = requests.post(stream_url, json=payload, stream=True, timeout=(5.0, 90.0))
         if resp.status_code != 200:
             anim_controller.stop()
             # Fallback to non-streaming endpoint
-            fb_resp = requests.post(f"{base_url}/api/chat", json=payload, timeout=(5.0, 30.0))
+            fb_resp = requests.post(f"{base_url}/api/chat", json=payload, timeout=(5.0, 60.0))
             if fb_resp.status_code == 200:
                 reply = fb_resp.json().get("reply", "")
                 render_response(reply)
                 duration = time.time() - t_start
                 state.last_duration = duration
                 update_status_state(status_text="READY", duration_s=duration)
+                if (speak_response or voice.is_voice_enabled() or is_mention_turn) and reply:
+                    threading.Thread(target=voice.speak_for_agent, args=(reply, current_agent_id, True, (speak_response or is_mention_turn)), daemon=True).start()
                 return
             else:
                 err_msg = f"HTTP {resp.status_code}: {resp.text}"
@@ -1027,7 +1051,7 @@ def execute_chat_turn(user_message: str, core_url: Optional[str] = None):
                 update_status_state(status_text="THINKING")
                 anim_controller.update_phase("Thinking")
 
-            # 3. Model Routing
+            # 3. Model Routing & Agent Attribution
             elif ev_type == "tool_event" and event.get("stage") == "route":
                 anim_controller.update_phase("Planning")
                 route_data = event.get("data", {})
@@ -1035,6 +1059,14 @@ def execute_chat_turn(user_message: str, core_url: Optional[str] = None):
                     m = route_data.get("model")
                     if m:
                         state.active_model = m
+
+            elif ev_type == "tool_event" and event.get("stage") == "agent":
+                agent_info = event.get("data", {})
+                if isinstance(agent_info, dict):
+                    current_agent_id = agent_info.get("agent_id", current_agent_id)
+                    current_agent_name = agent_info.get("display_name", current_agent_name)
+                    if agent_info.get("source") == "mention":
+                        is_mention_turn = True
 
             # 4. High-level Reasoning Notice (Never dumps private CoT)
             elif ev_type == "tool_event" and event.get("stage") == "think":
@@ -1064,7 +1096,11 @@ def execute_chat_turn(user_message: str, core_url: Optional[str] = None):
                     stream_started = True
                     anim_controller.stop()
                     update_status_state(status_text="STREAMING")
-                    console.print(f"\n[bold {th['primary']}]Z.A.I.N.E {GLYPH_PROMPT}[/bold {th['primary']}]\n")
+                    # Visual Digraph Header that acts as the model answers
+                    arr_start = "┌─▶" if UNICODE_SUPPORTED else "|->"
+                    arr_step = "──▶" if UNICODE_SUPPORTED else "-->"
+                    agent_disp = (current_agent_name[:18] + "...") if len(current_agent_name) > 20 else current_agent_name
+                    console.print(f"\n[{CLR_DIM}]{arr_start}[/{CLR_DIM}] [bold {CLR_GREEN}]USER PROMPT[/{CLR_GREEN}] [{CLR_DIM}]{arr_step}[/{CLR_DIM}] [bold {CLR_CYAN}]@{agent_disp}[/bold {CLR_CYAN}] [{CLR_DIM}]{arr_step}[/{CLR_DIM}] [bold {th['primary']}]MODEL ANSWER STREAMING[/bold {th['primary']}]\n")
 
                 response_tokens.append(content)
 
@@ -1103,6 +1139,16 @@ def execute_chat_turn(user_message: str, core_url: Optional[str] = None):
         if stream_started:
             console.print()
         update_status_state(status_text="READY", duration_s=total_dur)
+
+        # Trigger speech output if voice is explicitly enabled, requested via /speak, or triggered via @mention
+        if (speak_response or voice.is_voice_enabled() or is_mention_turn) and response_tokens:
+            full_speech_text = "".join(response_tokens).strip()
+            if full_speech_text:
+                threading.Thread(
+                    target=voice.speak_for_agent,
+                    args=(full_speech_text, current_agent_id, True, (speak_response or is_mention_turn)),
+                    daemon=True
+                ).start()
 
     except requests.exceptions.Timeout:
         total_dur = time.time() - t_start
@@ -1554,7 +1600,42 @@ def cmd_voice(arg: str):
         render_status_bar()
         return
 
-    console.print(f"[{CLR_AMBER}]Usage: /voice [status|on|off]. Use /speak to ask a single voice question.[/{CLR_AMBER}]\n")
+    if arg_clean in ("chat", "talk", "live"):
+        cmd_voice_chat()
+        return
+
+    console.print(f"[{CLR_AMBER}]Usage: /voice [status|on|off|chat]. Use /voice chat for continuous conversational listening.[/{CLR_AMBER}]\n")
+
+
+def cmd_voice_chat():
+    """Continuous conversational voice chat loop. Listens via microphone, answers via neural voice."""
+    voice.enable_voice()
+    console.print(f"\n  [{CLR_GREEN}]{GLYPH_SUCCESS} VOICE CHAT CONVERSATION LOOP ENGAGED[/{CLR_GREEN}]")
+    console.print(f"  [{CLR_CYAN}]Speak to Z.A.I.N.E through your microphone. Say 'exit', 'stop', or press Ctrl+C to end.[/{CLR_CYAN}]\n")
+    render_status_bar(status_text="VOICE CHAT")
+
+    while True:
+        try:
+            console.print(f"  [{CLR_AMBER}]🎙 Listening... (Speak clearly)[/{CLR_AMBER}]")
+            spoken_text = voice.one_shot_listen(duration=7)
+            if not spoken_text or not spoken_text.strip():
+                console.print(f"  [{CLR_DIM}](Silence detected - continuing to listen...)[/{CLR_DIM}]")
+                time.sleep(0.5)
+                continue
+            spoken = spoken_text.strip()
+            console.print(f"\n  [{CLR_CYAN}]▶ USER (Voice):[/{CLR_CYAN}] {spoken}")
+            if spoken.lower() in ("exit", "quit", "stop", "cancel", "bye", "goodbye"):
+                console.print(f"  [{CLR_AMBER}]Voice chat ended by user directive.[/{CLR_AMBER}]\n")
+                break
+            process_prompt(spoken)
+            time.sleep(0.5)
+        except KeyboardInterrupt:
+            console.print(f"\n  [{CLR_AMBER}]Voice chat interrupted by user.[/{CLR_AMBER}]\n")
+            break
+        except Exception as e:
+            console.print(f"\n  [{CLR_RED}]{GLYPH_FAILED} Voice chat error: {e}[/{CLR_RED}]\n")
+            break
+    render_status_bar(status_text="READY")
 
 
 def cmd_speak():
@@ -1576,7 +1657,7 @@ def cmd_speak():
         return
 
     console.print(f"\n  [bold {th['primary']}]{th['user_prefix']} (Voice):[/bold {th['primary']}] {spoken_text}")
-    execute_chat_turn(spoken_text)
+    execute_chat_turn(spoken_text, speak_response=True)
 
 
 def cmd_session():
@@ -1681,7 +1762,7 @@ def cmd_memory(arg: str):
                 e.id,
                 e.type.value,
                 e.trust.value,
-                e.title[:45] + ("..." if len(e.title) > 45 else ""),
+                (e.title[:42] + "...") if len(e.title) > 45 else e.title,
                 e.updated or e.created
             )
         console.print()
@@ -2020,7 +2101,8 @@ def run_terminal_cli(core_service: Optional[Any] = None):
         try:
             th = get_theme()
             cols = get_terminal_cols()
-            div_line = "─" * max(40, cols - 1)
+            div_char = "─" if UNICODE_SUPPORTED else "-"
+            div_line = div_char * max(30, cols - 2)
 
             console.print(f"[{CLR_BORDER}]{div_line}[/{CLR_BORDER}]")
             prompt_str = f"[bold {th['primary']}]{th['user_prefix']} {GLYPH_PROMPT}[/bold {th['primary']}] "

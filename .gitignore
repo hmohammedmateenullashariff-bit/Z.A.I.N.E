@@ -1,13 +1,32 @@
-# Virtual Environment
+# Virtual Environment & Python Packages
 venv/
 .venv/
 env/
+venv*/
+.venv*/
+env*/
+ENV/
+pyenv/
+.conda/
+python-packages/
+__pypackages__/
+*site-packages*/
+dist-packages/
+.Python
+*.egg-info/
+.eggs/
+*.egg
+*.whl
+wheels/
+pip-wheel-metadata/
 
-# Python Cache
+# Python Cache & Test Caches
 __pycache__/
 *.pyc
 *.pyo
 .ruff_cache/
+.pytest_cache/
+.mypy_cache/
 
 # Node Modules & Dependencies
 node_modules/
@@ -15,20 +34,47 @@ dist/
 build/
 *.exe
 
-# Secret & Environment Variables (Phase 3 Security)
+# Secret, Token & Environment Variables (Phase 3 Security)
 .env
 .env.local
+.env.*
+!.env.example
+!.env.template
+*.env
+.secrets/
 client_secret*.json
+*secret*.json
+*credentials*.json
+*oauth*.json
+token.json
+tokens.json
+*_token.json
+*_token*.json
+*_tokens.json
+*.key
+*.pem
 data/youtube_token.json
 data/youtube_queue.json
 data/youtube_schedule_state.json
 data/youtube_analytics_history.json
 
-# Database & Storage
+# Database, Face-ID Data & Storage
 *.db
+*.db-*
+*.db.*
+*.sqlite
 *.sqlite3
 *.bak
 *.db.bak
+zaine_face_id*
+faces/
+face_data/
+*_faces/
+enrolled_faces*
+*.npy
+*.npz
+*.pkl
+*.joblib
 
 # Voice & Model Weights (Large binary files)
 voices/*.onnx
@@ -37,7 +83,17 @@ voices/*.onnx.json
 *.onnx.json
 finetune/zaine-3b-qlora/
 finetune/checkpoint-*/
+finetune/*/checkpoint-*/
+checkpoint-*/
+checkpoints/
 models/
+merged_model/*.bin
+merged_model/*.safetensors
+merged_model/*.pt
+merged_model/*.pth
+ollama_models/
+blobs/
+manifests/
 *.bin
 *.safetensors
 *.pth
@@ -45,16 +101,29 @@ models/
 *.task
 *.blend
 *.gguf
+*.ggml
+*.h5
+*.hdf5
+*.tflite
+*.ckpt
+*.pb
+*.mlmodel
+Modelfile.local*
 custom_tools/IronHands/
 
 # Runtime Process State
 .zaine_core.json
+zaine_core.json
 
-# Workspace Scratchpad & Audit
+# Workspace Scratchpad, Runs, Vault Copies & Audit
 workspace/
 scratch/
 scratch_audit/*
 !scratch_audit/test_presentation_dry_run.py
+data/runs/
+data/audit/
+vault_copy/
+vault_dev_copy/
 
 # Large Media & Archives
 *.mp4

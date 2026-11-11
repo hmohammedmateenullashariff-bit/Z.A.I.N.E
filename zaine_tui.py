@@ -92,6 +92,12 @@ def main() -> None:
         app = ZaineTUI()
         app.run()
     finally:
+        if sys.platform == "win32":
+            try:
+                sys.stdout.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l\x1b[?1049l\x1b[?25h")
+                sys.stdout.flush()
+            except Exception:
+                pass
         if core_svc:
             try:
                 core_svc.stop()

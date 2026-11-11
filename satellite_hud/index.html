@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Z.A.I.N.E Satellite HUD</title>
+  <link rel="stylesheet" href="/static/hud.css">
+</head>
+<body>
+  <div class="hud-container">
+    <!-- Header -->
+    <header class="hud-header">
+      <span class="hud-title">Z.A.I.N.E SATELLITE HUD</span>
+      <span class="hud-badge" id="coreStatus">ONLINE</span>
+    </header>
+
+    <!-- Living Arc Reactor Canvas (360x360 px) -->
+    <div class="reactor-viewport">
+      <canvas id="arcCanvas" width="360" height="360"></canvas>
+    </div>
+
+    <!-- Telemetry Readouts -->
+    <footer class="hud-footer">
+      <div class="telemetry-row">
+        <span class="telemetry-label">ACTIVE PERSONA:</span>
+        <span class="telemetry-val" id="activePersona">ZAINE</span>
+      </div>
+      <div class="telemetry-row">
+        <span class="telemetry-label">VRAM USAGE:</span>
+        <span class="telemetry-val" id="vramUsage">2.2 GB / 4.0 GB</span>
+      </div>
+      <div class="telemetry-row">
+        <span class="telemetry-label">ARMORY BUS:</span>
+        <span class="telemetry-val" id="jobTelemetry">IDLE</span>
+      </div>
+
+      <!-- Persona Selector Bar -->
+      <div class="persona-selector">
+        <button class="btn-persona active" data-persona="zaine">ZAINE</button>
+        <button class="btn-persona" data-persona="edith">EDITH</button>
+        <button class="btn-persona" data-persona="friday">FRIDAY</button>
+        <button class="btn-persona" data-persona="ultron">ULTRON</button>
+      </div>
+    </footer>
+  </div>
+
+  <script src="/static/audio_synth.js"></script>
+  <script src="/static/arc_reactor.js"></script>
+  <script src="/static/hud.js"></script>
+</body>
+</html>
+

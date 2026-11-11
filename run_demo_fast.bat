@@ -15,8 +15,14 @@ set ZAINE_NUM_CTX=6144
 set ZAINE_WORKSPACE=%~dp0demo_workspace
 set OLLAMA_MODELS=D:\ollama\models
 
-echo [1/2] Checking Ollama daemon...
-powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 2; Write-Host '  -> Ollama is online.' } catch { Write-Host '  -> Starting Ollama daemon...'; Start-Process -NoNewWindow ollama 'serve'; Start-Sleep -Seconds 3 }"
+echo [1/2] Checking Ollama daemon and models...
+python scripts\ensure_ollama.py
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Ollama daemon failed to start or load models.
+    pause
+    exit /b 1
+)
 
 echo [2/2] Starting CoreService with these settings (a core running with other settings is restarted)...
 python scripts\ensure_core.py

@@ -36,7 +36,7 @@ Status legend: ✅ fixed on 2026-10-22 · 🔴 critical · 🟠 high · 🟡 med
    - biometric shortcut;
    - `router.classify_task_tier`;
    - `classify_intent_clusters` → `build_clustered_system_prompt` (+ ~2,000 chars of memory);
-   - up to 6 Ollama ↔ tool hops.
+   - up to the agent's `max_tool_hops` Ollama ↔ tool hops, then one tool-free answer round (`harness.py`: structured outcomes, dead-end detection, compacted results with `read_result` handles).
 5. **Tool call:** `_execute_tool` maps aliases → normalizes params → guest-role gate → `TOOL_REGISTRY[name](**args)`.
 6. **Approval (if the tool needs it):**
    - `approval.require_approval` saves a proposal (`data/zaine_approvals.db`), sends SSE `approval_required` and posts the Telegram card;
@@ -55,6 +55,7 @@ Status legend: ✅ fixed on 2026-10-22 · 🔴 critical · 🟠 high · 🟡 med
 | `coordinator.py` | Global request serializer plus idempotency cache. |
 | `core_router.py` | Model names (`zaine-reflex-7b`, `zaine-fast-3b`, `zaine-coder-7b`, `moondream`), fallback chains, tier keywords, parallel tool pool. |
 | `agent.py` | `ZaineAgent`: intent detectors, tool-call parser, ~200 tool aliases, guest gate, the chat loop. |
+| `harness.py` | ✅ new: plan–execute–verify helpers: `tool_outcome` (ok/error/blocked/denied), `compact` (head + error lines + tail), `ResultStore` for `read_result`, `CallTracker` (repeat/dead-end detection). |
 | `approval.py` | Proposals DB, Telegram approval card, wait loop, `require_approval`. |
 | `zaine_env.py` | ✅ new: `running_under_tests()` (replaces the unreliable `"unittest" in sys.modules` check). **Must be committed.** |
 | `ollama_profiler.py` | Logs every Ollama call (prints to the console). |
@@ -156,7 +157,7 @@ Status legend: ✅ fixed on 2026-10-22 · 🔴 critical · 🟠 high · 🟡 med
 **Core / agent**
 5. A cancelled request keeps running alongside the next one: two `_chat_stream_impl` calls on one agent, interleaved memory, two generations on the GPU (`coordinator.py` ~209).
 6. The biometric shortcut fires on normal questions ("look at memory usage", "who am i talking to") and opens the webcam. An "unknown" result then locks write tools for the whole session (`agent.py` ~132–139, 1018–1045).
-7. Hitting the 6-hop tool limit returns an empty reply (`agent.py` ~1111–1351).
+7. ✅ Fixed 2026-10-23: hitting the hop limit used to return an empty reply. Now a tool-free final round runs, with a deterministic summary of what ran as fallback.
 8. `ZAINE_DEMO` caps output at 300 tokens. That truncates `write_workspace_file` JSON, and the parser still writes the truncated file (`agent.py` ~1112, 440–458).
 9. The core prints `[OLLAMA_CALL]` lines into the console the TUI draws on (`ollama_profiler.py` ~71; the `.bat` files use `-NoNewWindow`).
 10. In fast mode, any Ollama error falls back to the 7B model, which evicts the 3B mid-demo (`agent.py` ~1132–1138).

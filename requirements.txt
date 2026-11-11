@@ -12,6 +12,6 @@ python-dotenv
 pyautogui
 opencv-python
 mss
-edge-tts
+edge-tts>=7.3.1
 av
 textual==8.2.8

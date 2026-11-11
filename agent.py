@@ -17,6 +17,9 @@ from tools import TOOL_REGISTRY, TOOL_DESCRIPTIONS
 from memory import ConversationMemory
 from tool_clusters import classify_intent_clusters, build_clustered_system_prompt, TOOL_CLUSTERS
 from core_router import router
+from harness import CallTracker, ResultStore, compact, result_char_limit, tool_outcome
+from core.circuit_breaker import get_circuit_breaker
+from core.task_envelope import is_tool_permitted
 
 # Startup Tool Registration Advisory Check
 def _validate_tool_registrations():
@@ -40,11 +43,12 @@ _validate_tool_registrations()
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 
+ZAINE_FAST = os.getenv("ZAINE_FAST", "1").lower() in ("1", "true", "yes")
 ZAINE_SINGLE_MODEL = os.getenv("ZAINE_SINGLE_MODEL", "1").lower() in ("1", "true", "yes")
 
-MODEL_NAME = "zaine-reflex-7b"
-CODER_MODEL_NAME = "zaine-reflex-7b" if ZAINE_SINGLE_MODEL else "zaine-coder-7b"
-DEEP_MODEL_NAME = "zaine-reflex-7b"
+MODEL_NAME = router.reflex_model
+CODER_MODEL_NAME = router.coder_model
+DEEP_MODEL_NAME = router.deep_model
 
 
 def is_coding_intent(prompt: str) -> bool:
@@ -399,6 +403,8 @@ class ZaineAgent:
         self._turn_model = None
         self._turn_thread = None
         self._delegation_depth = 0
+        # Full text of tool results that were shortened for the prompt (read back with read_result)
+        self._results = ResultStore()
         # Pre-warm and permanently pin Tier 0 Reflex Core into GPU VRAM
         try:
             router.pin_reflex_in_vram()
@@ -432,6 +438,47 @@ class ZaineAgent:
         cleaned = re.sub(r",\s*\}", "}", cleaned)
         cleaned = re.sub(r",\s*\]", "]", cleaned)
 
+        def _normalize_call(obj) -> dict | None:
+            if not isinstance(obj, dict):
+                return None
+            # Standard {"tool": "...", "args": {...}}
+            if "tool" in obj and isinstance(obj["tool"], str):
+                tname = obj["tool"].strip()
+                targs = obj.get("args")
+                if targs is None:
+                    targs = obj.get("parameters") or obj.get("arguments") or obj.get("input") or {}
+                if not isinstance(targs, dict):
+                    targs = {}
+                return {"tool": tname, "args": targs}
+            # OpenAI / function calling {"name": "...", "arguments": {...}}
+            for name_k in ("name", "function", "action", "tool_name"):
+                if name_k in obj and isinstance(obj[name_k], str):
+                    tname = obj[name_k].strip()
+                    targs = obj.get("arguments") or obj.get("parameters") or obj.get("args") or obj.get("action_input") or {}
+                    if isinstance(targs, str):
+                        try:
+                            targs = json.loads(targs)
+                        except Exception:
+                            targs = {}
+                    if not isinstance(targs, dict):
+                        targs = {}
+                    return {"tool": tname, "args": targs}
+            # Nested {"function": {"name": "...", "arguments": ...}}
+            if "function" in obj and isinstance(obj["function"], dict):
+                fn = obj["function"]
+                if "name" in fn and isinstance(fn["name"], str):
+                    tname = fn["name"].strip()
+                    targs = fn.get("arguments") or fn.get("parameters") or fn.get("args") or {}
+                    if isinstance(targs, str):
+                        try:
+                            targs = json.loads(targs)
+                        except Exception:
+                            targs = {}
+                    if not isinstance(targs, dict):
+                        targs = {}
+                    return {"tool": tname, "args": targs}
+            return None
+
         # 1. Standard raw_decode with lenient strict=False
         decoder = json.JSONDecoder(strict=False)
         calls = []
@@ -442,8 +489,9 @@ class ZaineAgent:
                 break
             try:
                 obj, end = decoder.raw_decode(cleaned[start:])
-                if isinstance(obj, dict) and "tool" in obj:
-                    calls.append(obj)
+                norm = _normalize_call(obj)
+                if norm:
+                    calls.append(norm)
                 idx = start + max(end, 1)
             except Exception:
                 idx = start + 1
@@ -451,8 +499,41 @@ class ZaineAgent:
         if calls:
             return calls
 
+        # 1b. Python literal parsing for single-quote dicts (e.g. {'tool': 'add_task', 'args': {...}})
+        import ast
+        idx = 0
+        while idx < len(cleaned):
+            start = cleaned.find("{", idx)
+            if start == -1:
+                break
+            depth = 0
+            end = -1
+            for i in range(start, len(cleaned)):
+                if cleaned[i] == "{":
+                    depth += 1
+                elif cleaned[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+            if end != -1:
+                sub = cleaned[start:end]
+                try:
+                    obj = ast.literal_eval(sub)
+                    norm = _normalize_call(obj)
+                    if norm:
+                        calls.append(norm)
+                except Exception:
+                    pass
+                idx = end
+            else:
+                idx = start + 1
+
+        if calls:
+            return calls
+
         # 2. Resilient regex recovery for malformed LLM JSON blocks
-        pattern = r'\{\s*["\']tool["\']\s*:\s*["\']([^"\']+)["\']'
+        pattern = r'\{\s*["\'](?:tool|name|function|action)["\']\s*:\s*["\']([^"\']+)["\']'
         for match in re.finditer(pattern, cleaned):
             tname = match.group(1)
             block_start = match.start()
@@ -460,7 +541,7 @@ class ZaineAgent:
             block = cleaned[block_start:block_end + 2] if block_end != -1 else cleaned[block_start:]
 
             args = {}
-            fp = re.search(r'["\'](?:filepath|filename|path|file|script_path)["\']\s*:\s*["\']([^"\']+)["\']', block)
+            fp = re.search(r'["\'](?:filepath|filename|path|file|script_path|file_path)["\']\s*:\s*["\']([^"\']+)["\']', block)
             if fp:
                 args["filepath"] = fp.group(1)
 
@@ -471,7 +552,7 @@ class ZaineAgent:
                     raw_c = raw_c.encode().decode('unicode_escape', errors='replace')
                 args["content"] = raw_c
 
-            for k in ("query", "word", "coin", "city", "amount", "from_curr", "to_curr", "app_name", "action", "command", "prompt", "url"):
+            for k in ("query", "word", "coin", "city", "amount", "from_curr", "to_curr", "app_name", "action", "command", "prompt", "url", "description", "task", "due", "category", "priority", "task_id", "message", "time_str", "target_snippet", "replacement_snippet", "title"):
                 m = re.search(rf'["\']{k}["\']\s*:\s*["\']?([^"\'\,\n\}}]+)["\']?', block)
                 if m:
                     val = m.group(1).strip()
@@ -480,8 +561,38 @@ class ZaineAgent:
                             val = float(val)
                         except Exception:
                             pass
+                    elif k == "task_id":
+                        try:
+                            val = int(val)
+                        except Exception:
+                            pass
                     args[k] = val
 
+            if tname:
+                calls.append({"tool": tname, "args": args})
+
+        if calls:
+            return calls
+
+        # 3. Resilient recovery for pseudo-tool formats like:
+        # [TOOL] "tool_name", {"arg": "val"} or [TOOL] tool_name
+        pseudo_pattern = r'\[TOOL\]\s*["\']?([A-Za-z0-9_]+)["\']?(?:[\s,]*(\{.*?\}))?'
+        for match in re.finditer(pseudo_pattern, cleaned, re.DOTALL):
+            tname = match.group(1).strip()
+            args_raw = match.group(2)
+            args = {}
+            if args_raw:
+                try:
+                    parsed = json.loads(args_raw)
+                    if isinstance(parsed, dict):
+                        if "args" in parsed and isinstance(parsed["args"], dict):
+                            args = parsed["args"]
+                        elif "args" in parsed and isinstance(parsed["args"], list):
+                            args = {}
+                        else:
+                            args = parsed
+                except Exception:
+                    pass
             if tname:
                 calls.append({"tool": tname, "args": args})
 
@@ -693,8 +804,52 @@ class ZaineAgent:
             "studio_status": "youtube_studio_status",
             "trigger_youtube_pipeline": "trigger_youtube_pipeline",
             "run_youtube_pipeline": "trigger_youtube_pipeline",
+            # Tasks & Todos
+            "task_add": "add_task",
+            "create_task": "add_task",
+            "new_task": "add_task",
+            "todo": "add_task",
+            "add_todo": "add_task",
+            "tasks": "list_tasks",
+            "show_tasks": "list_tasks",
+            "get_tasks": "list_tasks",
+            "list_todo": "list_tasks",
+            "mark_task_done": "complete_task",
+            "mark_done": "complete_task",
+            "done_task": "complete_task",
+            "finish_task": "complete_task",
+            "complete": "complete_task",
+            "remove_task": "delete_task",
+            "drop_task": "delete_task",
+            # Reminders
+            "remind": "set_reminder",
+            "reminder": "set_reminder",
+            "create_reminder": "set_reminder",
+            # Memory & Recall
+            "search_memory": "recall",
+            "memory_search": "recall",
+            "total_recall": "recall",
+            "query_memory": "recall",
+            # Web Search
+            "web_search": "search_web",
+            "google_search": "search_web",
+            "google": "search_web",
+            "find_on_web": "search_web",
+            # Workspace Files
+            "read_file": "read_workspace_file",
+            "write_file": "write_workspace_file",
+            "create_file": "write_workspace_file",
+            "edit_file": "edit_workspace_file",
+            "modify_file": "edit_workspace_file",
+            "update_file": "edit_workspace_file",
+            # System Status
+            "system_info": "system_status",
+            "status": "system_status",
+            "sys_status": "system_status",
+            "get_system_status": "system_status",
         }
-        name = aliases.get(raw_name, raw_name)
+        clean_raw = str(raw_name).strip().lower().replace("-", "_")
+        name = aliases.get(raw_name, aliases.get(clean_raw, raw_name))
         self.last_tool_called = name
 
         # Biometric Permission Tier Gate (Admin vs Guest vs Unknown)
@@ -760,54 +915,166 @@ class ZaineAgent:
             elif "term" in args and "word" not in args:
                 args["word"] = args.pop("term")
         elif name in ("write_workspace_file", "read_workspace_file"):
-            if "filename" in args and "filepath" not in args:
-                args["filepath"] = args.pop("filename")
-            elif "path" in args and "filepath" not in args:
-                args["filepath"] = args.pop("path")
-            elif "file" in args and "filepath" not in args:
-                args["filepath"] = args.pop("file")
+            if "filepath" not in args:
+                for k in ("filename", "path", "file", "file_path", "target", "dest", "destination"):
+                    if k in args:
+                        args["filepath"] = str(args.pop(k))
+                        break
             if name == "write_workspace_file" and "content" not in args:
                 for k in ("code", "script", "text", "body", "data", "source"):
                     if k in args:
-                        args["content"] = args.pop(k)
+                        args["content"] = str(args.pop(k))
                         break
         elif name == "run_python_script":
-            if "filename" in args and "script_path" not in args:
-                args["script_path"] = args.pop("filename")
-            elif "path" in args and "script_path" not in args:
-                args["script_path"] = args.pop("path")
-            elif "filepath" in args and "script_path" not in args:
-                args["script_path"] = args.pop("filepath")
-        elif name == "open_application":
-            if "name" in args and "app_name" not in args:
-                args["app_name"] = args.pop("name")
-        elif name == "close_application":
-            if "name" in args and "app_name" not in args:
-                args["app_name"] = args.pop("name")
-            elif "target" in args and "app_name" not in args:
-                args["app_name"] = args.pop("target")
+            if "script_path" not in args:
+                for k in ("filename", "path", "filepath", "file", "script"):
+                    if k in args:
+                        args["script_path"] = str(args.pop(k))
+                        break
+            if "args" not in args:
+                for k in ("arguments", "parameters", "params"):
+                    if k in args:
+                        args["args"] = str(args.pop(k))
+                        break
+        elif name in ("open_application", "close_application"):
+            if "app_name" not in args:
+                for k in ("name", "target", "app", "application", "program"):
+                    if k in args:
+                        args["app_name"] = str(args.pop(k))
+                        break
         elif name == "media_control":
             if "command" in args and "action" not in args:
                 args["action"] = args.pop("command")
             elif "act" in args and "action" not in args:
                 args["action"] = args.pop("act")
         elif name == "edit_workspace_file":
-            if "target" in args and "target_snippet" not in args:
-                args["target_snippet"] = args.pop("target")
-            if "replacement" in args and "replacement_snippet" not in args:
-                args["replacement_snippet"] = args.pop("replacement")
-            if "filename" in args and "filepath" not in args:
-                args["filepath"] = args.pop("filename")
-            elif "path" in args and "filepath" not in args:
-                args["filepath"] = args.pop("path")
+            if "filepath" not in args:
+                for k in ("filename", "path", "file", "file_path", "target_file"):
+                    if k in args:
+                        args["filepath"] = str(args.pop(k))
+                        break
+            if "target_snippet" not in args:
+                for k in ("target", "old_text", "old_str", "find", "search", "old", "match", "original"):
+                    if k in args:
+                        args["target_snippet"] = str(args.pop(k))
+                        break
+            if "replacement_snippet" not in args:
+                for k in ("replacement", "new_text", "new_str", "replace", "new", "updated"):
+                    if k in args:
+                        args["replacement_snippet"] = str(args.pop(k))
+                        break
         elif name == "execute_command":
-            if "cmd" in args and "command" not in args:
-                args["command"] = args.pop("cmd")
+            if "command" not in args:
+                for k in ("cmd", "script", "shell", "exec", "action"):
+                    if k in args:
+                        args["command"] = str(args.pop(k))
+                        break
         elif name == "read_code_definitions":
-            if "filename" in args and "filepath" not in args:
-                args["filepath"] = args.pop("filename")
-            elif "path" in args and "filepath" not in args:
-                args["filepath"] = args.pop("path")
+            if "filepath" not in args:
+                for k in ("filename", "path", "file", "file_path"):
+                    if k in args:
+                        args["filepath"] = str(args.pop(k))
+                        break
+        elif name == "add_task":
+            if "description" not in args:
+                for k in ("task", "title", "content", "name", "text", "todo", "desc", "msg", "summary"):
+                    if k in args:
+                        args["description"] = str(args.pop(k))
+                        break
+            if "due" not in args:
+                for k in ("due_date", "date", "time", "deadline", "when"):
+                    if k in args:
+                        args["due"] = str(args.pop(k))
+                        break
+            if "category" not in args:
+                for k in ("tag", "type", "group", "cat"):
+                    if k in args:
+                        args["category"] = str(args.pop(k))
+                        break
+            if "priority" not in args:
+                for k in ("urgency", "level", "prio"):
+                    if k in args:
+                        args["priority"] = str(args.pop(k))
+                        break
+        elif name in ("complete_task", "delete_task"):
+            if "task_id" not in args:
+                for k in ("id", "task", "index", "num", "task_number", "item_id"):
+                    if k in args:
+                        args["task_id"] = args.pop(k)
+                        break
+            if "task_id" in args:
+                try:
+                    num_match = re.search(r'\d+', str(args["task_id"]))
+                    if num_match:
+                        args["task_id"] = int(num_match.group())
+                except Exception:
+                    pass
+        elif name == "list_tasks":
+            if "category" not in args:
+                for k in ("filter", "type", "tag", "cat", "group"):
+                    if k in args:
+                        args["category"] = str(args.pop(k))
+                        break
+            if "show_done" not in args:
+                for k in ("show_completed", "done", "all", "completed", "show_all"):
+                    if k in args:
+                        val = args.pop(k)
+                        if isinstance(val, bool):
+                            args["show_done"] = val
+                        elif isinstance(val, str):
+                            args["show_done"] = val.lower() in ("true", "1", "yes")
+                        break
+        elif name == "set_reminder":
+            if "message" not in args:
+                for k in ("reminder", "task", "text", "content", "note", "msg", "description"):
+                    if k in args:
+                        args["message"] = str(args.pop(k))
+                        break
+            if "time_str" not in args:
+                for k in ("time", "when", "due", "at", "duration", "delay", "remind_at"):
+                    if k in args:
+                        args["time_str"] = str(args.pop(k))
+                        break
+        elif name == "list_reminders":
+            if "show_triggered" not in args:
+                for k in ("all", "show_all", "show_done", "triggered"):
+                    if k in args:
+                        val = args.pop(k)
+                        if isinstance(val, bool):
+                            args["show_triggered"] = val
+                        elif isinstance(val, str):
+                            args["show_triggered"] = val.lower() in ("true", "1", "yes")
+                        break
+        elif name in ("search_web", "deep_search"):
+            if "query" not in args:
+                for k in ("q", "search", "term", "prompt", "text", "keyword"):
+                    if k in args:
+                        args["query"] = str(args.pop(k))
+                        break
+        elif name == "recall":
+            if "query" not in args:
+                for k in ("q", "search", "keyword", "text", "key", "topic"):
+                    if k in args:
+                        args["query"] = str(args.pop(k))
+                        break
+        elif name == "remember":
+            if "key" not in args and "value" not in args:
+                for k in ("fact", "memory", "note", "content", "text"):
+                    if k in args:
+                        args["key"] = "general"
+                        args["value"] = str(args.pop(k))
+                        break
+            elif "value" not in args:
+                for k in ("fact", "memory", "note", "content", "text", "val"):
+                    if k in args:
+                        args["value"] = str(args.pop(k))
+                        break
+        elif name == "browse_web":
+            if "url" not in args:
+                for k in ("link", "website", "address", "page"):
+                    if k in args:
+                        args["url"] = str(args.pop(k))
+                        break
         elif name == "play_on_youtube":
             if "song" in args and "query" not in args:
                 args["query"] = args.pop("song")
@@ -989,17 +1256,37 @@ class ZaineAgent:
             if "note" in args and "content" not in args:
                 args["content"] = args.pop("note")
 
-        # Sub-agent permissions are enforced here, on the canonical tool name, not only by what the
-        # prompt shows: a model naming a tool outside its agent's scope must not run it.
+        # Sub-agent permissions: strictly enforce when explicitly requested (@mention or /agent pin),
+        # or inside a subagent consultation; allow cross-domain tools if auto-routed by keyword.
         if name in ("delegate", "ask", "consult_agent", "ask_subagent", "ask_agents"):
             name = "ask_agent"
         agent_profile = getattr(self, "active_agent", None)
-        if agent_profile is not None and not agent_profile.allows(name):
+        selection = getattr(self, "last_agent_selection", None)
+        is_explicit = (
+            getattr(self, "_delegation_depth", 0) > 0
+            or (selection is not None and selection.source in ("mention", "pinned"))
+            or selection is None
+        )
+        if is_explicit and agent_profile is not None and not agent_profile.allows(name):
             return (f"Tool '{name}' is outside {agent_profile.display_name}'s permissions "
                     f"({agent_profile.title}). Answer without it, or ask Sir to switch with /agent or @jarvis.")
 
+        # Envelope-level tool permission check
+        permitted, deny_reason = is_tool_permitted(name, getattr(agent_profile, "name", None))
+        if not permitted:
+            return deny_reason
+
+        # Keyed Circuit Breaker check
+        breaker = get_circuit_breaker()
+        allowed, trip_reason = breaker.can_execute(name)
+        if not allowed:
+            return trip_reason
+
         if name == "ask_agent":
             return self._delegate(args)
+        if name == "read_result":
+            return self._result_store().read(args.get("id") or args.get("result_id") or "", args.get("start", 0),
+                                      args.get("length", 1200))
 
         fn = TOOL_REGISTRY.get(name)
         if fn is None:
@@ -1016,9 +1303,18 @@ class ZaineAgent:
                 args = {k: v for k, v in args.items() if k in params}
         except (TypeError, ValueError):
             pass
+        t_start = time.time()
         try:
             result = str(fn(**args))
+            breaker.record_success(name)
         except Exception as e:
+            duration_ms = int((time.time() - t_start) * 1000)
+            breaker.record_failure(
+                tool=name,
+                error_class=type(e).__name__,
+                message=str(e),
+                duration_ms=duration_ms
+            )
             return f"Error running tool '{name}': {e}"
         if ignored:
             result += f"\n[note: ignored unsupported argument(s) for {name}: {', '.join(ignored)}]"
@@ -1084,6 +1380,57 @@ class ZaineAgent:
                                                       "ok": ok, "answer": answer[:500]})
         return f"{target.display_name} replied:\n{answer}"
 
+    def _result_store(self) -> ResultStore:
+        if getattr(self, "_results", None) is None:
+            self._results = ResultStore()
+        return self._results
+
+    def _tool_feedback(self, tname: str, targs, result: str, tracker: CallTracker):
+        """One tool result as the model sees it: an outcome tag, the (compacted) text, and any loop warning.
+        Returns (feedback_text, outcome)."""
+        outcome = tool_outcome(result)
+        if tname == "read_result":
+            body, shortened = str(result), False
+        else:
+            body, shortened = compact(result, result_char_limit(tname), outcome.key_line)
+        if shortened:
+            rid = self._result_store().put(tname, result)
+            body += (f'\n[shortened; the full result is {rid}. If you need more, call '
+                     f'{{"tool": "read_result", "args": {{"id": "{rid}", "start": 0}}}}]')
+        lines = [f"[TOOL RESULT for {tname} ({outcome.label()})]: {body}"]
+        for warning in tracker.record(tname, targs, result, outcome):
+            lines.append(f"[SYSTEM NOTE]: {warning}")
+        return "\n".join(lines), outcome
+
+    @staticmethod
+    def _hop_note(outcomes, final: bool) -> str:
+        """What the model should do next, from the structured outcomes of this hop."""
+        if final:
+            return ("[SYSTEM NOTE]: The tool budget for this request is used up. Do NOT call any more tools. "
+                    "Answer Sir now in plain language: what was done, what worked, and what is still unresolved.")
+        if any(o.status == "blocked" for o in outcomes):
+            return ("[SYSTEM NOTE]: Sir did not approve that action. Do not retry it or work around it; "
+                    "tell Sir it was not done and offer an alternative if there is one.")
+        if any(o.fixable for o in outcomes):
+            return ("[SYSTEM NOTE]: A tool reported an error (see the error line above). Fix the cause, for "
+                    "example with edit_workspace_file or write_workspace_file, and re-run to verify before answering.")
+        return ("[SYSTEM NOTE]: Use the results above. If no further tool is needed, answer Sir in plain "
+                "language and do not repeat the tool call JSON.")
+
+    @staticmethod
+    def _cap_summary(history) -> str:
+        """Deterministic answer when the model still wants tools after the budget is spent."""
+        lines = ["I reached my tool-step limit before finishing, Sir. Here is where things stand:"]
+        for item in history[-6:]:
+            outcome = tool_outcome(item["result"])
+            detail = outcome.key_line if not outcome.ok else str(item["result"]).strip().splitlines()[0][:120] \
+                if str(item["result"]).strip() else ""
+            lines.append(f"- {item['tool']}: {outcome.label()}" + (f" ({detail})" if detail else ""))
+        last = tool_outcome(history[-1]["result"]) if history else None
+        if last is not None and not last.ok:
+            lines.append("The last step did not succeed, so the task is not finished. Tell me how you'd like to proceed.")
+        return "\n".join(lines)
+
     def _run_subagent(self, profile, request: str, caller_name: str) -> str:
         """One consultation: the target agent's own prompt and tools, a few non-streamed hops, text answer."""
         model = self._turn_model or router.resolve_model(router.reflex_model)
@@ -1099,6 +1446,7 @@ class ZaineAgent:
                           f"your reply goes back to {caller_name}, not to Sir.")
         messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": request}]
         hops = min(profile.max_tool_hops, self.SUBAGENT_MAX_HOPS)
+        tracker = CallTracker()
         content = ""
         for hop in range(hops + 1):
             payload = {
@@ -1132,13 +1480,16 @@ class ZaineAgent:
                 return content.strip() or "(no answer)"
             if hop == hops:
                 return "Stopped after the consultation's tool limit. Last output:\n" + content.strip()
-            feedback = []
+            feedback, outcomes = [], []
             for tc in calls[:3]:
                 tname = tc.get("tool", "")
                 self._emit("start", tname, tc.get("args", {}))
                 result = self._execute_tool(tc)
                 self._emit("done", tname, result)
-                feedback.append(f"[TOOL RESULT for {tname}]: {result}")
+                text, outcome = self._tool_feedback(tname, tc.get("args", {}), result, tracker)
+                feedback.append(text)
+                outcomes.append(outcome)
+            feedback.append(self._hop_note(outcomes, final=hop + 1 == hops or tracker.stuck()))
             messages.append({"role": "assistant", "content": content})
             messages.append({"role": "user", "content": "\n".join(feedback)})
         return content.strip() or "(no answer)"
@@ -1267,13 +1618,15 @@ class ZaineAgent:
                     "reason": selection.reason,
                     "source": selection.source,
                     "color": profile.color,
+                    "voice": getattr(profile, "voice", "en-GB-RyanNeural"),
                     "clusters": list(active_clusters),
                 })
             except Exception:
                 pass
 
+        mem_ctx = self.memory.get_persistent_context(current_prompt=user_message)
         system_prompt = build_clustered_system_prompt(
-            self.memory.get_persistent_context(current_prompt=user_message),
+            "",
             ultron_mode=self.ultron_mode,
             active_clusters=active_clusters,
             active_user=active_user,
@@ -1286,13 +1639,20 @@ class ZaineAgent:
         if is_plain_code:
             system_prompt += "\nProvide the requested code implementation directly in a clean markdown code block with minimal essential docstrings. Do NOT call external tools."
 
-        messages = [{"role": "system", "content": system_prompt}] + self.memory.get_messages()
+        # Slot 0 is byte-identical across turns (100% KV-cache hit in Ollama/llama.cpp)
+        messages = [{"role": "system", "content": system_prompt}]
+        if mem_ctx and mem_ctx.strip():
+            messages.append({"role": "system", "content": f"[DYNAMIC OPERATOR & MEMORY CONTEXT]\n{mem_ctx.strip()}"})
+        messages.extend(self.memory.get_messages())
 
         max_tool_hops = profile.max_tool_hops  # per agent; default 6 allows write -> run -> debug -> verify loops
         hops = 0
         executed_tool_history = []
+        tracker = CallTracker()
+        # After the last tool hop (or a detected dead end) the model gets one tool-free round to answer.
+        final_round = False
 
-        while hops < max_tool_hops:
+        while True:
             num_predict_val = 300 if is_demo else (2048 if self.ultron_mode else 1024)
             keep_alive_val = -1 if (is_demo or ZAINE_SINGLE_MODEL or active_model == router.reflex_model or "reflex" in active_model.lower()) else "5m"
             num_ctx_val = int(os.environ.get("ZAINE_NUM_CTX", "4096"))
@@ -1305,6 +1665,9 @@ class ZaineAgent:
                     "num_ctx": num_ctx_val,
                     "num_predict": num_predict_val,
                     "temperature": 0.4 if self.ultron_mode else 0.55,
+                    "num_thread": int(os.environ.get("ZAINE_NUM_THREAD", "6")),
+                    "top_p": 0.9,
+                    "repeat_penalty": 1.1,
                 },
             }
             t_call_start = time.perf_counter()
@@ -1435,6 +1798,9 @@ class ZaineAgent:
                     if len(stripped) >= 15:
                         checked_prefix = True
 
+                if "[TOOL]" in full_content or "[TOOL]" in sentence_buffer:
+                    is_tool_candidate = True
+
                 # If not a tool call, stream sentences and code lines in real time
                 if not is_tool_candidate:
                     # Check for sentence end punctuation followed by whitespace or line break
@@ -1443,6 +1809,9 @@ class ZaineAgent:
                         if punct in sentence_buffer:
                             parts = sentence_buffer.split(punct, 1)
                             sentence = (parts[0] + punct[0]).strip()
+                            if "[TOOL]" in sentence:
+                                sentence = sentence.split("[TOOL]")[0].strip()
+                                is_tool_candidate = True
                             if sentence:
                                 yield sentence + " "
                             sentence_buffer = parts[1]
@@ -1458,9 +1827,21 @@ class ZaineAgent:
 
             # Stream finished for this hop — check for tool call(s)
             tool_calls = self._try_parse_tool_calls(full_content)
+            if tool_calls and final_round:
+                # Budget spent and the model still asks for tools: answer from what actually ran.
+                reply = self._cap_summary(executed_tool_history)
+                yield reply
+                with self._chat_lock:
+                    self.memory.add("assistant", reply)
+                try:
+                    from memory import reflect_on_task_async
+                    reflect_on_task_async(user_message, executed_tool_history, reply, model_name=MODEL_NAME)
+                except Exception:
+                    pass
+                return
             if tool_calls:
                 tool_feedbacks = []
-                has_error = False
+                outcomes = []
                 if len(tool_calls) > 1:
                     parallel_res = router.execute_tools_parallel(tool_calls, self._execute_tool)
                     for item in parallel_res:
@@ -1470,9 +1851,9 @@ class ZaineAgent:
                         targs = tc.get("args", {})
                         tool_result = item["result"]
                         executed_tool_history.append({"tool": tname, "args": targs, "result": tool_result})
-                        tool_feedbacks.append(f"[TOOL RESULT for {tname}]: {tool_result}")
-                        if any(m in tool_result for m in ("Exit code:", "Error:", "Traceback", "SyntaxError", "NameError")):
-                            has_error = True
+                        feedback, outcome = self._tool_feedback(tname, targs, tool_result, tracker)
+                        tool_feedbacks.append(feedback)
+                        outcomes.append(outcome)
                 else:
                     for tc in tool_calls:
                         tname = tc.get("tool", "")
@@ -1502,19 +1883,16 @@ class ZaineAgent:
                             except Exception:
                                 pass
                         executed_tool_history.append({"tool": tname, "args": targs, "result": tool_result})
-                        tool_feedbacks.append(f"[TOOL RESULT for {tname}]: {tool_result}")
-                        if any(m in tool_result for m in ("Exit code:", "Error:", "Traceback", "SyntaxError", "NameError")):
-                            has_error = True
+                        feedback, outcome = self._tool_feedback(tname, targs, tool_result, tracker)
+                        tool_feedbacks.append(feedback)
+                        outcomes.append(outcome)
 
-                if has_error and hops < max_tool_hops - 1:
-                    tool_feedbacks.append("[SYSTEM NOTE]: An error or bug occurred during execution. Inspect the error above, use edit_workspace_file or write_workspace_file to fix it, and re-run to verify before answering.")
-                else:
-                    # Small models tend to echo the tool-call JSON into their answer after a result.
-                    tool_feedbacks.append("[SYSTEM NOTE]: Use the results above. If no further tool is needed, answer Sir in plain language and do not repeat the tool call JSON.")
+                hops += 1
+                final_round = hops >= max_tool_hops or tracker.stuck()
+                tool_feedbacks.append(self._hop_note(outcomes, final_round))
 
                 messages.append({"role": "assistant", "content": full_content})
                 messages.append({"role": "user", "content": "\n".join(tool_feedbacks)})
-                hops += 1
                 continue
             else:
                 # Final conversational turn: flush any remaining words in buffer
@@ -1527,6 +1905,15 @@ class ZaineAgent:
 
                 with self._chat_lock:
                     self.memory.add("assistant", full_content)
+
+                # Persist turn to SQLite chat_sessions and chat_messages (Fix D)
+                try:
+                    from db.sessions import session_manager
+                    session_id = getattr(self, "active_session_id", "ses-default")
+                    session_manager.append_message(session_id, "user", user_message)
+                    session_manager.append_message(session_id, "assistant", full_content, model=active_model)
+                except Exception:
+                    pass
 
                 # Trigger continuous experiential learning reflection in background
                 try:

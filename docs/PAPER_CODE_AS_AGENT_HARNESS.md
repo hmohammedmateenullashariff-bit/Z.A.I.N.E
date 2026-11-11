@@ -20,8 +20,8 @@
 
 | # | Improvement | Where | Size |
 | :--- | :--- | :--- | :--- |
-| 1 | **Real plan–execute–verify loop:** a final tool-free answer when the hop cap is hit (today it returns "I'm here."); a structured per-tool outcome `{ok, exit_code, error_kind, stderr_tail}` instead of substring checks; dead-end detection when the same call or error repeats; E.D.I.T.H. stops when checks pass | `agent.py` hop loop | S–M |
-| 2 | **Compact tool results with retrievable handles:** cap injected results (~700 chars, deterministic summary), store the full text under `workspace/.runs/`, add a `read_result(id, start, length)` tool | hop loop + new store | S–M |
+| 1 ✅ | **Real plan–execute–verify loop:** a final tool-free answer when the hop cap is hit (today it returns "I'm here."); a structured per-tool outcome `{ok, exit_code, error_kind, stderr_tail}` instead of substring checks; dead-end detection when the same call or error repeats; E.D.I.T.H. stops when checks pass | `agent.py` hop loop | S–M |
+| 2 ✅ | **Compact tool results with retrievable handles:** cap injected results (~700 chars, deterministic summary), store the full text (built: in-memory `ResultStore`, last 50 results), add a `read_result(id, start, length)` tool | hop loop + new store | S–M |
 | 3 | **Turn trace store + replay suite** that gates every change to profiles, keywords or prompts; measure fallback-parse rate, misroutes and hop-cap hits | `_emit`, `ollama_profiler`, `eval_test_prompts.py` | M |
 | 4 | **Deterministic sensors for E.D.I.T.H.:** `py_compile` (and `ruff` if present) after every `.py` write, results fed to the next hop and to ULTRON | post-hook after `write_workspace_file` / `edit_workspace_file` | M |
 | 5 | **Externalised plan/state with fresh-context steps:** a small structured state (goal, steps, artifact handles, last checks) per hop / consultation / pipeline step; `ask_agent` sends a structured brief; one compact "last turn did X" line in memory | hop loop, `_delegate`, future pipeline engine | M–L |

@@ -362,7 +362,7 @@ def remember(key: str, value: str) -> str:
     return save_memory(key, value, source=MemorySource.TOOL, trust=TrustLevel.PROVISIONAL)
 
 
-def recall(query: str = "") -> str:
+def recall(query: str = "", **kwargs) -> str:
     """Recalls saved facts or user preferences from long-term memory."""
     from memory import get_memory, get_all_memories
     if not query:
@@ -370,7 +370,15 @@ def recall(query: str = "") -> str:
         if not mems:
             return "No persistent memories saved yet."
         return "\n".join(f"- {k}: {v}" for k, v in mems.items())
-    return get_memory(query)
+    res = get_memory(query)
+    if not res or "No saved memory" in res:
+        if "lookback_minutes" in kwargs:
+            try:
+                from total_recall import recall_recent_activity
+                return recall_recent_activity(query=query, lookback_minutes=kwargs["lookback_minutes"])
+            except Exception:
+                pass
+    return res
 
 
 def learn_lesson(lesson: str, keywords: str = "") -> str:
@@ -463,6 +471,30 @@ def list_workspace_files(subfolder: str = "") -> str:
         return "Workspace files:\n" + "\n".join(items)
     except Exception as e:
         return f"Error listing workspace files: {e}"
+
+
+def delete_workspace_files(subfolder: str = "") -> str:
+    """Safely deletes files or folders inside the workspace directory (e.g. old media, temp files)."""
+    try:
+        ws = get_workspace_dir()
+        target = _resolve_workspace_path(subfolder) if subfolder else ws
+        if not target.exists():
+            return f"Notice: Target '{subfolder}' does not exist in workspace, nothing to delete."
+        deleted = []
+        if target.is_file():
+            target.unlink()
+            deleted.append(str(target.name))
+        elif target.is_dir():
+            for item in list(target.rglob("*")):
+                if item.is_file():
+                    try:
+                        item.unlink()
+                        deleted.append(str(item.relative_to(ws)))
+                    except Exception:
+                        pass
+        return f"Successfully deleted {len(deleted)} file(s) from '{subfolder}'." if deleted else f"No files found to delete in '{subfolder}'."
+    except Exception as e:
+        return f"Error deleting workspace files in '{subfolder}': {e}"
 
 
 def run_python_script(script_path: str, args: str = "") -> str:
@@ -1611,6 +1643,8 @@ TOOL_REGISTRY = {
     "edit_workspace_file": edit_workspace_file,
     "read_code_definitions": read_code_definitions,
     "list_workspace_files": list_workspace_files,
+    "delete_workspace_files": delete_workspace_files,
+    "delete_workspace_file": delete_workspace_files,
     "run_python_script": run_python_script,
     "execute_command": execute_command,
     "open_application": open_application,
@@ -1659,6 +1693,10 @@ TOOL_REGISTRY = {
     "download_web_file": lambda url="", save_as="", **kwargs: __import__("browser_agent").download_web_file(url=url, save_as=save_as, **kwargs),
     "hive_mind": lambda goal="": __import__("hive_mind").run_hive_mind(goal),
     "thermal_telemetry": lambda: __import__("thermal_guard").get_thermal_telemetry(),
+    "reverse_engineer_github": lambda repo_path_or_url=".", extract_apis=True: __import__("tools_skills").reverse_engineer_github(repo_path_or_url, extract_apis),
+    "reverse_engineer_repo": lambda repo_path_or_url=".", extract_apis=True: __import__("tools_skills").reverse_engineer_github(repo_path_or_url, extract_apis),
+    "edit_video_timeline": lambda project_name="youtube_edit", cuts_json="[]", format="fcpxml": __import__("tools_skills").edit_video_timeline(project_name, cuts_json, format),
+    "scaffold_modern_website": lambda site_name="modern_app", layout_type="landing_page", theme="dark_neon": __import__("tools_skills").scaffold_modern_website(site_name, layout_type, theme),
     "clean_unwanted_files": lambda: __import__("thermal_guard").clean_unwanted_files(),
     "devops_report": lambda: __import__("home_ops").generate_devops_report(),
     "backup_memory": lambda: __import__("home_ops").backup_database(),
@@ -1708,6 +1746,11 @@ TOOL_REGISTRY = {
     "custom_code_benchmarker": lambda script_path="", args="": __import__("custom_tools.code_benchmarker", fromlist=["code_benchmarker"]).code_benchmarker(script_path=script_path, args=args),
     "instagram_manager": lambda action="stats", username="", password="", video_path="", caption="": __import__("custom_tools.instagram_manager", fromlist=["instagram_manager"]).instagram_manager(action=action, username=username, password=password, video_path=video_path, caption=caption),
     "custom_instagram_manager": lambda action="stats", username="", password="", video_path="", caption="": __import__("custom_tools.instagram_manager", fromlist=["instagram_manager"]).instagram_manager(action=action, username=username, password=password, video_path=video_path, caption=caption),
+    "tactical_overview": lambda lat=12.9716, lon=77.5946: __import__("tactical.gods_eye_bridge", fromlist=["get_tactical_overview"]).get_tactical_overview(lat, lon),
+    "query_air_traffic": lambda lat=12.9716, lon=77.5946, radius_deg=1.0: __import__("tactical.gods_eye_bridge", fromlist=["query_air_traffic"]).query_air_traffic(lat, lon, radius_deg),
+    "get_satellite_pass": lambda norad_id=25544: __import__("tactical.gods_eye_bridge", fromlist=["get_satellite_pass"]).get_satellite_pass(norad_id),
+    "get_seismic_hazards": lambda min_magnitude=4.5: __import__("tactical.gods_eye_bridge", fromlist=["get_seismic_hazards"]).get_seismic_hazards(min_magnitude),
+    "get_local_tactical_status": lambda: __import__("tactical.gods_eye_bridge", fromlist=["get_local_tactical_status"]).get_local_tactical_status(),
 }
 
 # Boot up and register previously synthesized custom tools

@@ -1,0 +1,40 @@
+{
+  "proposal_id": "YT-8BB5",
+  "slot_id": "forced_anime",
+  "slot_label": "Forced (anime)",
+  "genre": "anime",
+  "title": "Ichigo True Bankai vs Yhwach: Fate Shattered \u26a1\ud83d\udca5 #shorts #bleach #anime #edit",
+  "description": "The King of Quincy feared one man: Ichigo Kurosaki Horn of Salvation.\n\nWhich Bleach Bankai gave you the biggest chills? Drop your vote! \ud83d\udc47\n\n#bleach #ichigo #yhwach #tybw #bankai #anime #amv #darkedit #zaineeditz #shorts",
+  "tags": [
+    "Bleach",
+    "Ichigo",
+    "Yhwach",
+    "Bankai",
+    "TYBW",
+    "Anime Edit",
+    "AMV",
+    "Shorts",
+    "ZaineEditz"
+  ],
+  "category_id": "1",
+  "engagement_question": "Which Bankai reveal in Bleach gave you the absolute biggest goosebumps? \u26a1\ud83d\udc47",
+  "video_path": "C:\\Users\\Mohemad Mateen ullah\\Documents\\projects\\Project-Z\\workspace\\youtube_shorts\\anime_amv_ichigo_true_bankai_vs_yhwach_manga_ink_bleed_16247.mp4",
+  "metadata_path": "C:\\Users\\Mohemad Mateen ullah\\Documents\\projects\\Project-Z\\workspace\\youtube_shorts\\short_20261102_131626.json",
+  "duration_sec": 45.0,
+  "file_size_mb": 35.45,
+  "optical_flow_climaxes": [
+    10.0,
+    15.0,
+    20.0
+  ],
+  "audio_stems": "Demucs master: raga_of_revenge_cinematic.wav (Phonk bass/drums boosted, dialogue clarity curve)",
+  "editorial_rationale": "Topic 'Ichigo True Bankai vs Yhwach' selected for peak algorithmic search volume and high viewer retention on anime combat choreography. Farneback dense optical flow detected 3 kinetic climax spikes at [10.0s, 15.0s, 20.0s], used to anchor split-screen transition cuts and rhythm beat drops.",
+  "created_at": "2026-11-02T13:58:05.140307",
+  "created_timestamp": 1793608085.1403074,
+  "status": "PENDING_REVIEW",
+  "reminder_3h_sent": true,
+  "reminder_6h_sent": true,
+  "video_sent": false,
+  "retry_count": 1,
+  "last_retry_timestamp": 1793789987.7835553
+}

@@ -11,6 +11,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from rich.text import Text
 from textual.widget import Widget
+from textual.containers import VerticalScroll
+from textual.widgets import Static
+from textual.binding import Binding
+from textual.app import ComposeResult
 
 from tui.theme import (
     COLOR_EMERALD, COLOR_CYAN, COLOR_VIOLET_BRIGHT, COLOR_AMBER, COLOR_ROSE,
@@ -390,3 +394,143 @@ class DigraphCanvas(Widget):
     def render(self) -> Text:
         return render_digraph(self.graph, self.size.width, self.size.height, self.graph_style,
                               self.frame, self.empty_hint)
+
+
+class SunDigraphCanvas(VerticalScroll):
+    """
+    Solar / Sun Digraph workspace widget (Tab [4]).
+    Renders an animated radiant solar directed-graph that activates and evolves
+    live as the model answers queries, showing the solar core, cognitive rays,
+    active agent node, streaming answer flow, and live inference metrics.
+    Fully scrollable vertically and horizontally with mouse wheel and keyboard.
+    """
+
+    DEFAULT_CSS = """
+    SunDigraphCanvas {
+        width: 1fr;
+        height: 1fr;
+        background: #060913;
+        overflow-y: scroll;
+        overflow-x: auto;
+    }
+    #sun-body {
+        width: auto;
+        height: auto;
+    }
+    """
+
+    CORONA_GLYPHS = ["☼", "✦", "✧", "✴", "✺", "✹", "·", "∘", "◦"]
+
+    BINDINGS = [
+        Binding("up", "scroll_up", "Scroll Up", show=False),
+        Binding("down", "scroll_down", "Scroll Down", show=False),
+        Binding("pageup", "page_up", "Page Up", show=False),
+        Binding("pagedown", "page_down", "Page Down", show=False),
+        Binding("home", "scroll_home", "Top", show=False),
+        Binding("end", "scroll_end", "Bottom", show=False),
+    ]
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.can_focus = True
+        self.graph: Optional[Any] = None
+        self.frame = 0
+        self._timer = None
+
+    def compose(self) -> ComposeResult:
+        yield Static(id="sun-body")
+
+    def set_graph(self, graph: Any) -> None:
+        self.graph = graph
+        self._update_display()
+
+    def on_mount(self) -> None:
+        self._timer = self.set_interval(0.2, self._tick)
+        self._update_display()
+
+    def _tick(self) -> None:
+        self.frame += 1
+        self._update_display()
+
+    def _update_display(self) -> None:
+        try:
+            body = self.query_one("#sun-body", Static)
+            body.update(self.build_sun_text())
+        except Exception:
+            pass
+
+    def on_mouse_scroll_up(self, event: Any) -> None:
+        self.scroll_up(animate=False)
+
+    def on_mouse_scroll_down(self, event: Any) -> None:
+        self.scroll_down(animate=False)
+
+    def render(self) -> Text:
+        return self.build_sun_text()
+
+    def build_sun_text(self) -> Text:
+        w = max(40, self.size.width or 100)
+        t = Text()
+
+        g = self.graph
+        is_active = g is not None and getattr(g, "is_active", False)
+        summary = g.summary() if g is not None else {}
+        prompt = summary.get("prompt", "")
+        agent = summary.get("agent", "J.A.R.V.I.S.")
+        model = summary.get("model", "zaine-fast-3b")
+        tok_s = summary.get("tok_s", 0.0)
+        tokens = summary.get("tokens", 0)
+        tools = summary.get("tools", 0)
+        hops = summary.get("hops", 1)
+
+        # 1. Header Banner
+        t.append(" ☼ SUN COGNITIVE DIGRAPH ", style=f"bold {COLOR_AMBER}")
+        t.append("· Real-time Solar Answering DAG\n", style=COLOR_TEXT_DIM)
+        t.append("─" * min(w - 2, 70) + "\n\n", style=COLOR_BORDER)
+
+        if g is None or g.is_empty:
+            t.append("  [☼ SUN CORE IDLE]\n", style=f"bold {COLOR_AMBER}")
+            t.append("  Waiting for user prompt in command view. Once answered, the solar digraph pulses here.\n", style=f"italic {COLOR_TEXT_MUTED}")
+            t.append("  Switch back with [F3] or select [1] Execution DAG, [2] System, [3] Orbit 3D.\n", style=COLOR_TEXT_DIM)
+            return t
+
+        corona = self.CORONA_GLYPHS[self.frame % len(self.CORONA_GLYPHS)]
+        pulse_color = COLOR_AMBER if is_active else COLOR_EMERALD
+
+        # Digraph Layer 1: Prompt Input Node (46 cols aligned)
+        p_short = (prompt[:35] + "…") if len(prompt) > 36 else prompt
+        t.append("  ╭── [1. USER PROMPT] ──────────────────────╮\n", style=COLOR_EMERALD)
+        t.append(f"  │ ❝ {p_short:<36} ❞ │\n", style=f"bold {COLOR_TEXT}")
+        t.append("  ╰────────────────────┬─────────────────────╯\n", style=COLOR_EMERALD)
+        t.append("                       │\n", style=COLOR_BORDER)
+        t.append("                       ▼\n", style=f"bold {COLOR_EMERALD}")
+
+        # Digraph Layer 2: Solar Agent Core (The Sun Hub) (46 cols aligned)
+        status_label = "ACTIVE" if is_active else "READY "
+        agent_s = (agent[:17] + "…") if len(agent) > 18 else agent
+        model_s = (model[:16] + "…") if len(model) > 17 else model
+        t.append(f"  ╭── [2. SOLAR CORE: {status_label}] ───────────────╮\n", style=pulse_color)
+        t.append(f"  │   {corona} ACTIVE AGENT: @{agent_s:<18} {corona}  │\n", style=f"bold {COLOR_CYAN}")
+        t.append(f"  │   ☼ COGNITIVE MODEL: {model_s:<17} ☼ │\n", style=f"bold {COLOR_VIOLET_BRIGHT}")
+        t.append("  ╰────────────────────┬─────────────────────╯\n", style=pulse_color)
+        t.append("                       │\n", style=COLOR_BORDER)
+        t.append("                       ▼\n", style=f"bold {pulse_color}")
+
+        # Digraph Layer 3: Cognitive Deliberation / Tools (46 cols aligned)
+        hops_s = str(hops)[:2]
+        tools_s = str(tools)[:4]
+        t.append("  ╭── [3. COGNITIVE PIPELINE] ───────────────╮\n", style=COLOR_VIOLET_BRIGHT)
+        t.append(f"  │   Hops: {hops_s:<2}  │ Tool Runs: {tools_s:<4}            │\n", style=COLOR_TEXT)
+        t.append(f"  │   Rate: {tok_s:>5.1f} tok/s ({tokens:<4} tok)           │\n", style=f"bold {COLOR_CYAN}")
+        t.append("  ╰────────────────────┬─────────────────────╯\n", style=COLOR_VIOLET_BRIGHT)
+        t.append("                       │\n", style=COLOR_BORDER)
+        t.append("                       ▼\n", style=f"bold {COLOR_VIOLET_BRIGHT}")
+
+        # Digraph Layer 4: Model Output Node (Live Answering) (46 cols aligned)
+        t.append("  ╭── [4. MODEL STREAMING OUTPUT] ───────────╮\n", style=COLOR_EMERALD if not is_active else COLOR_CYAN)
+        ans_state = "✦ STREAMING LIVE TO USER..." if is_active else "● SYNTHESIZED & DISPATCHED"
+        t.append(f"  │   {ans_state:<38} │\n", style=f"bold {COLOR_EMERALD if not is_active else COLOR_CYAN}")
+        t.append("  ╰──────────────────────────────────────────╯\n\n", style=COLOR_EMERALD if not is_active else COLOR_CYAN)
+
+        t.append(f"  [☼ Status: {'ACTIVE' if is_active else 'READY'}] · Turn #{summary.get('turn', 1)} · [1] DAG · [2] System · [3] Orbit · [4] Sun · [F3] Back\n", style=COLOR_TEXT_DIM)
+        return t

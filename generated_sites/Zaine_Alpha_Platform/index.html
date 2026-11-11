@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zaine_Alpha_Platform | Modern Web Experience</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              emerald: '#00f5a0',
+              cyan: '#00d2ff',
+              violet: '#7928ca',
+              dark: '#030712'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .glass {
+      background: rgba(11, 16, 28, 0.75);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .glow-radial {
+      background: radial-gradient(circle at 50% 0%, rgba(0, 245, 160, 0.15), transparent 70%);
+    }
+  </style>
+</head>
+<body class="bg-[#030712] text-slate-100 min-h-screen flex flex-col glow-radial selection:bg-brand-emerald selection:text-black">
+  <!-- Nav Header -->
+  <header class="sticky top-0 z-50 glass border-b border-slate-800">
+    <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <span class="w-3 h-3 rounded-full bg-brand-emerald animate-pulse"></span>
+        <span class="font-mono font-bold tracking-wider text-brand-emerald">ZAINE_ALPHA_PLATFORM</span>
+      </div>
+      <nav class="hidden md:flex items-center space-x-8 text-sm font-medium text-slate-300">
+        <a href="#features" class="hover:text-brand-emerald transition-colors">Features</a>
+        <a href="#architecture" class="hover:text-brand-emerald transition-colors">Architecture</a>
+        <a href="#api" class="hover:text-brand-emerald transition-colors">API</a>
+      </nav>
+      <a href="#cta" class="px-4 py-2 text-xs font-semibold uppercase tracking-wider bg-brand-emerald text-black rounded hover:bg-emerald-400 transition-colors">Get Started</a>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <!-- Hero Section -->
+  
+  <main class="flex-1 max-w-7xl mx-auto px-6 py-20 flex flex-col justify-center">
+    <div class="max-w-3xl">
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono glass text-brand-cyan mb-6">
+        <span>● Active System</span> · <span>Zero Latency Architecture</span>
+      </div>
+      <h1 class="text-5xl sm:text-6xl font-extrabold tracking-tight text-white mb-6">
+        Next-Generation <span class="text-transparent bg-clip-text bg-gradient-to-r from-brand-emerald via-brand-cyan to-brand-violet">Zaine_Alpha_Platform</span>
+      </h1>
+      <p class="text-lg text-slate-400 mb-8 leading-relaxed">
+        Engineered with modern responsive primitives, fluid typography, and sub-second performance.
+      </p>
+      <div class="flex flex-wrap gap-4">
+        <button class="px-6 py-3 font-semibold bg-brand-emerald text-black rounded shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-all">
+          Explore System
+        </button>
+        <button class="px-6 py-3 font-semibold glass text-slate-200 rounded hover:bg-slate-800/80 transition-all">
+          Documentation
+        </button>
+      </div>
+    </div>
+  </main>
+  
+
+  <!-- Footer -->
+  <footer class="glass border-t border-slate-800/80 py-6 mt-12">
+    <div class="max-w-7xl mx-auto px-6 text-center text-xs text-slate-500 font-mono">
+      © 2026 Zaine_Alpha_Platform · Built with Z.A.I.N.E Neural Engine
+    </div>
+  </footer>
+</body>
+</html>

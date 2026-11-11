@@ -20,7 +20,7 @@ from typing import Dict, List, Optional, Tuple
 PROFILES_PATH = Path(__file__).resolve().parent / "profiles.json"
 
 # Tools implemented by the agent runtime itself rather than tools.py (not part of any cluster).
-AGENT_RUNTIME_TOOLS = {"ask_agent"}
+AGENT_RUNTIME_TOOLS = {"ask_agent", "read_result"}
 
 _MENTION_RE = re.compile(r"^\s*@([A-Za-z][\w.\-&]*)[\s,:]+(.*)$", re.S)
 
@@ -40,6 +40,9 @@ class AgentProfile:
     color: str
     interactive: bool
     auto_route: bool
+    voice: str = "en-GB-RyanNeural"
+    voice_pitch: str = "+0Hz"
+    voice_rate: str = "+0%"
     allowed_tools: frozenset = field(default_factory=frozenset)
     allow_all_tools: bool = False  # default agent: every registered tool, including runtime custom tools
 
@@ -55,6 +58,9 @@ class AgentProfile:
             "tool_count": "all" if self.allow_all_tools else len(self.allowed_tools),
             "max_tool_hops": self.max_tool_hops,
             "color": self.color,
+            "voice": self.voice,
+            "voice_pitch": self.voice_pitch,
+            "voice_rate": self.voice_rate,
             "interactive": self.interactive,
             "auto_route": self.auto_route,
             "aliases": list(self.aliases),
@@ -149,6 +155,9 @@ def _load(path: Path = PROFILES_PATH) -> AgentRegistry:
             aliases=tuple(raw.get("aliases", [])),
             max_tool_hops=int(raw.get("max_tool_hops", 6)),
             color=raw.get("color", "#f0fdf4"),
+            voice=raw.get("voice", "en-GB-RyanNeural"),
+            voice_pitch=raw.get("voice_pitch", "+0Hz"),
+            voice_rate=raw.get("voice_rate", "+0%"),
             interactive=bool(raw.get("interactive", True)),
             auto_route=bool(raw.get("auto_route", True)),
             allowed_tools=frozenset(allowed),

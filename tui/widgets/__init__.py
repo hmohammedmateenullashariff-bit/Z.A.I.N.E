@@ -11,6 +11,8 @@ from tui.widgets.hud import AgentStateHUD
 from tui.widgets.footer import FooterBar
 from tui.widgets.chat import ChatLog, UserTurnCard, AssistantTurnCard, SystemCard, ApprovalCard
 from tui.widgets.graph_3d import NeuralGraph3D
+from tui.widgets.digraph import SunDigraphCanvas
+from tui.widgets.obsidian_modal import ObsidianMemoryModal
 from tui.views.topology_view import TopologyWorkspace
 
 __all__ = [
@@ -27,6 +29,8 @@ __all__ = [
     "SystemCard",
     "ApprovalCard",
     "NeuralGraph3D",
+    "SunDigraphCanvas",
+    "ObsidianMemoryModal",
     "TopologyWorkspace",
 ]
 

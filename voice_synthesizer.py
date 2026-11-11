@@ -114,10 +114,22 @@ async def synthesize_to_file(text: str, output_path: str, voice: str = JARVIS_VO
             pitch=pitch
         )
         await communicate.save(output_path)
-        return True
+        if Path(output_path).exists() and Path(output_path).stat().st_size > 0:
+            return True
+        return False
     except Exception as e:
         print(f"[JarvisVoice] Edge-TTS error: {e}", file=sys.stderr)
-        return False
+        try:
+            if Path(output_path).exists() and Path(output_path).stat().st_size == 0:
+                Path(output_path).unlink()
+        except Exception:
+            pass
+        # Fallback to local voice engine (voice.py) if available
+        try:
+            import voice as local_voice
+            return local_voice.synthesize_to_file(cleaned, output_path)
+        except Exception:
+            return False
 
 
 def play_audio_file(file_path: str):
@@ -147,7 +159,9 @@ def jarvis_speak(text: str, salutation: str = "Sir", play_now: bool = False, out
 
     cleaned = clean_text_for_speech(text, salutation=salutation)
     try:
-        asyncio.run(synthesize_to_file(cleaned, output_file, voice=JARVIS_VOICE_MALE))
+        ok = asyncio.run(synthesize_to_file(cleaned, output_file, voice=JARVIS_VOICE_MALE))
+        if not ok or not Path(output_file).exists() or Path(output_file).stat().st_size == 0:
+            return None
         if play_now and Path(output_file).exists():
             play_audio_file(output_file)
         return output_file

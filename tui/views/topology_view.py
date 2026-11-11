@@ -20,10 +20,10 @@ from tui.theme import (
     COLOR_EMERALD, COLOR_CYAN, COLOR_VIOLET_BRIGHT, COLOR_AMBER, COLOR_ROSE,
     COLOR_TEXT, COLOR_TEXT_MUTED, COLOR_TEXT_DIM,
 )
-from tui.widgets.digraph import DigraphCanvas
+from tui.widgets.digraph import DigraphCanvas, SunDigraphCanvas
 from tui.widgets.graph_3d import NeuralGraph3D
 
-MODES = [("exec", "1", "EXECUTION DAG"), ("system", "2", "SYSTEM TOPOLOGY"), ("orbit", "3", "ORBIT 3D")]
+MODES = [("exec", "1", "EXECUTION DAG"), ("system", "2", "SYSTEM TOPOLOGY"), ("orbit", "3", "ORBIT 3D"), ("sun", "4", "SUN DIGRAPH")]
 
 CHANNEL_COLORS = {
     "USER": COLOR_EMERALD, "ROUTER": COLOR_VIOLET_BRIGHT, "OLLAMA": COLOR_CYAN, "TOOL": COLOR_AMBER,
@@ -32,9 +32,12 @@ CHANNEL_COLORS = {
 }
 
 
-def _kv(t: Text, key: str, value: str, style: str = COLOR_TEXT) -> None:
+def _kv(t: Text, key: str, value: str, style: str = COLOR_TEXT, max_val_w: Optional[int] = None) -> None:
     t.append(f" {key:<14}", style=COLOR_TEXT_MUTED)
-    t.append(f"{value}\n", style=style)
+    v_str = str(value)
+    if max_val_w is not None and len(v_str) > max_val_w:
+        v_str = v_str[: max(0, max_val_w - 1)] + "…"
+    t.append(f"{v_str}\n", style=style)
 
 
 class GraphTabs(Static):
@@ -80,24 +83,25 @@ class TurnSummaryCard(Widget):
         state = ("RUNNING", COLOR_CYAN) if s["active"] else ("DONE", COLOR_EMERALD)
         if not s["active"] and any(n.kind == "error" for n in g.nodes.values()):
             state = ("HALTED", COLOR_ROSE)
-        _kv(t, "Turn", f"#{s['turn']}  {state[0]}", f"bold {state[1]}")
         room = max(10, (self.size.width or 44) - 18)
-        _kv(t, "Prompt", (s["prompt"][: room - 1] + "…") if len(s["prompt"]) > room else s["prompt"])
-        _kv(t, "Agent", s.get("agent", "n/a"), f"bold {COLOR_VIOLET_BRIGHT}")
+        _kv(t, "Turn", f"#{s['turn']}  {state[0]}", f"bold {state[1]}", max_val_w=room)
+        _kv(t, "Prompt", s["prompt"], max_val_w=room)
+        _kv(t, "Agent", s.get("agent", "n/a"), f"bold {COLOR_VIOLET_BRIGHT}", max_val_w=room)
         if s.get("delegations"):
-            _kv(t, "Consulted", ", ".join(f"{n} ({o})" for n, o in s["delegations"]), f"bold {COLOR_CYAN}")
-        _kv(t, "Tier / model", f"{s['tier']} · {s['model']}", COLOR_TEXT)
-        _kv(t, "LLM hops", str(s["hops"]))
-        _kv(t, "Tokens out", f"{s['tokens']}" + (f" @ {s['tok_s']:.1f} tok/s" if s["tok_s"] else ""), f"bold {COLOR_CYAN}")
+            del_str = ", ".join(f"{n} ({o})" for n, o in s["delegations"])
+            _kv(t, "Consulted", del_str, f"bold {COLOR_CYAN}", max_val_w=room)
+        _kv(t, "Tier / model", f"{s['tier']} · {s['model']}", COLOR_TEXT, max_val_w=room)
+        _kv(t, "LLM hops", str(s["hops"]), max_val_w=room)
+        _kv(t, "Tokens out", f"{s['tokens']}" + (f" @ {s['tok_s']:.1f} tok/s" if s["tok_s"] else ""), f"bold {COLOR_CYAN}", max_val_w=room)
         failed = f" ({s['tools_failed']} blocked/failed)" if s["tools_failed"] else ""
-        _kv(t, "Tool calls", f"{s['tools']}{failed}", COLOR_AMBER if s["tools_failed"] else COLOR_TEXT)
+        _kv(t, "Tool calls", f"{s['tools']}{failed}", COLOR_AMBER if s["tools_failed"] else COLOR_TEXT, max_val_w=room)
         if s["approvals"]:
             for pid, outcome in s["approvals"]:
                 color = COLOR_EMERALD if outcome == "APPROVED" else (COLOR_AMBER if outcome == "PENDING" else COLOR_ROSE)
-                _kv(t, "Approval", f"{pid} {outcome}", f"bold {color}")
+                _kv(t, "Approval", f"{pid} {outcome}", f"bold {color}", max_val_w=room)
         else:
-            _kv(t, "Approvals", "none")
-        _kv(t, "Elapsed", f"{s['elapsed_s']:.1f}s")
+            _kv(t, "Approvals", "none", max_val_w=room)
+        _kv(t, "Elapsed", f"{s['elapsed_s']:.1f}s", max_val_w=room)
         return t
 
 
@@ -117,32 +121,33 @@ class SystemStatusCard(Widget):
         if not f:
             t.append(" Collecting…\n", style=f"italic {COLOR_TEXT_MUTED}")
             return t
+        room = max(10, (self.size.width or 42) - 18)
         cs = f.get("core_status") or {}
         if f.get("core_up"):
             state = "warming" if cs.get("warming") else ("ready" if cs.get("model_loaded") else "no model loaded")
-            _kv(t, "Core", f"online :{cs.get('port', '?')} · {state}", f"bold {COLOR_EMERALD}")
-            _kv(t, "Persona", str(cs.get("mode", "n/a")).upper())
+            _kv(t, "Core", f"online :{cs.get('port', '?')} · {state}", f"bold {COLOR_EMERALD}", max_val_w=room)
+            _kv(t, "Persona", str(cs.get("mode", "n/a")).upper(), max_val_w=room)
             cfg = cs.get("config") or {}
             if cfg:
                 mode = ", ".join(n for n, on in (("demo", cfg.get("demo")), ("fast 3B", cfg.get("fast"))) if on) or "standard"
-                _kv(t, "Mode", f"{mode} · ctx {cfg.get('num_ctx', '?')}", f"bold {COLOR_AMBER}" if cfg.get("demo") else COLOR_TEXT)
+                _kv(t, "Mode", f"{mode} · ctx {cfg.get('num_ctx', '?')}", f"bold {COLOR_AMBER}" if cfg.get("demo") else COLOR_TEXT, max_val_w=room)
                 ws = str(cfg.get("workspace", "")).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
-                _kv(t, "Workspace", ws or "n/a")
+                _kv(t, "Workspace", ws or "n/a", max_val_w=room)
         else:
-            _kv(t, "Core", "offline", f"bold {COLOR_ROSE}")
+            _kv(t, "Core", "offline", f"bold {COLOR_ROSE}", max_val_w=room)
         _kv(t, "Ollama", "online" if f.get("ollama_up") else "offline",
-            COLOR_EMERALD if f.get("ollama_up") else COLOR_ROSE)
+            COLOR_EMERALD if f.get("ollama_up") else COLOR_ROSE, max_val_w=room)
         loaded = f.get("loaded_models") or []
         if loaded:
             for name, vram in loaded:
-                _kv(t, "In VRAM", f"{name} {vram:.1f}G", f"bold {COLOR_CYAN}")
+                _kv(t, "In VRAM", f"{name} {vram:.1f}G", f"bold {COLOR_CYAN}", max_val_w=room)
         else:
-            _kv(t, "In VRAM", "none")
+            _kv(t, "In VRAM", "none", max_val_w=room)
         pending = f.get("pending_approvals")
         _kv(t, "Approvals", "n/a" if pending is None else f"{pending} pending",
-            COLOR_AMBER if pending else COLOR_TEXT)
+            COLOR_AMBER if pending else COLOR_TEXT, max_val_w=room)
         _kv(t, "Telegram", "poller online" if f.get("telegram_online") else "poller off",
-            COLOR_EMERALD if f.get("telegram_online") else COLOR_TEXT_MUTED)
+            COLOR_EMERALD if f.get("telegram_online") else COLOR_TEXT_MUTED, max_val_w=room)
         return t
 
 
@@ -180,15 +185,16 @@ class TopologyWorkspace(Widget):
     #topo-canvas-container { width: 1fr; height: 1fr; background: #080d1a; border: solid #1e293b; margin: 0 1; }
     #topo-switcher { height: 1fr; }
     #topo-bottom { height: 14; layout: horizontal; margin: 0 1; }
-    #topo-turn { width: 46; height: 1fr; margin: 0 1 0 0; }
-    #topo-system { width: 42; height: 1fr; margin: 0 1 0 0; }
-    #topo-bus-panel { width: 1fr; height: 1fr; margin: 0; }
+    #topo-turn { width: 1fr; min-width: 32; max-width: 46; height: 1fr; margin: 0 1 0 0; }
+    #topo-system { width: 1fr; min-width: 30; max-width: 42; height: 1fr; margin: 0 1 0 0; }
+    #topo-bus-panel { width: 2fr; min-width: 24; height: 1fr; margin: 0; }
     """
 
     BINDINGS = [
         Binding("1", "show_mode('exec')", "Execution DAG", show=False),
         Binding("2", "show_mode('system')", "System topology", show=False),
         Binding("3", "show_mode('orbit')", "Orbit 3D", show=False),
+        Binding("4", "show_mode('sun')", "Sun Digraph", show=False),
     ]
 
     def __init__(self, **kwargs):
@@ -209,6 +215,9 @@ class TopologyWorkspace(Widget):
                 c2.can_focus = True
                 yield c2
                 yield NeuralGraph3D(id="orbit")
+                c4 = SunDigraphCanvas(id="sun")
+                c4.can_focus = True
+                yield c4
         with Horizontal(id="topo-bottom"):
             yield TurnSummaryCard(id="topo-turn")
             yield SystemStatusCard(id="topo-system")
@@ -221,6 +230,10 @@ class TopologyWorkspace(Widget):
     def set_exec_graph(self, graph: Any) -> None:
         self.exec_graph = graph
         self.query_one("#exec", DigraphCanvas).set_graph(graph)
+        try:
+            self.query_one("#sun", SunDigraphCanvas).set_graph(graph)
+        except Exception:
+            pass
         self.query_one(TurnSummaryCard).graph = graph
         self.query_one(EventStreamPanel).graph = graph
         self.refresh_exec()
@@ -228,9 +241,12 @@ class TopologyWorkspace(Widget):
     def refresh_exec(self) -> None:
         if not self.display:
             return
-        for widget in (self.query_one("#exec", DigraphCanvas), self.query_one(TurnSummaryCard),
-                       self.query_one(EventStreamPanel)):
-            widget.refresh()
+        for widget in (self.query_one("#exec", DigraphCanvas), self.query_one("#sun", SunDigraphCanvas),
+                       self.query_one(TurnSummaryCard), self.query_one(EventStreamPanel)):
+            try:
+                widget.refresh()
+            except Exception:
+                pass
 
     def set_system_graph(self, graph: Any) -> None:
         self.query_one("#system", DigraphCanvas).set_graph(graph)

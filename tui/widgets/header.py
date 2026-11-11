@@ -70,34 +70,49 @@ class HeaderBar(Widget):
 
     def render(self) -> Text:
         t = Text()
-        sep = ("  │  ", COLOR_TEXT_DIM)
+        w = getattr(self.size, "width", 0) or 120
+        sep = ("  │  " if w >= 115 else " │ ", COLOR_TEXT_DIM)
         t.append("Z.A.I.N.E", style=f"bold {COLOR_EMERALD}")
-        t.append(" NEURAL ", style=f"bold {COLOR_CYAN}")
-        t.append("v3.5", style=COLOR_TEXT_MUTED)
+        if w >= 90:
+            t.append(" NEURAL ", style=f"bold {COLOR_CYAN}")
+            if w >= 115:
+                t.append("v3.5", style=COLOR_TEXT_MUTED)
         t.append(*sep)
         badge, style = status_badge(self.status_label)
         t.append(badge, style=style)
-        if self.core_flags:
+        if self.core_flags and w >= 100:
             t.append("  ")
             t.append(f"[{self.core_flags}]", style=f"bold {COLOR_AMBER}")
-        t.append(*sep)
-        view_col = COLOR_EMERALD if self.view_mode != "COMMAND" else COLOR_CYAN
-        t.append(f"VIEW: {self.view_mode}", style=f"bold {view_col}")
+        if w >= 80:
+            t.append(*sep)
+            view_col = COLOR_EMERALD if self.view_mode != "COMMAND" else COLOR_CYAN
+            t.append(f"VIEW: {self.view_mode}", style=f"bold {view_col}")
         t.append(*sep)
         t.append("AGENT: ", style=COLOR_TEXT_MUTED)
-        t.append(self.agent_name, style=f"bold {self.agent_color}")
-        if self.agent_pinned:
+        agent_disp = self.agent_name
+        if w < 100 and len(agent_disp) > 12:
+            agent_disp = agent_disp[:10] + "…"
+        t.append(agent_disp, style=f"bold {self.agent_color}")
+        if self.agent_pinned and w >= 110:
             t.append(" (pinned)", style=COLOR_TEXT_MUTED)
-        t.append(*sep)
-        t.append("TIER: ", style=COLOR_TEXT_MUTED)
-        t.append(self.mode, style=f"bold {COLOR_CYAN}")
-        t.append(*sep)
-        t.append(self.persona, style=f"bold {COLOR_EMERALD if self.persona == 'JARVIS' else COLOR_ROSE}")
-        t.append(*sep)
-        t.append("VOICE ON" if self.voice_enabled else "VOICE OFF",
-                 style=COLOR_EMERALD if self.voice_enabled else COLOR_TEXT_DIM)
-        t.append(*sep)
-        t.append(f"~/{self.cwd_name}", style=COLOR_TEXT_MUTED)
+        if w >= 95:
+            t.append(*sep)
+            t.append("TIER: ", style=COLOR_TEXT_MUTED)
+            t.append(self.mode, style=f"bold {COLOR_CYAN}")
+        if w >= 85:
+            t.append(*sep)
+            t.append(self.persona, style=f"bold {COLOR_EMERALD if self.persona == 'JARVIS' else COLOR_ROSE}")
+        if w >= 110:
+            t.append(*sep)
+            t.append("VOICE ON" if self.voice_enabled else "VOICE OFF",
+                     style=COLOR_EMERALD if self.voice_enabled else COLOR_TEXT_DIM)
+        if w >= 125:
+            t.append(*sep)
+            t.append(f"~/{self.cwd_name}", style=COLOR_TEXT_MUTED)
+
+        t.no_wrap = True
+        t.overflow = "ellipsis"
+        return t
         t.append(*sep)
         t.append(self.session_id, style=COLOR_TEXT_DIM)
         return t

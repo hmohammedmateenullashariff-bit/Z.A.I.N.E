@@ -19,12 +19,12 @@ from tool_clusters import classify_intent_clusters, build_clustered_system_promp
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 
-ZAINE_FAST = os.getenv("ZAINE_FAST", "0").lower() in ("1", "true", "yes")
+ZAINE_FAST = os.getenv("ZAINE_FAST", "1").lower() in ("1", "true", "yes")
 ZAINE_SINGLE_MODEL = os.getenv("ZAINE_SINGLE_MODEL", "1").lower() in ("1", "true", "yes")
 
 REFLEX_MODEL = "zaine-fast-3b" if ZAINE_FAST else "zaine-reflex-7b"
-DEEP_MODEL = "zaine-fast-3b" if ZAINE_FAST else "zaine-reflex-7b"
-CODER_MODEL = "zaine-fast-3b" if ZAINE_FAST else ("zaine-reflex-7b" if ZAINE_SINGLE_MODEL else "zaine-coder-7b")
+DEEP_MODEL = "zaine-reflex-7b" if not ZAINE_FAST else "zaine-coder-7b"
+CODER_MODEL = "zaine-coder-7b"
 VISION_MODEL = "moondream:latest"
 
 # Thread pool for non-blocking parallel tool execution
@@ -41,7 +41,7 @@ class TieredBrainRouter:
 
     @property
     def fast_mode(self) -> bool:
-        return os.getenv("ZAINE_FAST", "0").lower() in ("1", "true", "yes")
+        return os.getenv("ZAINE_FAST", "1").lower() in ("1", "true", "yes")
 
     @property
     def single_model(self) -> bool:
@@ -53,13 +53,11 @@ class TieredBrainRouter:
 
     @property
     def deep_model(self) -> str:
-        return "zaine-fast-3b" if self.fast_mode else DEEP_MODEL
+        return "zaine-coder-7b" if not self.single_model else self.reflex_model
 
     @property
     def coder_model(self) -> str:
-        if self.fast_mode:
-            return "zaine-fast-3b"
-        return REFLEX_MODEL if self.single_model else CODER_MODEL
+        return CODER_MODEL
 
     def get_installed_models(self) -> set:
         """Fetches installed Ollama models with a 15-second cache to prevent spamming."""
@@ -162,17 +160,24 @@ class TieredBrainRouter:
         if any(w in lower for w in ["screen", "look at my screen", "camera", "webcam", "see screen", "inspect screen", "what do you see"]):
             return "VISION"
 
-        # Check deep coding triggers
+        # Check deep coding, pipelines, media automation, and tool execution triggers
         code_heavy = [
             "write a full", "architect", "refactor this system", "build a complete",
             "debug this complex", "implement the following algorithm", "system design",
-            "deep dive", "ponytail architecture"
+            "deep dive", "ponytail architecture", "pipeline", "youtube pipeline",
+            "upload new content", "uploading new content", "generate video", "edit video",
+            "reverse engineer", "scaffold website", "create tool", "delete_workspace_files",
+            "start our youtube", "start the youtube"
         ]
         if any(phrase in lower for phrase in code_heavy):
             return "DEEP_CODE"
 
-        # Check deep reasoning
-        if any(w in lower for w in ["explain in detail", "analyze the trade-offs", "comprehensive report"]):
+        # Check deep reasoning & workflow orchestration
+        reasoning_heavy = [
+            "explain in detail", "analyze the trade-offs", "comprehensive report",
+            "orchestrate", "workflow", "plan phase", "execute phase", "verify work"
+        ]
+        if any(w in lower for w in reasoning_heavy):
             return "DEEP_REASONING"
 
         return "REFLEX"

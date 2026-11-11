@@ -2,10 +2,12 @@
 Z.A.I.N.E TUI Bottom Input Well Widget
 """
 
+import re
 from textual.widget import Widget
 from textual.widgets import Input, Static
 from textual.containers import Horizontal
 from textual.app import ComposeResult
+from textual import on
 
 from tui.theme import COLOR_EMERALD, COLOR_AMBER, COLOR_TEXT_MUTED, COLOR_TEXT_DIM
 
@@ -48,6 +50,20 @@ class InputWell(Widget):
     @property
     def input_field(self) -> Input:
         return self.query_one("#user-input", Input)
+
+    @on(Input.Changed, "#user-input")
+    def sanitize_mouse_sequences(self, event: Input.Changed) -> None:
+        """Strip raw SGR mouse escape sequences (e.g. [<65;46;13M) that can leak into input on Windows."""
+        val = event.value
+        if not val:
+            return
+        if "\x1b" in val or "[<" in val or ";38;" in val or ";39;" in val:
+            cleaned = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z~]?", "", val)
+            cleaned = re.sub(r"\[?<\d+(?:;\d+)*[Mma-zA-Z]", "", cleaned)
+            cleaned = re.sub(r"\[\d+(?:;\d+)+[Mma-zA-Z]", "", cleaned)
+            if cleaned != val:
+                event.input.value = cleaned
+                event.input.cursor_position = len(cleaned)
 
     def set_generating(self, generating: bool) -> None:
         """Toggle generating/busy visual state in input well."""

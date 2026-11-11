@@ -26,9 +26,12 @@ def _section(t: Text, title: str, right: str = "", right_style: str = COLOR_TEXT
     t.append("\n")
 
 
-def _row(t: Text, label: str, value: str, style: str = COLOR_TEXT) -> None:
+def _row(t: Text, label: str, value: str, style: str = COLOR_TEXT, max_w: Optional[int] = None) -> None:
     t.append(f"  {label:<{LABEL_W}}", style=COLOR_TEXT_MUTED)
-    t.append(f"{value}\n", style=style)
+    v_str = str(value)
+    if max_w is not None and len(v_str) > max_w:
+        v_str = v_str[: max(0, max_w - 1)] + "…"
+    t.append(f"{v_str}\n", style=style)
 
 
 def _bar(used: float, total: float, width: int = 14) -> str:
@@ -132,27 +135,33 @@ class AgentStateHUD(Widget):
             t.append("   ○ CORE OFFLINE\n", style=f"bold {COLOR_ROSE}")
         t.append("─" * width + "\n", style=COLOR_BORDER)
 
+        val_w = max(10, width - LABEL_W - 2)
+
         _section(t, "ACTIVE AGENT", "pinned" if self.agent_pinned else "auto-routed",
                  f"bold {COLOR_AMBER}" if self.agent_pinned else COLOR_TEXT_DIM)
-        _row(t, "Agent", self.agent_name, f"bold {self.agent_color}")
+        _row(t, "Agent", self.agent_name, f"bold {self.agent_color}", max_w=val_w)
         if self.agent_title:
-            _row(t, "Role", self.agent_title, COLOR_TEXT)
+            _row(t, "Role", self.agent_title, COLOR_TEXT, max_w=val_w)
         if self.agent_reason:
-            _row(t, "Why", self.agent_reason[: max(10, width - LABEL_W - 2)], COLOR_TEXT_MUTED)
+            reason_short = (self.agent_reason[: val_w - 1] + "…") if len(self.agent_reason) > val_w else self.agent_reason
+            _row(t, "Why", reason_short, COLOR_TEXT_MUTED)
         consulted = getattr(self.exec_graph, "delegations", []) if self.exec_graph is not None else []
         if consulted:
-            _row(t, "Consulted", ", ".join(name for name, _ in consulted), f"bold {COLOR_CYAN}")
+            c_str = ", ".join(name for name, _ in consulted)
+            if len(c_str) > val_w:
+                c_str = c_str[: val_w - 1] + "…"
+            _row(t, "Consulted", c_str, f"bold {COLOR_CYAN}")
 
         _section(t, "ACTIVE PERSONA")
         _row(t, "Persona", f"Z.A.I.N.E {self.persona}", f"bold {COLOR_EMERALD if self.persona == 'JARVIS' else COLOR_ROSE}")
-        _row(t, "Tier", self.model_tier, COLOR_CYAN)
-        _row(t, "Model", self.active_model, f"bold {COLOR_TEXT}")
+        _row(t, "Tier", self.model_tier, COLOR_CYAN, max_w=val_w)
+        _row(t, "Model", self.active_model, f"bold {COLOR_TEXT}", max_w=val_w)
 
         _section(t, "INFERENCE", "streaming" if self.stream_active else "idle",
                  f"bold {COLOR_CYAN}" if self.stream_active else COLOR_TEXT_DIM)
         _row(t, "First token", self.last_ttft, f"bold {COLOR_CYAN}")
         _row(t, "Throughput", f"{get_throughput_sparkline(length=8)} {self.last_throughput}", f"bold {COLOR_EMERALD}")
-        _row(t, "Tokens", self.eval_counts)
+        _row(t, "Tokens", self.eval_counts, max_w=val_w)
 
         _section(t, "LIVE TRACE", "F3 full graph", COLOR_TEXT_DIM)
         t.append_text(render_trace(self.exec_graph, width, max_lines=7))
@@ -163,7 +172,8 @@ class AgentStateHUD(Widget):
             for name, dur, st in self.recent_tools:
                 color = COLOR_EMERALD if st == "COMPLETED" else (COLOR_ROSE if st in ("FAILED", "BLOCKED") else COLOR_AMBER)
                 short = {"COMPLETED": "OK", "CANCELLED": "CANCEL"}.get(st, st)
-                t.append(f"  ⚙ {name[:name_w]:<{name_w}}", style=COLOR_CYAN)
+                tool_disp = (name[: name_w - 1] + "…") if len(name) > name_w else name
+                t.append(f"  ⚙ {tool_disp:<{name_w}}", style=COLOR_CYAN)
                 t.append(f"{dur:>7} ", style=COLOR_TEXT_MUTED)
                 t.append(f"{short}\n", style=f"bold {color}")
         else:
@@ -182,7 +192,11 @@ class AgentStateHUD(Widget):
             _row(t, "VRAM", f"{_bar(snap.vram_used_gb, snap.vram_total_gb)} {snap.vram_used_gb:.1f}/{snap.vram_total_gb:.1f}G",
                  f"bold {COLOR_CYAN}")
             temp = f" · {snap.gpu_temp_c:.0f}°C" if snap.gpu_temp_c > 0 else ""
-            _row(t, "GPU", f"{snap.gpu_name.replace('NVIDIA GeForce ', '')}{temp}", COLOR_TEXT_MUTED)
+            gpu_clean = snap.gpu_name.replace('NVIDIA GeForce ', '')
+            gpu_str = f"{gpu_clean}{temp}"
+            if len(gpu_str) > val_w:
+                gpu_str = gpu_str[: val_w - 1] + "…"
+            _row(t, "GPU", gpu_str, COLOR_TEXT_MUTED)
         else:
             _row(t, "VRAM", "n/a", COLOR_TEXT_DIM)
         return t
