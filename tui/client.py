@@ -440,3 +440,90 @@ async def cancel_chat_request(
             return resp.json() if resp.status_code == 200 else {"ok": False, "message": resp.text}
     except Exception as e:
         return {"ok": False, "message": str(e)}
+
+
+async def get_scheduler_status(base_url: Optional[str] = None) -> Dict[str, Any]:
+    """Fetches scheduled/background jobs and global quiet mode status from GET /api/scheduler."""
+    url = (base_url or get_core_service_url()) + "/api/scheduler"
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(url, headers=get_auth_headers())
+            return resp.json() if resp.status_code == 200 else {"ok": False, "jobs": [], "message": resp.text}
+    except Exception as e:
+        return {"ok": False, "jobs": [], "message": str(e)}
+
+
+async def create_scheduled_job(
+    goal: str,
+    *,
+    schedule_kind: str = "background",
+    interval_seconds: int = 0,
+    daily_time: str = "",
+    run_at: str = "",
+    max_steps: int = 8,
+    base_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Creates a scheduled or background autonomous goal via POST /api/scheduler/jobs."""
+    url = (base_url or get_core_service_url()) + "/api/scheduler/jobs"
+    payload = {
+        "goal": goal,
+        "schedule_kind": schedule_kind,
+        "interval_seconds": interval_seconds,
+        "daily_time": daily_time,
+        "run_at": run_at,
+        "max_steps": max_steps,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(url, json=payload, headers=get_auth_headers())
+            try:
+                data = resp.json()
+            except ValueError:
+                data = {}
+            if isinstance(data, dict) and data:
+                return data
+            return {"ok": resp.status_code == 200, "message": resp.text}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
+async def cancel_scheduled_job(job_id: str, base_url: Optional[str] = None) -> Dict[str, Any]:
+    """Cancels a scheduled or background job via POST /api/scheduler/jobs/<job_id>/cancel."""
+    url = (base_url or get_core_service_url()) + f"/api/scheduler/jobs/{job_id}/cancel"
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.post(url, json={}, headers=get_auth_headers())
+            return resp.json() if resp.status_code == 200 else {"ok": False, "message": resp.text}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
+async def trigger_scheduled_job(job_id: str, base_url: Optional[str] = None) -> Dict[str, Any]:
+    """Triggers immediate execution/resume of a scheduled job via POST /api/scheduler/jobs/<job_id>/trigger."""
+    url = (base_url or get_core_service_url()) + f"/api/scheduler/jobs/{job_id}/trigger"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, json={}, headers=get_auth_headers())
+            return resp.json() if resp.status_code == 200 else {"ok": False, "message": resp.text}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
+async def set_quiet_mode_remote(
+    enabled: Optional[bool] = None,
+    *,
+    reason: str = "",
+    clear_digest: bool = False,
+    base_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Queries or updates global quiet mode via POST /api/quiet."""
+    url = (base_url or get_core_service_url()) + "/api/quiet"
+    payload: Dict[str, Any] = {"reason": reason, "clear_digest": clear_digest}
+    if enabled is not None:
+        payload["enabled"] = bool(enabled)
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.post(url, json=payload, headers=get_auth_headers())
+            return resp.json() if resp.status_code == 200 else {"ok": False, "message": resp.text}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}

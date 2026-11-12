@@ -10,6 +10,7 @@ Runs continuously in the background while Zaine is idle to monitor:
 7. Smart Night Mode: Whisper-quiet operation between 00:00 and 07:00 (mutes TTS, silent push only)
 """
 
+import os
 import time
 import shutil
 import datetime
@@ -59,11 +60,35 @@ class HeartbeatDaemon:
         if chat_id is not None:
             self.last_telegram_chat_id = chat_id
 
+    def is_global_quiet(self) -> bool:
+        """Returns True when global quiet mode is enabled in autonomy.scheduler."""
+        try:
+            from autonomy.scheduler import is_quiet_mode
+            return bool(is_quiet_mode())
+        except Exception:
+            return False
+
+    def is_quiet(self) -> bool:
+        """Returns True during either global quiet mode or nighttime quiet hours."""
+        return self.is_global_quiet() or self.is_night_mode()
+
     def is_night_mode(self) -> bool:
-        """Returns True between 22:00 and 08:30 AM for quiet hours."""
+        """Returns True between 22:00 and 08:30 AM (or when global quiet mode is active)."""
+        if self.is_global_quiet():
+            return True
         now = datetime.datetime.now()
         hour = now.hour
         return hour >= 22 or hour < 8 or (hour == 8 and now.minute < 30)
+
+    def check_agent_scheduler(self) -> None:
+        """Ticks the autonomous goal scheduler when ZAINE_AGENT=1."""
+        if os.getenv("ZAINE_AGENT", "0").strip().lower() not in ("1", "true", "yes", "on"):
+            return
+        try:
+            from autonomy.scheduler import get_goal_scheduler
+            get_goal_scheduler().run_pending()
+        except Exception as e:
+            print(f"[HEARTBEAT] Agent scheduler error: {e}", flush=True)
 
     def check_reminders(self) -> list:
         """Checks and delivers due scheduled alarms/reminders."""
@@ -394,6 +419,7 @@ class HeartbeatDaemon:
         pres_res = self.check_desk_presence_sentinel()
         yt_res = self.check_youtube_studio_schedule()
         obs_res = self.check_proactive_observation()
+        self.check_agent_scheduler()
 
         return {
             "reminders_fired": rem_res,
@@ -406,6 +432,7 @@ class HeartbeatDaemon:
             "youtube_studio": yt_res,
             "proactive_observation": obs_res,
             "night_mode": self.is_night_mode(),
+            "quiet_mode": self.is_global_quiet(),
             "timestamp": datetime.datetime.now().isoformat(),
         }
 

@@ -360,6 +360,8 @@ def _map_loop_status(loop_status: str, summary: str, errors: List[str]) -> str:
     """Maps AutonomousLoop terminal status to DelegationResult status."""
     if loop_status == "completed":
         return "ok"
+    if loop_status == "paused":
+        return "paused"
     if loop_status == "cancelled":
         return "cancelled"
     if loop_status == "stopped_max_steps" and summary.strip():
@@ -532,6 +534,13 @@ def run_subagent_delegation(
     summary = str(getattr(loop_result, "summary", "") or "").strip()
     artifacts, errors, tainted = _collect_artifacts_and_errors(loop_result, role)
     status = _map_loop_status(getattr(loop_result, "status", "error"), summary, errors)
+
+    if status == "paused":
+        pid = str(getattr(loop_result, "pending_approval_id", "") or "").strip()
+        ptool = str(getattr(loop_result, "pending_tool", "") or "").strip()
+        tag = f"[PAUSED:{pid}:{ptool}]"
+        if tag not in summary:
+            summary = f"{tag} {summary}".strip()
 
     if tainted or contains_injection_attempt(summary):
         summary = sanitize_untrusted_text(summary)

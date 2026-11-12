@@ -177,6 +177,21 @@ class ApprovalRegistry:
     def _dispatch_telegram_alert(action_id: str, action_type: str, title: str, description: str, risk_level: str):
         """Sends a rich Telegram message with inline approval buttons to Mateen Sir."""
         try:
+            try:
+                from autonomy.scheduler import is_quiet_mode, record_quiet_suppression
+
+                if is_quiet_mode():
+                    try:
+                        record_quiet_suppression(
+                            channel="telegram_approval",
+                            summary=f"Approval needed ({action_id}): {title} — {description}",
+                            proposal_id=action_id,
+                        )
+                    except Exception:
+                        pass
+                    return
+            except Exception:
+                pass
             import requests
             token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
             target_id = os.getenv("TELEGRAM_ALLOWED_USER_ID", "").strip()
@@ -382,6 +397,7 @@ class ApprovalRegistry:
         timeout_seconds: int = 180,
         poll_interval: float = 1.5,
         heartbeat_interval: float = 5.0,
+        close_on_timeout: bool = True,
     ) -> Tuple[str, str]:
         """
         Blocks and waits for Sir's decision on Telegram or TUI.
@@ -437,11 +453,14 @@ class ApprovalRegistry:
 
             time.sleep(poll_interval)
 
-        ApprovalRegistry._close_if_pending(clean_id, "EXPIRED", f"No decision within {timeout_seconds}s")
+        if close_on_timeout:
+            ApprovalRegistry._close_if_pending(clean_id, "EXPIRED", f"No decision within {timeout_seconds}s")
         # A decision may have landed between the last poll and the expiry write.
         final = ApprovalRegistry.get_proposal(clean_id)
         if final and final["status"] in ("APPROVED", "DENIED"):
             return final["status"], final["resolution_note"]
+        if not close_on_timeout:
+            return "PAUSED", f"Paused awaiting operator approval for {clean_id}."
         return "TIMEOUT", f"Approval request for {clean_id} expired after {timeout_seconds}s without a decision."
 
 
@@ -455,10 +474,13 @@ def require_approval(
     timeout_seconds: int = 180,
     on_approve: Optional[Callable[[], Any]] = None,
     tool_name: Optional[str] = None,
+    leave_pending_on_timeout: bool = False,
 ) -> Tuple[bool, str]:
     """
     Convenience function that registers a proposal and blocks waiting for Sir's authorization.
     Returns (is_approved, status_summary).
+    When leave_pending_on_timeout=True (used by unattended scheduled/background runs),
+    timeout leaves the proposal PENDING for later approval instead of marking it EXPIRED.
     """
     action_id = ApprovalRegistry.create_proposal(
         action_type=action_type,
@@ -471,7 +493,11 @@ def require_approval(
         tool_name=tool_name,
     )
 
-    status, msg = ApprovalRegistry.wait_for_decision(action_id, timeout_seconds=timeout_seconds)
+    status, msg = ApprovalRegistry.wait_for_decision(
+        action_id,
+        timeout_seconds=timeout_seconds,
+        close_on_timeout=not leave_pending_on_timeout,
+    )
     _stream_context.last_decision = {
         "proposal_id": action_id,
         "status": status,
@@ -486,6 +512,8 @@ def require_approval(
         return False, f"Denied: {msg}"
     elif status == "CANCELLED":
         return False, f"Cancelled: {msg}"
+    elif status == "PAUSED":
+        return False, f"Paused awaiting approval ({action_id}): {msg}"
     else:
         return False, f"Expired: no decision on {action_id} within {timeout_seconds}s. Action not executed."
 

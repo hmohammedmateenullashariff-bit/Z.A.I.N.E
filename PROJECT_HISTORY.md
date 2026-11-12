@@ -1162,7 +1162,7 @@ Wall clock times in seconds across key tasks during stabilization sprints on the
   - *Verification:* Verified live static HTTP response at `http://127.0.0.1:7860/workspace/quantum_theory_site/index.html` (HTTP 200, 7.2KB HTML, 11.8KB CSS).
 - **Commit:** `ae4b728` (E:\Project-Z 2.0)
 
-### [2026-11-09 17:08:00 +0530] — FEAT — Author: Antigravity (Principal Systems Architect)
+### [2026-11-09 17:08:00 +0530] ï¿½ FEAT ï¿½ Author: Antigravity (Principal Systems Architect)
 - **Scope:** E:\Project-Z 2.0\zaine\agents\, zaine\inference\model_manager.py, zaine\tools\clusters\converter.py, zaine\ui\hud\gateway.py, 	ests\
 - **Description:** **Deployed Autonomous Coding & File Automation Engine for Zaine System Agents.**
   - *Autonomous Agent Routing (egistry.py & model_manager.py):*
@@ -1181,7 +1181,7 @@ Wall clock times in seconds across key tasks during stabilization sprints on the
     - Re-launched production gateway on port 7860.
 - **Commit:** d8d9ff7 (E:\Project-Z 2.0)
 
-### [2026-11-09 17:56:00 +0530] — FEAT — Author: Antigravity (Principal Systems Architect)
+### [2026-11-09 17:56:00 +0530] ï¿½ FEAT ï¿½ Author: Antigravity (Principal Systems Architect)
 - **Scope:** web/src/components/screens/WorkspaceArtifactScreen.tsx, web/src/components/views/CockpitView.tsx, web/src/store/useAgentStore.ts, zaine/memory/semantic_vault.py, zaine/kernel/supervisor.py, zaine/ui/hud/gateway.py, 	ests/test_phase4_autonomous_os.py
 - **Description:** **Deployed Phase 4: In-HUD Workspace Artifact Studio, Autonomous Execution Sandbox, and Dum-E Semantic Memory Vault.**
   - *In-HUD Workspace & Artifact Studio (WorkspaceArtifactScreen.tsx):*
@@ -1205,7 +1205,7 @@ Wall clock times in seconds across key tasks during stabilization sprints on the
     - Vite production frontend builds clean in 2.44s with zero TypeScript warnings.
 - **Commit:** 6bc70c8 (E:\Project-Z 2.0)
 
-### [2026-11-09 18:33:00 +0530] — FEAT — Author: Antigravity (Principal Systems Architect)
+### [2026-11-09 18:33:00 +0530] ï¿½ FEAT ï¿½ Author: Antigravity (Principal Systems Architect)
 - **Scope:** zaine/voice/duplex.py, zaine/voice/concurrency.py, zaine/system/shield.py, zaine/tools/clusters/desktop.py, zaine/agents/war_room.py, zaine/ui/hud/gateway.py, web/src/components/, 	ests/
 - **Description:** **Deployed Hardened Master Architecture: Hardware Shields, Desktop OS Control, Gated Voice Intercom, and Multi-Agent War Room State Machine.**
   - *Acoustic Duplex Gate (duplex.py & 	ts_stream.py):*
@@ -1340,3 +1340,10 @@ um_ctx=4096) peak VRAM at 2608 MiB.
   - Added `autonomy/audit.py`, `tests/test_audit_log.py`
   - Updated `approval.py`, `autonomy/__init__.py`, `autonomy/guards.py`, `autonomy/loop.py`, `autonomy/scratchpad.py`, `core_service.py`, `tui/app.py`, `tui/client.py`
 - **Verification**: Full pytest suite after final edit (`ZAINE_AGENT=0` against dev vault) + `tests/test_audit_log.py` (7/7) + live `zaine-reflex-7b` (`num_ctx=4096`) autonomous run audit benchmark (74.27s, 4 entries logged, `2624 MiB / 4096 MiB` GPU VRAM, single resident model).
+## Phase E - Scheduler, Background Mode, Global Quiet Mode & Unattended Approval-Pause (agent-core)
+- **Date**: 2026-11-12
+- **Goal**: Add scheduled (`interval`, `daily`, `once`) and `background` autonomous goal execution serialized through `RequestCoordinator` on the single local `zaine-reflex-7b` model, global quiet mode silencing Telegram + approval + Heartbeat alerts with digest capture, durable result delivery to Obsidian (`PROVISIONAL` trust, `LOCAL_ONLY` taint) and Telegram, and strict pause-for-approval without auto-approving on unattended risky tool calls.
+- **Files Changed**:
+  - Added `autonomy/scheduler.py`, `tests/test_scheduler.py`
+  - Updated `.gitignore`, `approval.py`, `autonomy/__init__.py`, `autonomy/guards.py`, `autonomy/loop.py`, `autonomy/scratchpad.py`, `autonomy/subagents.py`, `core_service.py`, `heartbeat.py`, `telegram_bridge.py`, `tui/app.py`, `tui/client.py`
+- **Verification**: Ran full pytest suite after final code edit (`171 passed` under `ZAINE_AGENT=0` against the dev Obsidian vault) + `tests/test_scheduler.py` (`10/10` passed in `65.19s`) + live `zaine-reflex-7b` (`num_ctx=4096`) scheduler, quiet-mode suppression, dev-vault note delivery, and unattended `execute_command` pause/approve/resume verification (`2485 MiB / 4096 MiB` GPU VRAM, single resident model; live vault untouched at `552` files).

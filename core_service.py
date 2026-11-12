@@ -909,6 +909,11 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
             telem["config"] = core_runtime_config()
             telem["agent"] = agent_state(agent)
             telem["agent_enabled"] = _env_flag("ZAINE_AGENT")
+            try:
+                from autonomy.scheduler import is_quiet_mode
+                telem["quiet_mode"] = bool(is_quiet_mode())
+            except Exception:
+                telem["quiet_mode"] = False
             telem["queue"] = _coordinator.get_queue_telemetry()
             self._send_json(200, telem)
             return
@@ -1135,6 +1140,22 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
             })
             return
 
+        # 15. Autonomous Goal Scheduler & Quiet Mode (/api/scheduler)
+        if path == "/api/scheduler":
+            if not self._validate_auth():
+                return
+            from autonomy.scheduler import get_goal_scheduler, get_quiet_status
+
+            sched = get_goal_scheduler()
+            if self.core_service and self.core_service.agent is not None:
+                sched.bind_agent(self.core_service.agent)
+            self._send_json(200, {
+                "ok": True,
+                **sched.get_status(),
+                "quiet": get_quiet_status(),
+            })
+            return
+
         self.send_error(404, "Endpoint not found on Z.A.I.N.E Core Service")
 
     def do_POST(self):
@@ -1235,6 +1256,91 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
                 "message": msg,
             })
             return
+
+        # 4b. Global Quiet Mode (/api/quiet)
+        if path == "/api/quiet":
+            from autonomy.scheduler import get_quiet_status, set_quiet_mode
+
+            clear_digest = bool(req_data.get("clear_digest", False))
+            if "enabled" in req_data and req_data["enabled"] is not None:
+                quiet_info = set_quiet_mode(
+                    bool(req_data["enabled"]),
+                    reason=str(req_data.get("reason") or ""),
+                )
+            else:
+                quiet_info = get_quiet_status(clear_digest=clear_digest)
+            self._send_json(200, {"ok": True, "quiet": quiet_info})
+            return
+
+        # 4c. Scheduled & Background Goals (/api/scheduler/jobs...)
+        if path == "/api/scheduler/jobs":
+            if not _env_flag("ZAINE_AGENT"):
+                self._send_json(400, {"ok": False, "error": "Autonomous scheduler requires ZAINE_AGENT=1"})
+                return
+            from autonomy.scheduler import get_goal_scheduler
+            from zaine_env import running_under_tests
+
+            sched = get_goal_scheduler()
+            if self.core_service and self.core_service.agent is not None:
+                sched.bind_agent(self.core_service.agent)
+            goal = str(req_data.get("goal") or "").strip()
+            schedule_kind = str(req_data.get("schedule_kind") or "background").strip().lower()
+            try:
+                interval_seconds = int(req_data.get("interval_seconds") or 0)
+            except (TypeError, ValueError):
+                interval_seconds = 0
+            try:
+                max_steps = max(1, min(30, int(req_data.get("max_steps") or 8)))
+            except (TypeError, ValueError):
+                max_steps = 8
+            daily_time = str(req_data.get("daily_time") or "").strip()
+            run_at = str(req_data.get("run_at") or "").strip()
+            run_immediately = req_data.get("run_immediately")
+            try:
+                job = sched.add_job(
+                    goal,
+                    schedule_kind=schedule_kind,
+                    interval_seconds=interval_seconds,
+                    daily_time=daily_time,
+                    run_at=run_at,
+                    max_steps=max_steps,
+                    run_immediately=run_immediately,
+                )
+            except ValueError as ve:
+                self._send_json(400, {"ok": False, "error": str(ve)})
+                return
+            if not running_under_tests():
+                sched.start()
+            self._send_json(200, {"ok": True, "job": job.to_dict()})
+            return
+
+        if path.startswith("/api/scheduler/jobs/") and (path.endswith("/cancel") or path.endswith("/trigger")):
+            parts = path.strip("/").split("/")
+            if len(parts) == 5 and parts[0] == "api" and parts[1] == "scheduler" and parts[2] == "jobs":
+                target_job_id = parts[3]
+                action = parts[4]
+                from autonomy.scheduler import get_goal_scheduler
+
+                sched = get_goal_scheduler()
+                if self.core_service and self.core_service.agent is not None:
+                    sched.bind_agent(self.core_service.agent)
+                if action == "cancel":
+                    job = sched.cancel_job(target_job_id)
+                    if job is None:
+                        self._send_json(404, {"ok": False, "error": f"Unknown job '{target_job_id}'"})
+                        return
+                    self._send_json(200, {"ok": True, "job": job.to_dict()})
+                    return
+                if action == "trigger":
+                    if not _env_flag("ZAINE_AGENT"):
+                        self._send_json(400, {"ok": False, "error": "Autonomous scheduler requires ZAINE_AGENT=1"})
+                        return
+                    res = sched.trigger_job(target_job_id)
+                    if res is None:
+                        self._send_json(404, {"ok": False, "error": f"Unknown job '{target_job_id}'"})
+                        return
+                    self._send_json(200, {"ok": True, **res})
+                    return
 
         # 5. Request Cancellation (/api/chat/cancel or /api/cancel)
         if path in ("/api/chat/cancel", "/api/cancel"):
@@ -1789,6 +1895,24 @@ class CoreService:
         self._write_core_info(status="online")
         self._start_prewarm()
         self._start_telegram_bridge()
+        self._start_scheduler()
+
+    def _start_scheduler(self):
+        """Starts the autonomous GoalScheduler background loop only when ZAINE_AGENT=1 outside tests."""
+        if not _env_flag("ZAINE_AGENT"):
+            return
+        from zaine_env import running_under_tests
+        if running_under_tests():
+            return
+        try:
+            from autonomy.scheduler import get_goal_scheduler
+
+            sched = get_goal_scheduler()
+            if self.agent is not None:
+                sched.bind_agent(self.agent)
+            sched.start()
+        except Exception as e:
+            print(f"[CoreService] Scheduler startup notice: {e}", flush=True)
 
     def _start_telegram_bridge(self):
         """Polls Telegram in the background so phone approvals and chats reach this service.
@@ -1823,6 +1947,12 @@ class CoreService:
     def stop(self):
         """Cleanly shuts down the server and updates .zaine_core.json."""
         self.stop_event.set()
+        try:
+            if _env_flag("ZAINE_AGENT"):
+                from autonomy.scheduler import get_goal_scheduler
+                get_goal_scheduler().stop()
+        except Exception:
+            pass
         self._write_core_info(status="offline")
         if self.server:
             try:

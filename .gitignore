@@ -122,6 +122,7 @@ scratch_audit/*
 !scratch_audit/test_presentation_dry_run.py
 data/runs/
 data/audit/
+data/scheduler/
 vault_copy/
 vault_dev_copy/
 

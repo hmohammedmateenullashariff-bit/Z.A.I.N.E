@@ -176,11 +176,28 @@ def acquire_telegram_lock(port: int = 49912) -> bool:
         return False
 
 
-def send_telegram_alert(text: str, parse_mode: str = "", reply_markup: Optional[Dict[str, Any]] = None) -> bool:
+def send_telegram_alert(
+    text: str,
+    parse_mode: str = "",
+    reply_markup: Optional[Dict[str, Any]] = None,
+    *,
+    force: bool = False,
+) -> bool:
     """
     Sends a proactive alert or notification to the paired Telegram user.
     Can be invoked from anywhere (Heartbeat daemon, long tasks, etc.).
+    Honors global quiet mode unless force=True.
     """
+    if not force:
+        try:
+            from autonomy.scheduler import is_quiet_mode, record_quiet_suppression
+
+            if is_quiet_mode():
+                record_quiet_suppression(channel="telegram_alert", summary=text)
+                return False
+        except Exception:
+            pass
+
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or TELEGRAM_BOT_TOKEN
     target_id = os.getenv("TELEGRAM_ALLOWED_USER_ID", "").strip() or TELEGRAM_ALLOWED_USER_ID
     if not token or not target_id:

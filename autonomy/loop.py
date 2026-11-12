@@ -152,6 +152,9 @@ class LoopResult:
     errors: List[str] = field(default_factory=list)
     usage: Dict[str, int] = field(default_factory=lambda: {"model_calls": 0, "prompt_tokens": 0, "eval_tokens": 0})
     audit_path: str = ""
+    pending_approval_id: str = ""
+    pending_tool: str = ""
+    pending_args: Dict[str, Any] = field(default_factory=dict)
 
 
 EventCallback = Callable[[str, str, Any], None]
@@ -233,6 +236,7 @@ class AutonomousLoop:
         persist_scratchpad: Optional[bool] = None,
         audit_store: Optional[AuditLogStore] = None,
         persist_audit: Optional[bool] = None,
+        suppress_vault_flush: bool = False,
     ) -> None:
         self.config = config or LoopConfig.from_env()
         self.profile = profile
@@ -256,6 +260,7 @@ class AutonomousLoop:
         self._persist_scratchpad = (self._delegation_depth == 0) if persist_scratchpad is None else bool(persist_scratchpad)
         self._audit_store = audit_store
         self._persist_audit = (self._delegation_depth == 0) if persist_audit is None else bool(persist_audit)
+        self._suppress_vault_flush = bool(suppress_vault_flush)
         self._last_model_calls: List[Dict[str, Any]] = []
 
     @staticmethod
@@ -695,6 +700,7 @@ class AutonomousLoop:
         """
         Executes the full Plan -> Act -> Observe -> Reflect autonomous cycle cleanly.
         """
+        from autonomy.guards import ApprovalPauseRequested
         rid = (resume_from.run_id if resume_from is not None else None) or run_id or f"RUN-{uuid.uuid4().hex[:8].upper()}"
         t_start = time.monotonic()
         max_steps = self.config.max_steps
@@ -851,6 +857,10 @@ class AutonomousLoop:
             if final_status is not None:
                 pad.status = final_status
                 pad.final_summary = (final_summary or "")[:2000]
+                if final_status != "paused":
+                    pad.pending_approval_id = ""
+                    pad.pending_tool = ""
+                    pad.pending_args = {}
             try:
                 active_store.save(pad)
             except Exception:
@@ -895,6 +905,7 @@ class AutonomousLoop:
                 status == "completed"
                 and pad is not None
                 and self._delegation_depth == 0
+                and not self._suppress_vault_flush
                 and os.getenv("ZAINE_OBSIDIAN_VAULT_PATH", "").strip()
             ):
                 try:
@@ -972,6 +983,7 @@ class AutonomousLoop:
                             messages.append({"role": pm["role"], "content": str(pm["content"])[:500]})
 
                 plan_block = "\n".join(f"{idx + 1}. {s}" for idx, s in enumerate(plan_steps))
+                extra_resume_turns: List[Dict[str, str]] = []
                 if resume_from is not None and resume_from.completed_steps > 0:
                     resume_brief = build_resume_context(
                         resume_from,
@@ -979,8 +991,45 @@ class AutonomousLoop:
                     )
                     initial_user_msg = (
                         f"Goal: {goal}\n\n{resume_brief}\n\n"
-                        f"Resume cleanly at step {start_step}/{max_steps} using a valid JSON tool call if tools are needed, or provide the final answer when complete."
+                        f"Resume cleanly at step {start_step}/{max_steps}: do NOT repeat already completed steps shown above. "
+                        "Provide the final answer in plain text if the goal is satisfied, or emit a valid JSON tool call only for remaining work."
                     )
+                    if resume_from.progress and resume_from.results:
+                        last_phase = str(resume_from.progress[-1].get("phase") or "")
+                        last_res = resume_from.results[-1]
+                        last_tool = str(last_res.get("tool") or "").strip()
+                        last_stat = str(last_res.get("status") or "ok").strip()
+                        last_out = str(last_res.get("result") or "").strip()
+                        if last_phase == "resumed_approved":
+                            extra_resume_turns = [
+                                {
+                                    "role": "assistant",
+                                    "content": f"Executed approved action '{last_tool}' (step {last_res.get('step', resume_from.completed_steps)}).",
+                                },
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        f"[OBSERVATION from approved '{last_tool}' (status={last_stat})]: {last_out}\n"
+                                        f"[REFLECTION]: Step {resume_from.completed_steps} already executed after operator approval. "
+                                        f"Do NOT re-run '{last_tool}' unless required by a different subsequent step. "
+                                        "If the goal is now satisfied, respond with the final answer in plain text."
+                                    ),
+                                },
+                            ]
+                        elif last_phase == "resumed_denied":
+                            extra_resume_turns = [
+                                {
+                                    "role": "assistant",
+                                    "content": f"Operator denied '{last_tool}' (step {last_res.get('step', resume_from.completed_steps)}).",
+                                },
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        f"[OBSERVATION]: {last_out}\n"
+                                        "[REFLECTION]: Do NOT attempt that denied action again. Report cleanly in plain text or take a non-denied path."
+                                    ),
+                                },
+                            ]
                 else:
                     initial_user_msg = (
                         f"Goal: {goal}\n\nPlan:\n{plan_block}\n\n"
@@ -991,6 +1040,7 @@ class AutonomousLoop:
                         )
                     )
                 messages.append({"role": "user", "content": initial_user_msg})
+                messages.extend(extra_resume_turns)
 
                 initial_mem_len = len(self._memory_context[:1200]) if self._memory_context else 0
 
@@ -1259,7 +1309,36 @@ class AutonomousLoop:
                                             s_art = str(dart).strip()
                                             if s_art and s_art not in artifacts:
                                                 artifacts.append(s_art)
-                                        if d_status == "blocked":
+                                        if d_status == "paused":
+                                            import re as _re
+                                            sub_pid = ""
+                                            sub_tool = ""
+                                            m_tag = _re.search(r"\[PAUSED:(ACT-[A-Za-z0-9_-]+):([^\]]*)\]", d_summary)
+                                            if m_tag:
+                                                sub_pid = m_tag.group(1).strip()
+                                                sub_tool = m_tag.group(2).strip()
+                                            else:
+                                                m_id = _re.search(r"\b(ACT-[0-9A-F]{6,16})\b", d_summary, _re.I)
+                                                if m_id:
+                                                    sub_pid = m_id.group(1).upper()
+                                            if not sub_pid:
+                                                try:
+                                                    from approval import ApprovalRegistry
+                                                    latest_p = ApprovalRegistry.get_latest_pending()
+                                                    if latest_p and latest_p.get("id"):
+                                                        sub_pid = str(latest_p["id"])
+                                                except Exception:
+                                                    pass
+                                            pause_args = dict(targs or {})
+                                            if sub_tool:
+                                                pause_args["_approved_subtool"] = sub_tool
+                                            raise ApprovalPauseRequested(
+                                                proposal_id=sub_pid,
+                                                tool_name="delegate",
+                                                args=pause_args,
+                                                reason=d_summary[:300],
+                                            )
+                                        elif d_status == "blocked":
                                             outcome = ToolOutcome(
                                                 status="denied",
                                                 error_kind="delegation_blocked",
@@ -1277,6 +1356,8 @@ class AutonomousLoop:
                                                 error_kind="",
                                                 key_line=d_summary[:200],
                                             )
+                                except ApprovalPauseRequested:
+                                    raise
                                 except Exception:
                                     pass
                             else:
@@ -1518,6 +1599,86 @@ class AutonomousLoop:
                 self._emit("stopped_max_steps", "loop", {"run_id": rid, "max_steps": max_steps, "reason": reason})
                 return _finish("stopped_max_steps", self._format_stop_report(reason, tool_history), reason)
 
+        except ApprovalPauseRequested as apr:
+            pending_id = str(apr.proposal_id or "").strip()
+            pending_tool_name = str(apr.tool_name or "").strip()
+            pending_tool_args = dict(apr.tool_args or {})
+            pause_reason = f"paused_approval:{pending_id}" if pending_id else "paused_approval"
+            pause_summary = (
+                f"Run paused awaiting approval {pending_id} for tool '{pending_tool_name}': {apr.reason}"
+                if pending_id
+                else f"Run paused awaiting approval for tool '{pending_tool_name}': {apr.reason}"
+            )
+            if pad is not None:
+                pad.pending_approval_id = pending_id
+                pad.pending_tool = pending_tool_name
+                pad.pending_args = pending_tool_args
+                pad.resumable = True
+            _sync_pad(final_status="paused", final_summary=pause_summary)
+
+            pause_audit_path = ""
+            if owns_audit and audit_recorder is not None and not audit_finalized:
+                try:
+                    taint_now = initial_taint
+                    try:
+                        from autonomy.privacy import is_session_private
+                        if is_session_private():
+                            taint_now = "LOCAL_ONLY"
+                    except Exception:
+                        pass
+                    saved_path = audit_recorder.finalize(
+                        status="paused",
+                        stop_reason=pause_reason,
+                        duration_s=round(time.monotonic() - t_start, 3),
+                        steps_executed=len(steps_records),
+                        max_steps=max_steps,
+                        artifacts=artifacts,
+                        errors=errors,
+                        privacy_taint=taint_now,
+                    )
+                    audit_finalized = True
+                    if saved_path is not None:
+                        pause_audit_path = str(saved_path)
+                except Exception:
+                    pass
+            elif audit_recorder is not None and getattr(audit_recorder, "audit_path", None) is not None:
+                pause_audit_path = str(audit_recorder.audit_path)
+
+            self._emit(
+                "paused_approval",
+                pending_tool_name or "approval",
+                {
+                    "run_id": rid,
+                    "proposal_id": pending_id,
+                    "tool": pending_tool_name,
+                    "reason": apr.reason,
+                },
+            )
+            usage = {
+                "model_calls": len(self._last_model_calls),
+                "prompt_tokens": sum(int(m.get("prompt_eval_count") or 0) for m in self._last_model_calls),
+                "eval_tokens": sum(int(m.get("eval_count") or 0) for m in self._last_model_calls),
+            }
+            return LoopResult(
+                run_id=rid,
+                status="paused",
+                summary=pause_summary,
+                plan=plan_steps,
+                steps_executed=len(steps_records),
+                max_steps=max_steps,
+                artifacts=artifacts,
+                tool_history=tool_history,
+                steps=steps_records,
+                stop_reason=pause_reason,
+                elapsed_s=round(time.monotonic() - t_start, 3),
+                errors=errors,
+                usage=usage,
+                audit_path=pause_audit_path,
+                pending_approval_id=pending_id,
+                pending_tool=pending_tool_name,
+                pending_args=pending_tool_args,
+            )
+
         except PrivacyViolationError as pve:
             errors.append(str(pve))
             _sync_pad(final_status="error", final_summary=str(pve))
@@ -1603,6 +1764,199 @@ class AutonomousLoop:
                 errors=list(pad.errors),
                 audit_path=existing_audit_path,
             )
+
+        if pad.pending_approval_id or pad.status == "paused":
+            pid = str(pad.pending_approval_id or "").strip()
+            prop = None
+            if pid:
+                try:
+                    from approval import ApprovalRegistry
+                    prop = ApprovalRegistry.get_proposal(pid)
+                except Exception:
+                    prop = None
+
+            prop_status = str((prop or {}).get("status") or "PENDING").upper()
+            if not pid or prop is None or prop_status == "PENDING":
+                return LoopResult(
+                    run_id=pad.run_id,
+                    status="paused",
+                    summary=(
+                        f"Run '{pad.run_id}' is still awaiting approval for {pid or 'pending action'} "
+                        f"({pad.pending_tool or 'action'})."
+                    ),
+                    plan=list(pad.plan),
+                    steps_executed=0,
+                    max_steps=pad.max_steps,
+                    artifacts=list(pad.artifacts),
+                    tool_history=list(pad.results),
+                    stop_reason=f"paused_approval:{pid}" if pid else "paused_approval",
+                    errors=list(pad.errors),
+                    pending_approval_id=pid,
+                    pending_tool=str(pad.pending_tool or ""),
+                    pending_args=dict(pad.pending_args or {}),
+                )
+
+            next_step_num = int(pad.completed_steps or 0) + 1
+            pending_tool_name = str(pad.pending_tool or "").strip()
+            pending_tool_args = dict(pad.pending_args or {})
+            pad.pending_approval_id = ""
+            pad.pending_tool = ""
+            pad.pending_args = {}
+
+            if prop_status == "APPROVED":
+                from autonomy.guards import preapproved_tool_scope
+                executed_tool = pending_tool_name or "approved_action"
+                tool_status = "ok"
+                tool_output = ""
+                if pending_tool_name == "delegate":
+                    approved_subtool = str(pending_tool_args.pop("_approved_subtool", "") or "").strip()
+                    allow_list = [t for t in (approved_subtool, "delegate") if t]
+                    with preapproved_tool_scope(allow_list):
+                        if self._delegate_fn is not None:
+                            tool_output = str(self._delegate_fn(pending_tool_args))
+                        else:
+                            from autonomy.subagents import execute_delegate
+                            inherited_exec = (
+                                self._tool_exec_fn
+                                if self._tool_exec_fn != self._fallback_tool_exec
+                                else None
+                            )
+                            tool_output = execute_delegate(
+                                pending_tool_args,
+                                caller_profile=self.profile,
+                                delegation_depth=self._delegation_depth,
+                                model_name=self.config.model_name,
+                                model_stream_fn=self._model_stream_fn,
+                                tool_exec_fn=inherited_exec,
+                                tool_alias_fn=self._tool_alias_fn,
+                                on_event=self._on_event,
+                                result_store=self._result_store,
+                                memory=self._memory,
+                                request_id=self.request_id,
+                                cancel_token=self.cancel_token,
+                                cancel_check=self._external_cancel_check,
+                                breaker=self._breaker,
+                            )
+                    try:
+                        parsed = json.loads(tool_output)
+                        if isinstance(parsed, dict):
+                            p_stat = str(parsed.get("status") or "").lower()
+                            p_sum = str(parsed.get("summary") or "")
+                            for dart in (parsed.get("artifacts") or []):
+                                sa = str(dart).strip()
+                                if sa and sa not in pad.artifacts:
+                                    pad.artifacts.append(sa)
+                            if p_stat == "paused":
+                                import re as _re
+                                new_pid = ""
+                                new_sub = ""
+                                m_tag = _re.search(r"\[PAUSED:(ACT-[A-Za-z0-9_-]+):([^\]]*)\]", p_sum)
+                                if m_tag:
+                                    new_pid = m_tag.group(1).strip()
+                                    new_sub = m_tag.group(2).strip()
+                                pad.status = "paused"
+                                pad.pending_approval_id = new_pid
+                                pad.pending_tool = "delegate"
+                                new_args = dict(pending_tool_args)
+                                if new_sub:
+                                    new_args["_approved_subtool"] = new_sub
+                                pad.pending_args = new_args
+                                pad.resumable = True
+                                store.save(pad)
+                                return LoopResult(
+                                    run_id=pad.run_id,
+                                    status="paused",
+                                    summary=p_sum,
+                                    plan=list(pad.plan),
+                                    steps_executed=0,
+                                    max_steps=pad.max_steps,
+                                    artifacts=list(pad.artifacts),
+                                    tool_history=list(pad.results),
+                                    stop_reason=f"paused_approval:{new_pid}" if new_pid else "paused_approval",
+                                    errors=list(pad.errors),
+                                    pending_approval_id=new_pid,
+                                    pending_tool="delegate",
+                                    pending_args=new_args,
+                                )
+                            if p_stat not in ("ok", "partial"):
+                                tool_status = "error"
+                    except Exception:
+                        pass
+                elif pending_tool_name:
+                    resolved_pending = self._tool_alias_fn(pending_tool_name)
+                    executed_tool = resolved_pending
+                    if self.profile is not None and not self.profile.allows(resolved_pending):
+                        tool_status = "blocked"
+                        tool_output = f"Permission denied: tool '{resolved_pending}' is outside agent profile allowlist."
+                    else:
+                        with preapproved_tool_scope(resolved_pending):
+                            try:
+                                tool_output = str(
+                                    self._tool_exec_fn({"tool": resolved_pending, "args": pending_tool_args})
+                                )
+                            except Exception as exc:
+                                tool_status = "error"
+                                tool_output = f"Tool error ({resolved_pending}): {exc}"
+                        if tool_status == "ok":
+                            cand_art = str(
+                                pending_tool_args.get("filepath")
+                                or pending_tool_args.get("save_as")
+                                or pending_tool_args.get("title")
+                                or ""
+                            ).strip()
+                            if cand_art and cand_art not in pad.artifacts and os.path.exists(cand_art):
+                                pad.artifacts.append(cand_art)
+
+                pad.results.append(
+                    {
+                        "step": next_step_num,
+                        "tool": executed_tool,
+                        "status": tool_status,
+                        "approval_id": pid,
+                        "result": tool_output[:400],
+                    }
+                )
+                pad.progress.append(
+                    {
+                        "step": next_step_num,
+                        "phase": "resumed_approved",
+                        "tool": executed_tool,
+                        "outcome": tool_status,
+                        "progress": tool_status == "ok",
+                        "note": f"Executed approved proposal {pid}: {tool_output[:160]}",
+                    }
+                )
+                pad.completed_steps = next_step_num
+                pad.current_step = next_step_num
+                store.save(pad)
+            else:
+                denial_note = (
+                    f"Operator verdict '{prop_status}' on approval {pid} for '{pending_tool_name}': "
+                    f"{prop.get('resolution_note') or 'action not executed'}"
+                )
+                pad.errors.append(denial_note[:240])
+                pad.results.append(
+                    {
+                        "step": next_step_num,
+                        "tool": pending_tool_name or "approval",
+                        "status": "denied",
+                        "approval_id": pid,
+                        "result": denial_note[:400],
+                    }
+                )
+                pad.progress.append(
+                    {
+                        "step": next_step_num,
+                        "phase": "resumed_denied",
+                        "tool": pending_tool_name or "approval",
+                        "outcome": "denied",
+                        "progress": False,
+                        "note": denial_note[:180],
+                    }
+                )
+                pad.completed_steps = next_step_num
+                pad.current_step = next_step_num
+                store.save(pad)
 
         if additional_steps is not None and additional_steps > 0:
             pad.max_steps = max(int(pad.max_steps or 0), int(pad.completed_steps or 0)) + int(additional_steps)

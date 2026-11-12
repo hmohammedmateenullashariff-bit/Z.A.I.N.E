@@ -86,6 +86,11 @@ from tui.client import (
     set_agent,
     get_runs,
     get_audit,
+    get_scheduler_status,
+    create_scheduled_job,
+    cancel_scheduled_job,
+    trigger_scheduled_job,
+    set_quiet_mode_remote,
     StreamTimeoutError,
     StreamCancelledError,
 )
@@ -612,6 +617,14 @@ class ZaineTUI(App):
             self.handle_stop_command(text)
             return
 
+        if cmd == "/schedule" or cmd.startswith("/schedule "):
+            self.handle_schedule_command(text)
+            return
+
+        if cmd == "/quiet" or cmd.startswith("/quiet "):
+            self.handle_quiet_command(text)
+            return
+
         # 3. Standard User Natural Language Chat Turn (Streamed SSE)
         self.stream_agent_response(text)
 
@@ -634,7 +647,10 @@ class ZaineTUI(App):
             "| `/models` | Inspect cognitive model tier configurations |\n"
             "| `/agent [name\\|auto]` | List VisionQuest agents, pin one, or restore auto routing |\n"
             "| `/run <goal>` | Start an autonomous loop run (requires `ZAINE_AGENT=1`) |\n"
+            "| `/run --bg <goal>` | Queue an autonomous goal in the background scheduler |\n"
             "| `/runs [resumable\\|resume <id>]` | List autonomous runs & resume interrupted scratchpads |\n"
+            "| `/schedule [...]` | List or schedule background/interval/daily autonomous goals |\n"
+            "| `/quiet [on\\|off\\|status\\|digest]` | Toggle global quiet mode (silences Telegram/TTS pushes) |\n"
             "| `/stop` | Stop the active stream or autonomous run cleanly |\n"
             "| `@edith …` / `@ultron …` | Send one message to a specific agent |\n"
             "| `/clear` | Clear chat viewport back to initial banner |\n"
@@ -909,6 +925,19 @@ class ZaineTUI(App):
         resume_id: Optional[str] = None
         tokens = arg.split(maxsplit=1)
         head = tokens[0].lower()
+        if head in ("--bg", "bg", "--background", "background"):
+            bg_goal = tokens[1].strip() if len(tokens) > 1 else ""
+            if not bg_goal:
+                chat_log.add_user_message(user_text)
+                chat_log.add_system_card(
+                    title="MISSING BACKGROUND GOAL",
+                    message="Specify a goal: `/run --bg <goal>`.",
+                    level="warning",
+                )
+                return
+            self._enqueue_background_run(user_text, bg_goal)
+            return
+
         if head in ("--resume", "resume"):
             resume_id = tokens[1].strip() if len(tokens) > 1 else ""
             if not resume_id:
@@ -1090,6 +1119,226 @@ class ZaineTUI(App):
             message=msg,
             level="cancelled" if res.get("ok") else "warning",
         )
+
+    @work
+    async def _enqueue_background_run(self, user_text: str, goal: str) -> None:
+        chat_log = self.query_one(ChatLog)
+        chat_log.add_user_message(user_text)
+        res = await create_scheduled_job(goal, schedule_kind="background", base_url=self.core_url)
+        if not res.get("ok"):
+            chat_log.add_system_card(
+                title="BACKGROUND QUEUE FAILED",
+                message=str(res.get("error") or res.get("message") or "Could not enqueue background goal."),
+                level="error",
+            )
+            return
+        job = res.get("job") or {}
+        jid = job.get("job_id") or "n/a"
+        chat_log.add_system_card(
+            title="BACKGROUND GOAL QUEUED",
+            message=f"Job `{jid}` queued on sequential scheduler.\nGoal: {goal[:160]}\nInspect via `/schedule`.",
+            level="success",
+        )
+
+    @staticmethod
+    def _parse_interval_seconds(raw: str) -> int:
+        txt = (raw or "").strip().lower()
+        if not txt:
+            raise ValueError("Missing interval.")
+        mult = 1
+        if txt.endswith("s"):
+            txt = txt[:-1]
+        elif txt.endswith("m"):
+            txt = txt[:-1]
+            mult = 60
+        elif txt.endswith("h"):
+            txt = txt[:-1]
+            mult = 3600
+        val = int(txt) * mult
+        if val < 1:
+            raise ValueError("Interval must be >= 1 second.")
+        return val
+
+    @work
+    async def handle_schedule_command(self, user_text: str) -> None:
+        """/schedule [list | bg <goal> | every <interval> <goal> | daily <HH:MM> <goal> | once <delay> <goal> | cancel <id> | trigger <id>]"""
+        chat_log = self.query_one(ChatLog)
+        chat_log.add_user_message(user_text)
+        parts = user_text.strip().split(maxsplit=1)
+        rest = parts[1].strip() if len(parts) > 1 else "list"
+        tokens = rest.split()
+        sub = tokens[0].lower()
+
+        if sub in ("list", "status"):
+            data = await get_scheduler_status(base_url=self.core_url)
+            if not data.get("ok"):
+                chat_log.add_system_card(
+                    title="SCHEDULER ERROR",
+                    message=str(data.get("message") or "Could not query scheduler."),
+                    level="warning",
+                )
+                return
+            quiet = data.get("quiet") or {}
+            jobs = data.get("jobs") or []
+            lines = [
+                f"### Autonomous Goal Scheduler (`{len(jobs)}` job(s), Quiet Mode: `{'ON' if quiet.get('enabled') else 'OFF'}`)\n"
+            ]
+            if not jobs:
+                lines.append("_No scheduled or background jobs yet. Create one with `/schedule bg <goal>` or `/schedule every 60s <goal>`._")
+            else:
+                lines.append("| Job ID | Kind | Status | Next / Pending | Goal |")
+                lines.append("| :--- | :--- | :--- | :--- | :--- |")
+                for j in jobs[:25]:
+                    pend = j.get("pending_approval_id") or j.get("next_run_at") or j.get("obsidian_note_id") or "—"
+                    gshort = str(j.get("goal") or "").replace("|", "/")[:48]
+                    lines.append(f"| `{j.get('job_id')}` | `{j.get('schedule_kind')}` | `{j.get('status')}` | `{str(pend)[:32]}` | {gshort} |")
+            chat_log.add_assistant_message("\n".join(lines), latency="0.01s")
+            return
+
+        if sub in ("cancel", "stop", "rm") and len(tokens) >= 2:
+            res = await cancel_scheduled_job(tokens[1].strip(), base_url=self.core_url)
+            if not res.get("ok"):
+                chat_log.add_system_card(
+                    title="CANCEL FAILED",
+                    message=str(res.get("error") or res.get("message") or "Unknown job."),
+                    level="warning",
+                )
+                return
+            job = res.get("job") or {}
+            chat_log.add_system_card(
+                title="JOB CANCELLED",
+                message=f"Cancelled `{job.get('job_id', tokens[1])}`.",
+                level="cancelled",
+            )
+            return
+
+        if sub in ("trigger", "run") and len(tokens) >= 2:
+            if not self._agent_mode_enabled(self.system_facts):
+                chat_log.add_system_card(
+                    title="AUTONOMOUS MODE DISABLED",
+                    message="Triggering scheduled goals requires `ZAINE_AGENT=1`.",
+                    level="warning",
+                )
+                return
+            res = await trigger_scheduled_job(tokens[1].strip(), base_url=self.core_url)
+            if not res.get("ok"):
+                chat_log.add_system_card(
+                    title="TRIGGER FAILED",
+                    message=str(res.get("error") or res.get("message") or "Failed to trigger job."),
+                    level="error",
+                )
+                return
+            chat_log.add_assistant_message(
+                f"Triggered `{res.get('job_id')}` -> status `{res.get('status')}` (run `{res.get('run_id', 'n/a')}`)\n\n{res.get('summary', '')}",
+                latency="0.01s",
+            )
+            return
+
+        if not self._agent_mode_enabled(self.system_facts):
+            chat_log.add_system_card(
+                title="AUTONOMOUS MODE DISABLED",
+                message="Scheduling autonomous goals requires `ZAINE_AGENT=1`.",
+                level="warning",
+            )
+            return
+
+        try:
+            if sub in ("bg", "background"):
+                goal = rest.split(maxsplit=1)[1].strip() if len(rest.split(maxsplit=1)) > 1 else ""
+                res = await create_scheduled_job(goal, schedule_kind="background", base_url=self.core_url)
+            elif sub in ("every", "interval") and len(tokens) >= 3:
+                secs = self._parse_interval_seconds(tokens[1])
+                goal = rest.split(maxsplit=2)[2].strip()
+                res = await create_scheduled_job(goal, schedule_kind="interval", interval_seconds=secs, base_url=self.core_url)
+            elif sub == "daily" and len(tokens) >= 3:
+                dtime = tokens[1].strip()
+                goal = rest.split(maxsplit=2)[2].strip()
+                res = await create_scheduled_job(goal, schedule_kind="daily", daily_time=dtime, base_url=self.core_url)
+            elif sub == "once" and len(tokens) >= 2:
+                # Allow `/schedule once <delay_seconds> <goal>` or `/schedule once <goal>`
+                try:
+                    delay_s = self._parse_interval_seconds(tokens[1]) if len(tokens) >= 3 else 0
+                    goal = rest.split(maxsplit=2)[2].strip() if len(tokens) >= 3 else rest.split(maxsplit=1)[1].strip()
+                except ValueError:
+                    delay_s = 0
+                    goal = rest.split(maxsplit=1)[1].strip()
+                res = await create_scheduled_job(goal, schedule_kind="once", interval_seconds=delay_s, base_url=self.core_url)
+            else:
+                chat_log.add_system_card(
+                    title="SCHEDULE USAGE",
+                    message=(
+                        "Usage:\n"
+                        "- `/schedule list`\n"
+                        "- `/schedule bg <goal>`\n"
+                        "- `/schedule every 60s <goal>` (supports `s`/`m`/`h`)\n"
+                        "- `/schedule daily 09:00 <goal>`\n"
+                        "- `/schedule once [delay] <goal>`\n"
+                        "- `/schedule trigger <job_id>` / `/schedule cancel <job_id>`"
+                    ),
+                    level="info",
+                )
+                return
+        except ValueError as ve:
+            chat_log.add_system_card(title="INVALID SCHEDULE", message=str(ve), level="warning")
+            return
+
+        if not res.get("ok"):
+            chat_log.add_system_card(
+                title="SCHEDULE FAILED",
+                message=str(res.get("error") or res.get("message") or "Could not save scheduled goal."),
+                level="error",
+            )
+            return
+        job = res.get("job") or {}
+        chat_log.add_system_card(
+            title="GOAL SCHEDULED",
+            message=(
+                f"Job `{job.get('job_id')}` (`{job.get('schedule_kind')}`) scheduled.\n"
+                f"Next Run: `{job.get('next_run_at') or 'immediate'}`\n"
+                f"Goal: {job.get('goal', '')[:160]}"
+            ),
+            level="success",
+        )
+
+    @work
+    async def handle_quiet_command(self, user_text: str) -> None:
+        """/quiet [on [reason] | off | status | digest] manages global quiet mode."""
+        chat_log = self.query_one(ChatLog)
+        chat_log.add_user_message(user_text)
+        parts = user_text.strip().split(maxsplit=2)
+        sub = parts[1].lower() if len(parts) > 1 else "status"
+        extra = parts[2].strip() if len(parts) > 2 else ""
+
+        if sub in ("on", "enable", "true", "1"):
+            res = await set_quiet_mode_remote(True, reason=extra or "Operator enabled /quiet", base_url=self.core_url)
+        elif sub in ("off", "disable", "false", "0"):
+            res = await set_quiet_mode_remote(False, reason=extra or "Operator disabled /quiet", base_url=self.core_url)
+        elif sub == "digest":
+            res = await set_quiet_mode_remote(None, clear_digest=bool(extra == "clear"), base_url=self.core_url)
+        else:
+            res = await set_quiet_mode_remote(None, base_url=self.core_url)
+
+        if not res.get("ok"):
+            chat_log.add_system_card(
+                title="QUIET MODE ERROR",
+                message=str(res.get("message") or "Failed to query/update quiet mode."),
+                level="warning",
+            )
+            return
+
+        quiet = res.get("quiet") or {}
+        state_str = "ON" if quiet.get("enabled") else "OFF"
+        digest = quiet.get("digest") or []
+        lines = [
+            f"### Global Quiet Mode: `{state_str}`",
+            f"- **Suppressed Notifications Buffered**: `{quiet.get('suppressed_count', len(digest))}`",
+            f"- **Reason**: {quiet.get('reason') or 'n/a'}",
+        ]
+        if sub == "digest" and digest:
+            lines.append("\n**Recent Suppressed Digest:**")
+            for item in digest[-10:]:
+                lines.append(f"- `{item.get('ts', '')}` [{item.get('channel', 'alert')}] {str(item.get('summary', '')).splitlines()[0][:120]}")
+        chat_log.add_assistant_message("\n".join(lines), latency="0.01s")
 
     def handle_memory_command(self, user_text: str) -> None:
         chat_log = self.query_one(ChatLog)

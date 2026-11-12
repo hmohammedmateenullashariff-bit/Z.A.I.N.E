@@ -98,6 +98,9 @@ class RunScratchpad:
     results: List[Dict[str, Any]] = field(default_factory=list)
     artifacts: List[str] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
+    pending_approval_id: str = ""
+    pending_tool: str = ""
+    pending_args: Dict[str, Any] = field(default_factory=dict)
     final_summary: str = ""
     created_at: str = field(default_factory=_utc_now)
     updated_at: str = field(default_factory=_utc_now)
@@ -208,6 +211,8 @@ class RunScratchpadStore:
                     "current_step": pad.current_step,
                     "max_steps": pad.max_steps,
                     "artifacts": list(pad.artifacts),
+                    "pending_approval_id": pad.pending_approval_id,
+                    "pending_tool": pad.pending_tool,
                     "privacy_taint": pad.privacy_taint,
                     "created_at": pad.created_at,
                     "updated_at": pad.updated_at,
@@ -247,7 +252,13 @@ def build_resume_context(pad: RunScratchpad, *, max_chars: int = 1600) -> str:
     return block
 
 
-def flush_run_to_vault(pad: RunScratchpad, *, memory_manager: Optional[Any] = None) -> Optional[str]:
+def flush_run_to_vault(
+    pad: RunScratchpad,
+    *,
+    memory_manager: Optional[Any] = None,
+    extra_tags: Optional[List[str]] = None,
+    title_prefix: str = "",
+) -> Optional[str]:
     """
     Persists a concise durable episode note in the Obsidian vault at provisional trust
     with LOCAL_ONLY privacy taint. Never promotes trust autonomously.
@@ -260,15 +271,25 @@ def flush_run_to_vault(pad: RunScratchpad, *, memory_manager: Optional[Any] = No
         if mm is None or not mm.available:
             return None
 
-        title = f"Run {pad.run_id}: {pad.task[:48]}"
-        body = (
-            f"Run ID: {pad.run_id}\n"
-            f"Agent: {pad.agent_id}\n"
-            f"Status: {pad.status}\n"
-            f"Steps: {pad.completed_steps}/{pad.max_steps}\n"
-            f"Artifacts: {', '.join(pad.artifacts) if pad.artifacts else 'None'}\n"
-            f"Summary: {(pad.final_summary or '')[:600]}"
-        )
+        prefix = f"{title_prefix.strip()} " if title_prefix and title_prefix.strip() else ""
+        title = f"{prefix}Run {pad.run_id}: {pad.task[:48]}"
+        body_lines = [
+            f"Run ID: {pad.run_id}",
+            f"Agent: {pad.agent_id}",
+            f"Status: {pad.status}",
+            f"Steps: {pad.completed_steps}/{pad.max_steps}",
+            f"Artifacts: {', '.join(pad.artifacts) if pad.artifacts else 'None'}",
+        ]
+        if pad.pending_approval_id:
+            body_lines.append(
+                f"Pending Approval: {pad.pending_approval_id} (tool={pad.pending_tool or 'unknown'})"
+            )
+        body_lines.append(f"Summary: {(pad.final_summary or '')[:600]}")
+        body = "\n".join(body_lines)
+        tags = ["autonomous-run", pad.status]
+        for t in extra_tags or []:
+            if t and t not in tags:
+                tags.append(str(t))
         entry, _msg = mm.create(
             title=title,
             content=body,
@@ -276,7 +297,7 @@ def flush_run_to_vault(pad: RunScratchpad, *, memory_manager: Optional[Any] = No
             source=MemorySource.AGENT_INFERENCE,
             trust=TrustLevel.PROVISIONAL,
             privacy_taint=pad.privacy_taint or "LOCAL_ONLY",
-            tags=["autonomous-run", pad.status],
+            tags=tags,
             source_ref=f"scratchpad:{pad.run_id}",
         )
         return entry.id if entry is not None else None
