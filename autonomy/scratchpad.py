@@ -28,15 +28,41 @@ def get_scratchpad_dir() -> Path:
     return d
 
 
-def _sanitize_run_id(run_id: str) -> str:
+def sanitize_run_id(run_id: str) -> str:
+    """Normalizes and validates run_id to reject path traversal tokens."""
     clean = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(run_id or "").strip()).strip("._")
     if not clean or ".." in clean:
-        raise ValueError(f"Invalid run_id for scratchpad: {run_id!r}")
+        raise ValueError(f"Invalid run_id for store: {run_id!r}")
     return clean
 
 
-def _utc_now() -> str:
+def utc_now_iso() -> str:
+    """Returns current UTC timestamp in ISO-8601 format."""
     return datetime.now(timezone.utc).isoformat()
+
+
+def atomic_write_json(target: Path, data: Dict[str, Any]) -> Path:
+    """Atomically serializes `data` as indented UTF-8 JSON to `target` via temp file + fsync + os.replace."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(data, indent=2, ensure_ascii=False)
+    fd, tmp_name = tempfile.mkstemp(prefix=f"{target.stem}_", suffix=".tmp", dir=str(target.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp_name, target)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+    return target
+
+
+_sanitize_run_id = sanitize_run_id
+_utc_now = utc_now_iso
 
 
 def _is_pid_alive(pid: int) -> bool:
@@ -117,21 +143,7 @@ class RunScratchpadStore:
             pad.resumable = False
 
         target = self.path_for(pad.run_id)
-        payload = json.dumps(pad.to_dict(), indent=2, ensure_ascii=False)
-        fd, tmp_name = tempfile.mkstemp(prefix=f"{target.stem}_", suffix=".tmp", dir=str(target.parent))
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                fh.write(payload)
-                fh.flush()
-                os.fsync(fh.fileno())
-            os.replace(tmp_name, target)
-        except Exception:
-            try:
-                os.unlink(tmp_name)
-            except OSError:
-                pass
-            raise
-        return target
+        return atomic_write_json(target, pad.to_dict())
 
     def load(self, run_id: str) -> Optional[RunScratchpad]:
         try:
@@ -153,7 +165,11 @@ class RunScratchpadStore:
         try:
             from autonomy.cancel import get_active_runs
 
-            active_ids = set(get_active_runs().keys())
+            active_ids = {
+                str(item.get("run_id"))
+                for item in get_active_runs()
+                if isinstance(item, dict) and item.get("run_id")
+            }
         except Exception:
             active_ids = set()
 

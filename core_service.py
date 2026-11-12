@@ -1076,14 +1076,62 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
                 limit = max(1, min(100, int((qs.get("limit") or ["30"])[0])))
             except (TypeError, ValueError):
                 limit = 30
-            from autonomy import RunScratchpadStore, get_active_runs
+            from autonomy import AuditLogStore, RunScratchpadStore, get_active_runs
             store = RunScratchpadStore()
+            audit_store = AuditLogStore()
             runs = store.list_runs(limit=limit, resumable_only=resumable_only)
+            for item in runs:
+                rid = str(item.get("run_id") or "")
+                try:
+                    apath = audit_store.path_for(rid) if rid else None
+                    item["audit_path"] = str(apath) if (apath is not None and apath.exists()) else ""
+                except Exception:
+                    item["audit_path"] = ""
             self._send_json(200, {
                 "ok": True,
                 "agent_enabled": _env_flag("ZAINE_AGENT"),
                 "runs": runs,
                 "active_runs": get_active_runs(),
+            })
+            return
+
+        # 14. Autonomous Run Audit Trail (/api/audit & /api/audit/<run_id>)
+        if path == "/api/audit":
+            if not self._validate_auth():
+                return
+            qs = urllib.parse.parse_qs(parsed.query)
+            try:
+                limit = max(1, min(100, int((qs.get("limit") or ["30"])[0])))
+            except (TypeError, ValueError):
+                limit = 30
+            from autonomy import AuditLogStore
+            audits = AuditLogStore().list_audits(limit=limit)
+            self._send_json(200, {"ok": True, "audits": audits})
+            return
+
+        if path.startswith("/api/audit/"):
+            if not self._validate_auth():
+                return
+            raw_rid = urllib.parse.unquote(path[len("/api/audit/"):]).strip()
+            if not raw_rid or "/" in raw_rid or "\\" in raw_rid:
+                self._send_json(400, {"ok": False, "error": "invalid run_id"})
+                return
+            from autonomy import AuditLogStore
+            from autonomy.scratchpad import sanitize_run_id
+            try:
+                rid = sanitize_run_id(raw_rid)
+            except ValueError as ve:
+                self._send_json(400, {"ok": False, "error": str(ve)})
+                return
+            store = AuditLogStore()
+            audit = store.load(rid)
+            if audit is None:
+                self._send_json(404, {"ok": False, "error": f"No audit trail found for run_id '{rid}'"})
+                return
+            self._send_json(200, {
+                "ok": True,
+                "audit_path": str(store.path_for(rid)),
+                "audit": audit.to_dict(),
             })
             return
 
@@ -1576,6 +1624,7 @@ class CoreServiceRequestHandler(BaseHTTPRequestHandler):
                     "plan": loop_res.plan,
                     "stop_reason": loop_res.stop_reason,
                     "elapsed_s": loop_res.elapsed_s,
+                    "audit_path": getattr(loop_res, "audit_path", ""),
                 }
             _coordinator.complete_request(request_id, final_dict)
 

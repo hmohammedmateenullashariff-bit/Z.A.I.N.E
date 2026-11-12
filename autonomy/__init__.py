@@ -104,7 +104,32 @@ from autonomy.scratchpad import (
 )
 
 
+from .audit import (
+    ApprovalDecisionRecord,
+    AuditEntry,
+    AuditLogStore,
+    RunAuditLog,
+    RunAuditRecorder,
+    active_audit_recorder,
+    capture_step_approvals,
+    get_active_audit_recorder,
+    get_audit_dir,
+    summarize_args,
+    summarize_result,
+)
+
 __all__ = [
+    "ApprovalDecisionRecord",
+    "AuditEntry",
+    "AuditLogStore",
+    "RunAuditLog",
+    "RunAuditRecorder",
+    "active_audit_recorder",
+    "capture_step_approvals",
+    "get_active_audit_recorder",
+    "get_audit_dir",
+    "summarize_args",
+    "summarize_result",
     "is_agent_enabled",
     "AutonomousLoop",
     "CancelToken",

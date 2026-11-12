@@ -11,7 +11,43 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
+import re
 from typing import Any, Dict, FrozenSet, Iterator, Optional, Tuple
+
+_PROPOSAL_ID_RE = re.compile(r"\b(ACT-[0-9A-F]{6,16})\b", re.I)
+
+
+def _record_audit_approval(
+    *,
+    tool_name: str,
+    action_type: str,
+    risk_level: str,
+    decision: str,
+    proposal_id: str = "",
+    note: str = "",
+    target_summary: str = "",
+) -> None:
+    """Records an approval/security gate decision into the active RunAuditRecorder if bound."""
+    try:
+        from autonomy.audit import get_active_audit_recorder
+        from core.task_envelope import current_agent_var
+
+        recorder = get_active_audit_recorder()
+        if recorder is None:
+            return
+        agent_id = current_agent_var.get(None) or recorder.log.root_agent_id or "zaine-jarvis"
+        recorder.record_approval(
+            agent=str(agent_id),
+            tool=tool_name,
+            action_type=action_type,
+            risk_level=risk_level,
+            decision=decision,
+            proposal_id=proposal_id,
+            note=note,
+            target_summary=target_summary,
+        )
+    except Exception:
+        pass
 
 _PREAPPROVED_TOOL: ContextVar[Optional[str]] = ContextVar("zaine_preapproved_tool", default=None)
 
@@ -107,9 +143,26 @@ def require_side_effect_approval(tool_name: str, args: Dict[str, Any]) -> Tuple[
     effective_args = dict(args or {})
     cloud_block = check_outbound_cloud_block(tool_name, effective_args)
     if cloud_block:
+        _record_audit_approval(
+            tool_name=tool_name,
+            action_type="PRIVACY_POLICY",
+            risk_level="High",
+            decision="BLOCKED_PRIVACY",
+            note=cloud_block,
+            target_summary=str(effective_args)[:180],
+        )
         return False, cloud_block
 
     if is_tool_preapproved(tool_name):
+        if _PREAPPROVED_TOOL.get(None) != tool_name:
+            _record_audit_approval(
+                tool_name=tool_name,
+                action_type="DELEGATED_SCOPE",
+                risk_level="Moderate",
+                decision="PREAPPROVED",
+                note=f"Inherited single-call approval from '{_PREAPPROVED_TOOL.get(None)}'",
+                target_summary=str(effective_args)[:180],
+            )
         return True, "preapproved"
 
     if (tool_name or "").strip() == "write_external_file":
@@ -119,7 +172,16 @@ def require_side_effect_approval(tool_name: str, args: Dict[str, Any]) -> Tuple[
         content = str(effective_args.get("content") or "")
         target, diff_text, is_overwrite, block_err = precheck_external_write(raw_fp, content)
         if block_err or target is None:
-            return False, block_err or f"External write to '{raw_fp}' was blocked."
+            reason = block_err or f"External write to '{raw_fp}' was blocked."
+            _record_audit_approval(
+                tool_name=tool_name,
+                action_type="EXTERNAL_FILE_WRITE",
+                risk_level="High",
+                decision="BLOCKED_SANDBOX",
+                note=reason,
+                target_summary=raw_fp[:180],
+            )
+            return False, reason
         effective_args["filepath"] = str(target)
         effective_args["diff"] = diff_text
         effective_args["is_overwrite"] = is_overwrite
@@ -131,9 +193,13 @@ def require_side_effect_approval(tool_name: str, args: Dict[str, Any]) -> Tuple[
         return True, "not_required"
 
     action_type, risk_level, title, payload = spec
-    from approval import require_approval
+    import approval as _approval_mod
 
-    ok, msg = require_approval(
+    pop_meta = getattr(_approval_mod, "pop_last_approval_decision", None)
+    if callable(pop_meta):
+        pop_meta()
+
+    ok, msg = _approval_mod.require_approval(
         action_type=action_type,
         title=title,
         description=f"Autonomous agent requests '{tool_name}': {payload[:240]}",
@@ -144,6 +210,36 @@ def require_side_effect_approval(tool_name: str, args: Dict[str, Any]) -> Tuple[
         ),
         risk_level=risk_level,
         tool_name=tool_name,
+    )
+
+    meta = pop_meta() if callable(pop_meta) else None
+    proposal_id = ""
+    if isinstance(meta, dict):
+        proposal_id = str(meta.get("proposal_id") or "")
+        raw_st = str(meta.get("status") or "").upper()
+        decision = "EXPIRED" if raw_st == "TIMEOUT" else (raw_st or ("APPROVED" if ok else "DENIED"))
+    else:
+        m = _PROPOSAL_ID_RE.search(str(msg or ""))
+        if m:
+            proposal_id = m.group(1).upper()
+        low_msg = str(msg or "").lower()
+        if ok:
+            decision = "APPROVED"
+        elif "expired" in low_msg or "timeout" in low_msg:
+            decision = "EXPIRED"
+        elif "cancel" in low_msg:
+            decision = "CANCELLED"
+        else:
+            decision = "DENIED"
+
+    _record_audit_approval(
+        tool_name=tool_name,
+        action_type=action_type,
+        risk_level=risk_level,
+        decision=decision,
+        proposal_id=proposal_id,
+        note=str(msg or ""),
+        target_summary=payload[:180],
     )
     if not ok:
         return False, f"Approval required / denied for '{tool_name}': {msg}"

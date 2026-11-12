@@ -85,6 +85,7 @@ from tui.client import (
     get_agents,
     set_agent,
     get_runs,
+    get_audit,
     StreamTimeoutError,
     StreamCancelledError,
 )
@@ -949,6 +950,70 @@ class ZaineTUI(App):
                 resume_run_id=target_id,
                 display_prompt=user_text,
             )
+            return
+
+        if len(parts) >= 2 and parts[1].lower() in ("audit", "--audit"):
+            target_id = parts[2].strip() if len(parts) >= 3 else ""
+            chat_log.add_user_message(user_text)
+            res = await get_audit(run_id=target_id, base_url=self.core_url)
+            if not res.get("ok"):
+                chat_log.add_system_card(
+                    title="AUDIT UNAVAILABLE",
+                    message=res.get("message", "Could not query /api/audit on CoreService."),
+                    level="warning",
+                )
+                return
+            if target_id:
+                audit = res.get("audit") or {}
+                entries = audit.get("entries") or []
+                approvals = audit.get("approval_decisions") or []
+                lines = [
+                    f"### Run Audit: `{audit.get('run_id', target_id)}`",
+                    f"- **Status**: {audit.get('status', 'unknown')} ({audit.get('stop_reason', '') or 'done'})",
+                    f"- **Root Agent**: {audit.get('root_agent_id', 'n/a')} | **Steps**: {audit.get('steps_executed', 0)}/{audit.get('max_steps', '?')}",
+                    f"- **Privacy Taint**: {audit.get('privacy_taint', 'LOCAL_ONLY')} | **Approvals**: {len(approvals)} | **Tool Calls**: {len(entries)}",
+                    f"- **File**: `{res.get('audit_path', '')}`",
+                ]
+                if entries:
+                    lines.append("\n| # | Agent | Tool | Outcome | Approval | Args |")
+                    lines.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
+                    for idx, e in enumerate(entries[-20:], start=max(1, len(entries) - 19)):
+                        args_val = e.get("args_summary")
+                        args_txt = (
+                            args_val
+                            if isinstance(args_val, str)
+                            else json.dumps(args_val or {}, ensure_ascii=False)
+                        ).replace("|", "\\|")[:60]
+                        ap = e.get("approval_decision")
+                        ap_txt = ap.get("decision", "NOT_REQUIRED") if isinstance(ap, dict) else str(ap or "NOT_REQUIRED")
+                        lines.append(
+                            f"| {idx} | {e.get('agent', 'n/a')} | `{e.get('tool', '')}` | "
+                            f"{e.get('result_status', '')} | {ap_txt} | {args_txt} |"
+                        )
+                chat_log.add_assistant_message("\n".join(lines), latency="0.01s")
+                return
+
+            audits = res.get("audits") or []
+            if not audits:
+                chat_log.add_system_card(
+                    title="NO AUDIT LOGS",
+                    message="No audit trail files found yet. Run an autonomous goal with `/run <goal>`.",
+                    level="info",
+                )
+                return
+            lines = [
+                "### Autonomous Run Audit Logs\n",
+                "| Run ID | Agent | Status | Tool Calls | Approvals | Updated |",
+                "| :--- | :--- | :--- | :--- | :--- | :--- |",
+            ]
+            for a in audits[:15]:
+                updated = str(a.get("ended_at") or a.get("started_at") or "")[:19].replace("T", " ")
+                lines.append(
+                    f"| `{a.get('run_id', '')}` | {a.get('root_agent_id', 'n/a')} | {a.get('status', 'unknown')} | "
+                    f"{a.get('entry_count', 0)} | {a.get('approval_count', 0)} | {updated} |"
+                )
+            lines.append("\nInspect one run in detail with `/runs audit <run_id>`.")
+            chat_log.add_assistant_message("\n".join(lines), latency="0.01s")
             return
 
         chat_log.add_user_message(user_text)

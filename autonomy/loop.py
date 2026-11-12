@@ -13,6 +13,7 @@ resident local model via Ollama with num_ctx<=4096 unless explicitly overridden.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import json
 import os
@@ -25,6 +26,13 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple
 
 import requests
 
+from autonomy.audit import (
+    AuditLogStore,
+    RunAuditRecorder,
+    active_audit_recorder,
+    capture_step_approvals,
+    get_active_audit_recorder,
+)
 from autonomy.cancel import (
     CancelToken,
     _close_response_socket,
@@ -48,6 +56,7 @@ from autonomy.scratchpad import (
     RunScratchpadStore,
     build_resume_context,
     flush_run_to_vault,
+    utc_now_iso,
 )
 from autonomy.tool_validation import (
     ToolValidationResult,
@@ -142,6 +151,7 @@ class LoopResult:
     elapsed_s: float = 0.0
     errors: List[str] = field(default_factory=list)
     usage: Dict[str, int] = field(default_factory=lambda: {"model_calls": 0, "prompt_tokens": 0, "eval_tokens": 0})
+    audit_path: str = ""
 
 
 EventCallback = Callable[[str, str, Any], None]
@@ -221,6 +231,8 @@ class AutonomousLoop:
         memory: Optional[Any] = None,
         scratchpad_store: Optional[RunScratchpadStore] = None,
         persist_scratchpad: Optional[bool] = None,
+        audit_store: Optional[AuditLogStore] = None,
+        persist_audit: Optional[bool] = None,
     ) -> None:
         self.config = config or LoopConfig.from_env()
         self.profile = profile
@@ -242,6 +254,8 @@ class AutonomousLoop:
         self._memory = memory
         self._scratchpad_store = scratchpad_store
         self._persist_scratchpad = (self._delegation_depth == 0) if persist_scratchpad is None else bool(persist_scratchpad)
+        self._audit_store = audit_store
+        self._persist_audit = (self._delegation_depth == 0) if persist_audit is None else bool(persist_audit)
         self._last_model_calls: List[Dict[str, Any]] = []
 
     @staticmethod
@@ -774,6 +788,34 @@ class AutonomousLoop:
             except Exception:
                 pass
 
+        initial_taint = (
+            resume_from.privacy_taint
+            if (resume_from is not None and resume_from.privacy_taint)
+            else ("LOCAL_ONLY" if (self._memory_context or str(getattr(active_env, "privacy_class", "LOCAL_ONLY")).upper() == "LOCAL_ONLY") else "CLEAN")
+        )
+
+        existing_audit = get_active_audit_recorder()
+        audit_recorder: Optional[RunAuditRecorder] = existing_audit
+        owns_audit = False
+        audit_finalized = False
+        if audit_recorder is None and self._persist_audit:
+            try:
+                active_audit_store = self._audit_store if self._audit_store is not None else AuditLogStore()
+                audit_recorder = RunAuditRecorder.open_for_run(
+                    run_id=rid,
+                    task=goal,
+                    root_agent_id=profile_id,
+                    model_name=self.config.model_name,
+                    max_steps=max_steps,
+                    privacy_taint=initial_taint,
+                    store=active_audit_store,
+                    resume=(resume_from is not None),
+                )
+                owns_audit = True
+            except Exception:
+                audit_recorder = None
+                owns_audit = False
+
         def _sync_pad(
             *,
             step_record: Optional[StepRecord] = None,
@@ -815,8 +857,40 @@ class AutonomousLoop:
                 pass
 
         def _finish(status: str, summary: str, stop_reason: str) -> LoopResult:
+            nonlocal audit_finalized
             elapsed = round(time.monotonic() - t_start, 3)
             _sync_pad(final_status=status, final_summary=summary)
+            audit_path_str = ""
+            if owns_audit and audit_recorder is not None:
+                try:
+                    taint_now = initial_taint
+                    try:
+                        from autonomy.privacy import is_session_private
+                        if is_session_private():
+                            taint_now = "LOCAL_ONLY"
+                    except Exception:
+                        pass
+                    saved_path = audit_recorder.finalize(
+                        status=status,
+                        stop_reason=stop_reason,
+                        duration_s=elapsed,
+                        steps_executed=len(steps_records),
+                        max_steps=max_steps,
+                        artifacts=artifacts,
+                        errors=errors,
+                        privacy_taint=taint_now,
+                    )
+                    audit_finalized = True
+                    if saved_path is not None:
+                        audit_path_str = str(saved_path)
+                except Exception:
+                    pass
+            elif audit_recorder is not None:
+                try:
+                    if audit_recorder.audit_path is not None:
+                        audit_path_str = str(audit_recorder.audit_path)
+                except Exception:
+                    pass
             if (
                 status == "completed"
                 and pad is not None
@@ -851,16 +925,16 @@ class AutonomousLoop:
                 elapsed_s=elapsed,
                 errors=errors,
                 usage=usage,
+                audit_path=audit_path_str,
             )
 
-        initial_taint = (
-            resume_from.privacy_taint
-            if (resume_from is not None and resume_from.privacy_taint)
-            else ("LOCAL_ONLY" if (self._memory_context or str(getattr(active_env, "privacy_class", "LOCAL_ONLY")).upper() == "LOCAL_ONLY") else "CLEAN")
+        audit_ctx = (
+            active_audit_recorder(audit_recorder)
+            if (owns_audit and audit_recorder is not None)
+            else contextlib.nullcontext()
         )
-
         try:
-            with scoped_privacy_session(initial_taint=initial_taint):
+            with audit_ctx, scoped_privacy_session(initial_taint=initial_taint):
                 if self._memory_context:
                     mark_session_private("initial_memory_context", "LOCAL_ONLY")
 
@@ -1100,145 +1174,175 @@ class AutonomousLoop:
                         prev_digest = seen_result_digests.get(sig)
 
                         self._emit("start", resolved_name, targs)
-
-                        if perm_err:
-                            tool_result = perm_err
-                            outcome = ToolOutcome(status="denied", error_kind="agent_permission", key_line=perm_err[:200])
-                        elif resolved_name == "read_result":
-                            rid_arg = str(targs.get("id") or targs.get("result_id") or "")
-                            tool_result = self._result_store.read(
-                                rid_arg,
-                                int(targs.get("start", 0) or 0),
-                                int(targs.get("length", 2400) or 2400),
-                            )
-                            outcome = tool_outcome(tool_result)
-                        elif resolved_name == "delegate":
-                            t_tool0 = time.monotonic()
-                            try:
-                                from approval import set_current_tool_name
-                                set_current_tool_name("delegate")
-                            except Exception:
-                                pass
-                            try:
-                                if self._delegate_fn is not None:
-                                    tool_result = str(self._delegate_fn(targs))
-                                else:
-                                    from autonomy.subagents import execute_delegate
-                                    inherited_exec = (
-                                        self._tool_exec_fn
-                                        if self._tool_exec_fn != self._fallback_tool_exec
-                                        else None
-                                    )
-                                    tool_result = execute_delegate(
-                                        targs,
-                                        caller_profile=self.profile,
-                                        delegation_depth=self._delegation_depth,
-                                        model_name=self.config.model_name,
-                                        model_stream_fn=self._model_stream_fn,
-                                        tool_exec_fn=inherited_exec,
-                                        tool_alias_fn=self._tool_alias_fn,
-                                        on_event=self._on_event,
-                                        result_store=self._result_store,
-                                        memory=self._memory,
-                                        request_id=self.request_id,
-                                        cancel_token=self.cancel_token,
-                                        cancel_check=self._external_cancel_check,
-                                        breaker=self._breaker,
-                                    )
-                            except Exception as exc:
-                                tool_result = json.dumps(
-                                    {
-                                        "status": "failed",
-                                        "summary": f"Delegation error: {exc}",
-                                        "artifacts": [],
-                                        "errors": [str(exc)],
-                                    },
-                                    ensure_ascii=False,
-                                )
-                            finally:
-                                try:
-                                    from approval import set_current_tool_name
-                                    set_current_tool_name(None)
-                                except Exception:
-                                    pass
-
-                            outcome = tool_outcome(tool_result)
-                            try:
-                                parsed_del = json.loads(tool_result)
-                                if isinstance(parsed_del, dict):
-                                    d_status = str(parsed_del.get("status") or "").lower()
-                                    d_summary = str(parsed_del.get("summary") or "")
-                                    for dart in (parsed_del.get("artifacts") or []):
-                                        s_art = str(dart).strip()
-                                        if s_art and s_art not in artifacts:
-                                            artifacts.append(s_art)
-                                    if d_status == "blocked":
-                                        outcome = ToolOutcome(
-                                            status="denied",
-                                            error_kind="delegation_blocked",
-                                            key_line=d_summary[:200],
-                                        )
-                                    elif d_status in ("failed", "cancelled"):
-                                        outcome = ToolOutcome(
-                                            status="error",
-                                            error_kind=f"delegation_{d_status}",
-                                            key_line=d_summary[:200],
-                                        )
-                                    else:
-                                        outcome = ToolOutcome(
-                                            status="ok",
-                                            error_kind="",
-                                            key_line=d_summary[:200],
-                                        )
-                            except Exception:
-                                pass
-                        else:
-                            ok_ap, msg_ap = require_side_effect_approval(resolved_name, targs)
-                            if not ok_ap:
-                                tool_result = msg_ap
-                                outcome = ToolOutcome(
-                                    status="denied",
-                                    error_kind="approval_denied",
-                                    key_line=msg_ap[:200],
-                                )
-                            else:
-                                allowed_cb, cb_reason = self._breaker.can_execute(resolved_name, target=target_key)
-                                if not allowed_cb:
-                                    tool_result = cb_reason or f"[UNAVAILABLE: '{resolved_name}' circuit is OPEN]"
-                                    outcome = ToolOutcome(status="error", error_kind="circuit_open", key_line=tool_result[:200])
-                                else:
-                                    t_tool0 = time.time()
+                        t_tool_wall0 = time.monotonic()
+                        with capture_step_approvals() as step_approvals:
+                            if perm_err:
+                                tool_result = perm_err
+                                outcome = ToolOutcome(status="denied", error_kind="agent_permission", key_line=perm_err[:200])
+                                if audit_recorder is not None:
                                     try:
-                                        from approval import set_current_tool_name
-                                        set_current_tool_name(resolved_name)
+                                        audit_recorder.record_approval(
+                                            agent=profile_id,
+                                            tool=resolved_name,
+                                            action_type="agent_permission",
+                                            risk_level="high",
+                                            decision="BLOCKED_PERMISSION",
+                                            note=perm_err[:300],
+                                        )
                                     except Exception:
                                         pass
+                            elif resolved_name == "read_result":
+                                rid_arg = str(targs.get("id") or targs.get("result_id") or "")
+                                tool_result = self._result_store.read(
+                                    rid_arg,
+                                    int(targs.get("start", 0) or 0),
+                                    int(targs.get("length", 2400) or 2400),
+                                )
+                                outcome = tool_outcome(tool_result)
+                            elif resolved_name == "delegate":
+                                t_tool0 = time.monotonic()
+                                try:
+                                    from approval import set_current_tool_name
+                                    set_current_tool_name("delegate")
+                                except Exception:
+                                    pass
+                                try:
+                                    if self._delegate_fn is not None:
+                                        tool_result = str(self._delegate_fn(targs))
+                                    else:
+                                        from autonomy.subagents import execute_delegate
+                                        inherited_exec = (
+                                            self._tool_exec_fn
+                                            if self._tool_exec_fn != self._fallback_tool_exec
+                                            else None
+                                        )
+                                        tool_result = execute_delegate(
+                                            targs,
+                                            caller_profile=self.profile,
+                                            delegation_depth=self._delegation_depth,
+                                            model_name=self.config.model_name,
+                                            model_stream_fn=self._model_stream_fn,
+                                            tool_exec_fn=inherited_exec,
+                                            tool_alias_fn=self._tool_alias_fn,
+                                            on_event=self._on_event,
+                                            result_store=self._result_store,
+                                            memory=self._memory,
+                                            request_id=self.request_id,
+                                            cancel_token=self.cancel_token,
+                                            cancel_check=self._external_cancel_check,
+                                            breaker=self._breaker,
+                                        )
+                                except Exception as exc:
+                                    tool_result = json.dumps(
+                                        {
+                                            "status": "failed",
+                                            "summary": f"Delegation error: {exc}",
+                                            "artifacts": [],
+                                            "errors": [str(exc)],
+                                        },
+                                        ensure_ascii=False,
+                                    )
+                                finally:
                                     try:
-                                        with preapproved_tool_scope(resolved_name):
-                                            tool_result = str(self._tool_exec_fn({"tool": resolved_name, "args": targs}))
-                                    except Exception as exc:
-                                        tool_result = f"Error running tool '{resolved_name}': {exc}"
-                                    finally:
+                                        from approval import set_current_tool_name
+                                        set_current_tool_name(None)
+                                    except Exception:
+                                        pass
+
+                                outcome = tool_outcome(tool_result)
+                                try:
+                                    parsed_del = json.loads(tool_result)
+                                    if isinstance(parsed_del, dict):
+                                        d_status = str(parsed_del.get("status") or "").lower()
+                                        d_summary = str(parsed_del.get("summary") or "")
+                                        for dart in (parsed_del.get("artifacts") or []):
+                                            s_art = str(dart).strip()
+                                            if s_art and s_art not in artifacts:
+                                                artifacts.append(s_art)
+                                        if d_status == "blocked":
+                                            outcome = ToolOutcome(
+                                                status="denied",
+                                                error_kind="delegation_blocked",
+                                                key_line=d_summary[:200],
+                                            )
+                                        elif d_status in ("failed", "cancelled"):
+                                            outcome = ToolOutcome(
+                                                status="error",
+                                                error_kind=f"delegation_{d_status}",
+                                                key_line=d_summary[:200],
+                                            )
+                                        else:
+                                            outcome = ToolOutcome(
+                                                status="ok",
+                                                error_kind="",
+                                                key_line=d_summary[:200],
+                                            )
+                                except Exception:
+                                    pass
+                            else:
+                                ok_ap, msg_ap = require_side_effect_approval(resolved_name, targs)
+                                if not ok_ap:
+                                    tool_result = msg_ap
+                                    outcome = ToolOutcome(
+                                        status="denied",
+                                        error_kind="approval_denied",
+                                        key_line=msg_ap[:200],
+                                    )
+                                else:
+                                    allowed_cb, cb_reason = self._breaker.can_execute(resolved_name, target=target_key)
+                                    if not allowed_cb:
+                                        tool_result = cb_reason or f"[UNAVAILABLE: '{resolved_name}' circuit is OPEN]"
+                                        outcome = ToolOutcome(status="error", error_kind="circuit_open", key_line=tool_result[:200])
+                                    else:
+                                        t_tool0 = time.time()
                                         try:
                                             from approval import set_current_tool_name
-                                            set_current_tool_name(None)
+                                            set_current_tool_name(resolved_name)
                                         except Exception:
                                             pass
+                                        try:
+                                            with preapproved_tool_scope(resolved_name):
+                                                tool_result = str(self._tool_exec_fn({"tool": resolved_name, "args": targs}))
+                                        except Exception as exc:
+                                            tool_result = f"Error running tool '{resolved_name}': {exc}"
+                                        finally:
+                                            try:
+                                                from approval import set_current_tool_name
+                                                set_current_tool_name(None)
+                                            except Exception:
+                                                pass
 
-                                    outcome = tool_outcome(tool_result)
-                                    if outcome.ok:
-                                        self._breaker.record_success(resolved_name, target=target_key)
-                                    elif outcome.status == "error":
-                                        dur_ms = int((time.time() - t_tool0) * 1000)
-                                        self._breaker.record_failure(
-                                            tool=resolved_name,
-                                            error_class=outcome.error_kind or "ToolError",
-                                            message=outcome.key_line or tool_result[:300],
-                                            target=target_key,
-                                            request_id=self.request_id,
-                                            agent_id=profile_id,
-                                            duration_ms=dur_ms,
-                                        )
+                                        outcome = tool_outcome(tool_result)
+                                        if outcome.ok:
+                                            self._breaker.record_success(resolved_name, target=target_key)
+                                        elif outcome.status == "error":
+                                            dur_ms = int((time.time() - t_tool0) * 1000)
+                                            self._breaker.record_failure(
+                                                tool=resolved_name,
+                                                error_class=outcome.error_kind or "ToolError",
+                                                message=outcome.key_line or tool_result[:300],
+                                                target=target_key,
+                                                request_id=self.request_id,
+                                                agent_id=profile_id,
+                                                duration_ms=dur_ms,
+                                            )
+
+                        dur_tool_ms = int((time.monotonic() - t_tool_wall0) * 1000)
+                        if audit_recorder is not None:
+                            try:
+                                audit_recorder.record_tool_call(
+                                    agent=profile_id,
+                                    delegation_depth=self._delegation_depth,
+                                    step=step_idx,
+                                    tool=resolved_name,
+                                    args=targs,
+                                    result=tool_result,
+                                    result_status=outcome.status,
+                                    duration_ms=dur_tool_ms,
+                                    step_approvals=step_approvals,
+                                )
+                            except Exception:
+                                pass
 
                         self._emit("done", resolved_name, tool_result)
                         tool_history.append(
@@ -1417,10 +1521,40 @@ class AutonomousLoop:
         except PrivacyViolationError as pve:
             errors.append(str(pve))
             _sync_pad(final_status="error", final_summary=str(pve))
+            if owns_audit and audit_recorder is not None and not audit_finalized:
+                try:
+                    audit_recorder.finalize(
+                        status="error",
+                        stop_reason=str(pve),
+                        duration_s=round(time.monotonic() - t_start, 3),
+                        steps_executed=len(steps_records),
+                        max_steps=max_steps,
+                        artifacts=artifacts,
+                        errors=errors,
+                        privacy_taint="LOCAL_ONLY",
+                    )
+                    audit_finalized = True
+                except Exception:
+                    pass
             self._emit("privacy_blocked", "privacy", {"run_id": rid, "reason": str(pve)})
             raise
 
         finally:
+            if owns_audit and audit_recorder is not None and not audit_finalized:
+                try:
+                    audit_recorder.finalize(
+                        status="error",
+                        stop_reason="run_interrupted",
+                        duration_s=round(time.monotonic() - t_start, 3),
+                        steps_executed=len(steps_records),
+                        max_steps=max_steps,
+                        artifacts=artifacts,
+                        errors=errors,
+                        privacy_taint=initial_taint,
+                    )
+                    audit_finalized = True
+                except Exception:
+                    pass
             if installed_listener:
                 try:
                     from approval import set_approval_listener
@@ -1437,16 +1571,25 @@ class AutonomousLoop:
         run_id: str,
         *,
         scratchpad_store: Optional[RunScratchpadStore] = None,
+        audit_store: Optional[AuditLogStore] = None,
         additional_steps: Optional[int] = None,
         envelope: Optional[TaskEnvelope] = None,
         on_token: Optional[Callable[[str], None]] = None,
     ) -> LoopResult:
         """Resumes an interrupted, paused, cancelled, or budget-stopped run from its scratchpad."""
         store = scratchpad_store or self._scratchpad_store or RunScratchpadStore()
+        resolved_audit_store = audit_store or self._audit_store or AuditLogStore()
         pad = store.load(run_id)
         if pad is None:
             raise FileNotFoundError(f"No scratchpad found for run_id '{run_id}'.")
         if pad.status == "completed":
+            existing_audit_path = ""
+            try:
+                cand_path = resolved_audit_store.path_for(pad.run_id)
+                if cand_path.exists():
+                    existing_audit_path = str(cand_path)
+            except Exception:
+                pass
             return LoopResult(
                 run_id=pad.run_id,
                 status="completed",
@@ -1458,6 +1601,7 @@ class AutonomousLoop:
                 tool_history=list(pad.results),
                 stop_reason="already_completed",
                 errors=list(pad.errors),
+                audit_path=existing_audit_path,
             )
 
         if additional_steps is not None and additional_steps > 0:
@@ -1469,7 +1613,9 @@ class AutonomousLoop:
             pad.max_steps = self.config.max_steps
 
         prev_store = self._scratchpad_store
+        prev_audit_store = self._audit_store
         self._scratchpad_store = store
+        self._audit_store = resolved_audit_store
         try:
             return self.run(
                 pad.task,
@@ -1480,6 +1626,7 @@ class AutonomousLoop:
             )
         finally:
             self._scratchpad_store = prev_store
+            self._audit_store = prev_audit_store
 
     @staticmethod
     def _format_stop_report(reason: str, history: List[Dict[str, Any]]) -> str:

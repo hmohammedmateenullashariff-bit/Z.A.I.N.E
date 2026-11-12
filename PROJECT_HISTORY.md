@@ -1332,3 +1332,11 @@ um_ctx=4096) peak VRAM at 2608 MiB.
   - Updated `agent.py`, `core_router.py`, `core_service.py`, `tui/app.py`, `tui/client.py`, `tui/exec_graph.py`, `tui/system_graph.py`, `tui/widgets/hud.py`
   - Added `tests/test_tui_phase_f.py`
 - **Verification**: Ran full pytest suite after final edit (`ZAINE_AGENT=0`) + Phase F Textual Pilot / CoreService tests + live `zaine-reflex-7b` (`num_ctx=4096`) `/api/run` + `/api/runs` + `/api/status` check (~2531 MiB GPU VRAM, single resident model).
+
+## Phase G - Per-Run JSON Audit Trail (agent-core)
+- **Date**: 2026-11-12
+- **Goal**: Persist an incremental, atomic per-run JSON audit trail (`data/audit/<run_id>.json` / `ZAINE_AUDIT_DIR`) recording every tool invocation and security/approval decision (`agent`, `tool`, secret-redacted & bounded `args_summary`, `result_status`/`result_summary`, `approval_decision`, `proposal_id`, ISO timestamps) across root runs, delegated subagents, circuit-breaker stops, and scratchpad resumes, plus `X-Zaine-Token`-authenticated `/api/audit` endpoints and `/runs audit` in TUI.
+- **Files Changed**:
+  - Added `autonomy/audit.py`, `tests/test_audit_log.py`
+  - Updated `approval.py`, `autonomy/__init__.py`, `autonomy/guards.py`, `autonomy/loop.py`, `autonomy/scratchpad.py`, `core_service.py`, `tui/app.py`, `tui/client.py`
+- **Verification**: Full pytest suite after final edit (`ZAINE_AGENT=0` against dev vault) + `tests/test_audit_log.py` (7/7) + live `zaine-reflex-7b` (`num_ctx=4096`) autonomous run audit benchmark (74.27s, 4 entries logged, `2624 MiB / 4096 MiB` GPU VRAM, single resident model).

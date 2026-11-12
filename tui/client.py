@@ -404,6 +404,26 @@ async def get_runs(resumable_only: bool = False, base_url: Optional[str] = None)
         return {"ok": False, "runs": [], "message": str(e)}
 
 
+async def get_audit(run_id: str = "", base_url: Optional[str] = None) -> Dict[str, Any]:
+    """Fetches autonomous run audit logs from GET /api/audit or /api/audit/<run_id>."""
+    rid = (run_id or "").strip()
+    suffix = f"/api/audit/{rid}" if rid else "/api/audit"
+    url = (base_url or get_core_service_url()) + suffix
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(url, headers=get_auth_headers())
+            try:
+                data = resp.json()
+            except ValueError:
+                data = {}
+            if resp.status_code == 200 and isinstance(data, dict):
+                return data
+            msg = data.get("error") if isinstance(data, dict) else ""
+            return {"ok": False, "message": msg or f"HTTP {resp.status_code}: {resp.text}"}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
 async def cancel_chat_request(
     request_id: str = "",
     base_url: Optional[str] = None,

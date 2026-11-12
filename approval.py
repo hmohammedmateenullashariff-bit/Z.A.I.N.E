@@ -39,6 +39,14 @@ def clear_approval_listener() -> None:
     _stream_context.listener = None
     _stream_context.request_id = None
     _stream_context.tool_name = None
+    _stream_context.last_decision = None
+
+
+def pop_last_approval_decision() -> Optional[Dict[str, Any]]:
+    """Returns and clears thread-local metadata for the most recent require_approval() resolution."""
+    val = getattr(_stream_context, "last_decision", None)
+    _stream_context.last_decision = None
+    return dict(val) if isinstance(val, dict) else None
 
 
 def set_current_request_id(request_id: Optional[str]) -> None:
@@ -464,6 +472,14 @@ def require_approval(
     )
 
     status, msg = ApprovalRegistry.wait_for_decision(action_id, timeout_seconds=timeout_seconds)
+    _stream_context.last_decision = {
+        "proposal_id": action_id,
+        "status": status,
+        "note": msg,
+        "action_type": action_type,
+        "risk_level": risk_level,
+        "tool_name": tool_name or "",
+    }
     if status == "APPROVED":
         return True, f"Approved: {msg}"
     elif status == "DENIED":
