@@ -102,17 +102,23 @@ graph TD
 
 ---
 
-## 🛠️ Quick Start
+## 🛠️ Quick Start (Seminar / New Setup)
 
 ### 1. Prerequisites
-- **Python 3.10+** (Tested on Python 3.12, Windows 11)
+- **Python 3.10+** (Tested on Python 3.12, Windows 10/11 & Linux)
 - [Ollama](https://ollama.com) installed and running.
 
-Pull the local models:
+Pull the models:
 ```bash
+# 1. Essential Core Model (Ultra-fast, runs on 4GB VRAM / CPU):
 ollama pull qwen2.5:3b
-ollama pull qwen2.5-coder:3b
+
+# 2. (Optional) Custom Z.A.I.N.E Persona:
+ollama create zaine-fast-3b -f Modelfile.fast3b
+
+# 3. Optional Extended Models:
 ollama pull deepseek-r1:7b
+ollama pull qwen2.5-coder:7b
 ollama pull moondream
 ```
 
@@ -120,6 +126,11 @@ ollama pull moondream
 ```bash
 git clone https://github.com/hmohammedmateenullashariff-bit/Z.A.I.N.E.git
 cd Z.A.I.N.E
+python -m venv .venv
+# Windows:
+.\.venv\Scripts\activate
+# Linux/macOS:
+# source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -127,27 +138,21 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 ```
-Populate `.env` with your preferred settings:
-```env
-TELEGRAM_BOT_TOKEN="your_bot_token"
-TELEGRAM_AUTHORIZED_USER_ID="your_telegram_id"
-OBSIDIAN_VAULT_PATH="D:\Z.A.I.N.E vault"
-```
+*(Optional: Configure your paths, Telegram bot token, or NVIDIA API key in `.env`).*
 
 ### 4. Running Z.A.I.N.E.
 
-* **Launch Terminal-Native Assistant (Canonical Entry Point):**
+* **One-Click Fast Demo Mode (Recommended for Live Demos / 4GB VRAM):**
+  ```cmd
+  run_demo_fast.bat
+  ```
+* **Full Interactive Terminal (TUI):**
+  ```cmd
+  zaine.bat
+  ```
+* **Canonical Python Entrypoint:**
   ```bash
   python main.py
-  ```
-  Or via Windows Batch launcher:
-  ```cmd
-  run_zaine.bat
-  ```
-
-* **Launch Headless Remote Bridge (Background Telegram Daemon):**
-  ```bash
-  python telegram_bridge.py
   ```
 
 ---

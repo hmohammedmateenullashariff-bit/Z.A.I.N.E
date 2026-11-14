@@ -57,6 +57,11 @@ data/youtube_token.json
 data/youtube_queue.json
 data/youtube_schedule_state.json
 data/youtube_analytics_history.json
+data/pending_review/
+data/overnight_studio_dossier.json
+data/creator_learnings.json
+data/raw_clip_history.json
+data/youtube_queue_archive.json
 
 # Database, Face-ID Data & Storage
 *.db
@@ -127,6 +132,9 @@ data/audit/
 data/scheduler/
 vault_copy/
 vault_dev_copy/
+vault/Morning_Creator_Dossier*.md
+vault/YouTube_Channel_Growth*.md
+vault/Personal_Profile*.md
 
 # Large Media & Archives
 *.mp4
