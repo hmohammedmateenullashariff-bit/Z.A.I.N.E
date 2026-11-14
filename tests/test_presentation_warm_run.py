@@ -84,9 +84,9 @@ async def run_warm_presentation():
         print(f"Result: Wall={s1['wall_time_s']}s, TTFT={s1['ttft_s']}s, Timeout={s1['timeout_fired']}, Error={s1['error']}", flush=True)
         steps_results.append({"step": 1, "name": "Greeting (Warm)", **s1})
 
-        # Step 2: Person lookup ("Who is Zara?")
+        # Step 2: Person lookup ("Who is Alan Turing?")
         print("\n--- Step 2: Person Lookup (Vault Memory) ---", flush=True)
-        s2 = await run_chat_prompt("Who is Zara?")
+        s2 = await run_chat_prompt("Who is Alan Turing?")
         print(f"Result: Wall={s2['wall_time_s']}s, TTFT={s2['ttft_s']}s, Timeout={s2['timeout_fired']}, Error={s2['error']}", flush=True)
         steps_results.append({"step": 2, "name": "Person Lookup", **s2})
 

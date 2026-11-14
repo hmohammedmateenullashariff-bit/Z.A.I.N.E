@@ -25,7 +25,7 @@ This directory contains preserved historical code, discarded training scripts, t
 * `test_stage2_tui.py` through `test_stage5_digraph.py` — Milestone test harnesses for Textual widgets.
 * `test_harness.py` — Test runner for `harness.py` functions.
 * `test_cli_architecture.py` — Subprocess integration test for CLI arguments.
-* `test_zara_memory_regression.py` — Verification test for the "Who is Zara" 5-minute search starvation bug.
+* `test_person_memory_regression.py` — Verification test for the person entity search starvation bug.
 * `test_tool_dispatch.py` — Isolated tool dispatcher check.
 * `test_mic.py` — PyAudio microphone hardware loopback diagnostic.
 * `eval_test_prompts.py` — 10-prompt benchmark probe.

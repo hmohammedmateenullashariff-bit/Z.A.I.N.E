@@ -3,7 +3,7 @@ scratch_audit/test_presentation_dry_run.py
 Section 12: Presentation Dry Run
 Executes a 6-prompt demo through real CoreService headlessly:
 1. Greeting (COLD START: models unloaded first)
-2. Person lookup ("Who is Zara?")
+2. Person lookup ("Who is Alan Turing?")
 3. /status slash command (GET /api/status)
 4. Tool request ("What is the current workstation CPU and RAM status?")
 5. Code request ("Write a python function to compute Fibonacci numbers.")
@@ -108,9 +108,9 @@ async def run_presentation():
         print(f"Result: Wall={s1['wall_time_s']}s, TTFT={s1['ttft_s']}s, Timeout={s1['timeout_fired']}, Error={s1['error']}", flush=True)
         steps_results.append({"step": 1, "name": "Greeting (Cold Start)", **s1})
 
-        # Step 2: Person lookup ("Who is Zara?")
+        # Step 2: Person lookup ("Who is Alan Turing?")
         print("\n--- Step 2: Person Lookup (Vault Memory) ---", flush=True)
-        s2 = await run_chat_prompt("Who is Zara?", is_cold=False)
+        s2 = await run_chat_prompt("Who is Alan Turing?", is_cold=False)
         print(f"Result: Wall={s2['wall_time_s']}s, TTFT={s2['ttft_s']}s, Timeout={s2['timeout_fired']}, Error={s2['error']}", flush=True)
         steps_results.append({"step": 2, "name": "Person Lookup", **s2})
 

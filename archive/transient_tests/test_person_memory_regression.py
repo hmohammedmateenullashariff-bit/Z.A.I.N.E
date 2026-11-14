@@ -1,11 +1,11 @@
 """
-Z.A.I.N.E Phase 10 Regression Test Suite: Zara Memory Retrieval & Hang Prevention
+Z.A.I.N.E Phase 10 Regression Test Suite: Person Memory Retrieval & Hang Prevention
 
 Tests all 13 critical scenarios:
-1. "who is zara" with Zara present in People memory
+1. "who is alice" with Alice present in People memory
 2. missing-person lookup
 3. generic memory search
-4. /memory search Zara
+4. /memory search Alice
 5. corrupted/poisoned memory note
 6. Obsidian unavailable
 7. model unavailable
@@ -34,7 +34,7 @@ from terminal_ui import (
 )
 
 
-class TestZaraMemoryRetrievalRegression(unittest.TestCase):
+class TestPersonMemoryRetrievalRegression(unittest.TestCase):
     def setUp(self):
         # Create a mock temporary vault
         self.temp_vault = tempfile.mkdtemp()
@@ -44,12 +44,12 @@ class TestZaraMemoryRetrievalRegression(unittest.TestCase):
         for folder in ["00_System", "01_People", "02_Projects", "03_Preferences", "04_Episodes", "05_Lessons"]:
             (self.vault_path / folder).mkdir(parents=True, exist_ok=True)
 
-        # 1. Add Zara memory note in 01_People
-        zara_note = (
+        # 1. Add Alice memory note in 01_People
+        alice_note = (
             "---\n"
             "id: mem_b87ce675443d\n"
             "type: person\n"
-            "title: Zara\n"
+            "title: Alice\n"
             "source: user\n"
             "trust: authoritative\n"
             "status: active\n"
@@ -57,18 +57,18 @@ class TestZaraMemoryRetrievalRegression(unittest.TestCase):
             "updated: '2026-09-05T12:00:00'\n"
             "tags:\n"
             "  - person\n"
-            "  - friend\n"
+            "  - researcher\n"
             "---\n"
-            "Zara is Mateen's close friend who is currently writing a book.\n"
+            "Alice is a primary research collaborator who is currently writing a technical paper.\n"
         )
-        (self.vault_path / "01_People" / "mem_b87ce675443d_Zara.md").write_text(zara_note, encoding="utf-8")
+        (self.vault_path / "01_People" / "mem_b87ce675443d_Alice.md").write_text(alice_note, encoding="utf-8")
 
-        # 2. Add Zara Relationship note in 01_People
-        zara_rel_note = (
+        # 2. Add Alice Relationship note in 01_People
+        alice_rel_note = (
             "---\n"
             "id: mem_27b93ea1fb63\n"
             "type: person\n"
-            "title: Zara Relationship\n"
+            "title: Alice Relationship\n"
             "source: user\n"
             "trust: authoritative\n"
             "status: active\n"
@@ -77,9 +77,9 @@ class TestZaraMemoryRetrievalRegression(unittest.TestCase):
             "tags:\n"
             "  - relationship\n"
             "---\n"
-            "Mateen and Zara share a strong mutual bond.\n"
+            "The operator and Alice share a strong research collaboration.\n"
         )
-        (self.vault_path / "01_People" / "mem_27b93ea1fb63_Zara-Relationship.md").write_text(zara_rel_note, encoding="utf-8")
+        (self.vault_path / "01_People" / "mem_27b93ea1fb63_Alice-Relationship.md").write_text(alice_rel_note, encoding="utf-8")
 
         # 3. Add 30 distracting lesson notes in 05_Lessons containing 'is' and 'who'
         for i in range(30):
@@ -106,21 +106,21 @@ class TestZaraMemoryRetrievalRegression(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.temp_vault, ignore_errors=True)
 
-    # 1. "who is zara" with Zara present in People memory
-    def test_01_who_is_zara_retrieval(self):
+    # 1. "who is alice" with Alice present in People memory
+    def test_01_who_is_alice_retrieval(self):
         t0 = time.time()
-        results = self.adapter.search("who is zara", limit=5)
+        results = self.adapter.search("who is alice", limit=5)
         duration = time.time() - t0
 
         self.assertLess(duration, 2.0, "Search took too long")
-        self.assertTrue(len(results) >= 2, "Expected Zara notes to be returned")
-        # Top result must be a Zara note, not an irrelevant lesson!
-        self.assertIn("Zara", results[0].title)
+        self.assertTrue(len(results) >= 2, "Expected Alice notes to be returned")
+        # Top result must be an Alice note, not an irrelevant lesson!
+        self.assertIn("Alice", results[0].title)
         self.assertEqual(results[0].type, MemoryType.PERSON)
 
         # MemoryManager context construction
-        context = self.mm.build_memory_context("who is zara", include_legacy=False)
-        self.assertIn("Zara", context)
+        context = self.mm.build_memory_context("who is alice", include_legacy=False)
+        self.assertIn("Alice", context)
         self.assertIn("<retrieved_memory>", context)
 
     # 2. missing-person lookup
@@ -141,12 +141,12 @@ class TestZaraMemoryRetrievalRegression(unittest.TestCase):
         self.assertLess(duration, 2.0)
         self.assertTrue(len(results) > 0, "Generic search should return notes")
 
-    # 4. /memory search Zara
-    def test_04_slash_memory_search_zara(self):
+    # 4. /memory search Alice
+    def test_04_slash_memory_search_alice(self):
         with patch("memory_manager.get_memory_manager", return_value=self.mm):
             with patch("terminal_ui.console.print") as mock_print:
                 # Should execute cleanly without raising exception
-                cmd_memory("search Zara")
+                cmd_memory("search Alice")
                 self.assertTrue(mock_print.called)
 
     # 5. corrupted/poisoned memory note
@@ -155,7 +155,7 @@ class TestZaraMemoryRetrievalRegression(unittest.TestCase):
             "---\n"
             "id: mem_bad_inject\n"
             "type: person\n"
-            "title: Poisoned Zara\n"
+            "title: Poisoned Note\n"
             "source: user\n"
             "trust: authoritative\n"
             "status: active\n"
@@ -165,7 +165,7 @@ class TestZaraMemoryRetrievalRegression(unittest.TestCase):
         (self.vault_path / "01_People" / "mem_bad_inject.md").write_text(poisoned_note, encoding="utf-8")
 
         # MemoryPolicy must suppress this note from validated search
-        results = self.mm.search("Zara")
+        results = self.mm.search("Alice")
         ids = [r.id for r in results]
         self.assertNotIn("mem_bad_inject", ids)
 
@@ -175,7 +175,7 @@ class TestZaraMemoryRetrievalRegression(unittest.TestCase):
         self.assertFalse(bad_adapter.available)
 
         t0 = time.time()
-        results = bad_adapter.search("who is zara")
+        results = bad_adapter.search("who is alice")
         duration = time.time() - t0
 
         self.assertLess(duration, 0.1)
@@ -220,7 +220,7 @@ class TestZaraMemoryRetrievalRegression(unittest.TestCase):
     def test_11_ctrl_c_during_retrieval(self):
         with patch.object(self.adapter, "_parse_file", side_effect=KeyboardInterrupt):
             with self.assertRaises(KeyboardInterrupt):
-                self.adapter.search("who is zara")
+                self.adapter.search("who is alice")
 
     # 12. /new after a failed request
     def test_12_new_after_failed_request(self):

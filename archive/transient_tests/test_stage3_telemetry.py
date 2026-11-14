@@ -5,7 +5,7 @@ Unit and Integration Tests for Stage 3:
 2. Non-blocking telemetry collector and snapshot structure.
 3. Live throughput sparkline recording.
 4. AgentStateHUD render verification.
-5. Visual UI sanitization audit (verifies zero occurrences of "zara" in tui/ widgets).
+5. Visual UI sanitization audit (verifies zero occurrences of personal identifiers in tui/ widgets).
 """
 
 import sys
@@ -98,7 +98,7 @@ class TestStage3Telemetry(unittest.TestCase):
         self.assertIn("VRAM", raw_str)
 
     def test_05_visual_ui_sanitization_audit(self):
-        """Verify zero visual occurrences of 'zara' across all tui/ code and widgets."""
+        """Verify zero visual occurrences of personal identifiers across all tui/ code and widgets."""
         tui_dir = PROJECT_ROOT / "tui"
         for py_file in tui_dir.rglob("*.py"):
             content = py_file.read_text(encoding="utf-8").lower()
@@ -110,7 +110,7 @@ class TestStage3Telemetry(unittest.TestCase):
             self.assertNotIn(
                 "vault/people/zara.md",
                 content,
-                f"Reference to Zara vault note present in {py_file.name}"
+                f"Reference to personal vault note present in {py_file.name}"
             )
 
 

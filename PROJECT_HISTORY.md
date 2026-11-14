@@ -118,9 +118,9 @@
 
 ### [2026-09-05 16:23:43 +0530] — FEATURE — Author: `Mateen (manual)` `[RECONSTRUCTED]`
 - **Scope:** `memory.py` (+23 lines)
-- **Description:** Embedded persistent memory block and vault profile for "Zara" (personal contact). Added factual memories about a person into the durable knowledge store.
+- **Description:** Embedded persistent memory block and vault profile for contact entity. Added factual memories into the durable knowledge store.
 - **Commit:** `f5114bc`
-- **Notes:** Personal data — demonstrates memory system's intended use for relationship context.
+- **Notes:** Contact entity data — demonstrates memory system's intended use for relationship context.
 
 ### [2026-09-05 16:37:42 +0530] — FEATURE — Author: `Mateen (manual)` `[RECONSTRUCTED]`
 - **Scope:** `youtube_studio/__init__.py`, `youtube_studio/content_generator.py`, `youtube_studio/uploader.py`, `youtube_studio/analytics.py`, `youtube_studio/scheduler.py`, `youtube_studio/higgsfield_client.py`
@@ -278,8 +278,8 @@
 - **Notes:** README rewritten to reflect terminal-first architecture.
 
 ### [2026-10-08 ~21:04 UTC (Oct 9 02:34 IST)] — FIX — Author: `Antigravity with Gemini` `[RECONSTRUCTED]`
-- **Scope:** `obsidian_adapter.py`, `memory.py`, `tests/test_zara_memory_regression.py`
-- **Description:** **The "Who is Zara" 5+ Minute Hang Diagnosis & Fix.** User reported that asking "who is zara" hung for 5+ minutes. Root-cause analysis revealed search starvation in `ObsidianAdapter`: searching "who is zara" stripped nothing, matched the stopword "is" across ~458 lesson notes, scanned `05_Lessons` before `01_People`, sorted by recency, and truncated results before reaching the actual person note. Also identified missing `vault_path` property.
+- **Scope:** `obsidian_adapter.py`, `memory.py`, `tests/test_person_memory_regression.py`
+- **Description:** **The Person Memory Retrieval 5+ Minute Hang Diagnosis & Fix.** User reported that asking "who is <name>" hung for 5+ minutes. Root-cause analysis revealed search starvation in `ObsidianAdapter`: searching "who is <name>" stripped nothing, matched the stopword "is" across ~458 lesson notes, scanned `05_Lessons` before `01_People`, sorted by recency, and truncated results before reaching the actual person note. Also identified missing `vault_path` property.
   - *Fix:* Added stopword filtering, folder search priority (`01_People` > `03_Preferences` > `05_Lessons`), relevance scoring, and a strict 5.0-second retrieval ceiling. Added 13 regression tests. 85/85 tests passed.
 - **Commit:** Bundled in `daecbb8`
 - **Notes:** Confirmed via PowerShell under `faulthandler` on 9 Oct 14:11 UTC (19:41 IST). Reference: `Project-Z_Zaine_Complete_Record.pdf` Section 2.1 & 2.8.
@@ -729,7 +729,7 @@ Wall clock times in seconds across key tasks during stabilization sprints on the
 - **Description:** **Integrated cross-account master record from `Project-Z_Zaine_Complete_Record.pdf` (14 pages).**
   - Added academic context: HKBK College of Engineering, Prof MD Nabeel, Syed Mutammur Abbas, alternative title "Zenith Architecture Intelligence Neural Engine", and four foundational research papers (arXiv:2605.18747, 2404.13501, 2005.11401, 2504.08748).
   - Added early origins from Part 1 ("Full Recall", 4 Nov 2026): n8n-style workflow engine LLM node, Air Canvas, VITA-ZERO connections, 4-layer design, LoRA training adapters.
-  - Added stabilization milestones: "Who is Zara" 5+ min search starvation fix (8–9 Oct), Stitch UI mockups & `zaine_terminal_ui_plan.xlsx` (9 Oct), 13.94 GB disk cleanup (9–10 Oct), AI Studio prototype zip (10 Oct), `nomic-embed` VRAM displacement discovery and birth of `zaine-fast-3b` (13–16 Oct), `run_demo_fast.bat` 25-turn soak validation (16 Oct), and Antigravity CLI installation (`agy 1.4.4` on 21 Oct).
+  - Added stabilization milestones: Person entity memory search starvation fix (8–9 Oct), Stitch UI mockups & `zaine_terminal_ui_plan.xlsx` (9 Oct), 13.94 GB disk cleanup (9–10 Oct), AI Studio prototype zip (10 Oct), `nomic-embed` VRAM displacement discovery and birth of `zaine-fast-3b` (13–16 Oct), `run_demo_fast.bat` 25-turn soak validation (16 Oct), and Antigravity CLI installation (`agy 1.4.4` on 21 Oct).
   - Added full benchmark wall-time matrix (Phases 0 through 0e), cross-account reconciliation table, and complete artifact inventory.
 - **Commit:** `UNCOMMITTED`
 - **Notes:** Sourced directly from extracted text of `c:\Users\Mohemad Mateen ullah\Downloads\Project-Z_Zaine_Complete_Record.pdf`.
@@ -788,7 +788,7 @@ Wall clock times in seconds across key tasks during stabilization sprints on the
   - Conducted full AST static and dynamic import scans across all repository Python files to verify zero active dependency breakage prior to movement.
   - Structured `archive/` with dedicated subdirectories:
     1. `archive/training/`: 5 scripts (`simulate_training.py`, `repo_trainer.py`, `self_distillation.py`, `merge_adapter.py`, `model_activations_probe.py`) + empty `merged_model/`.
-    2. `archive/transient_tests/`: 14 exploratory test scripts (`test_terminal_animation.py`, `test_memory_subsystem.py`, `test_approval_timeout_fix.py`, `test_subagents.py`, `test_stage2_tui.py` through `test_stage5_digraph.py`, `test_harness.py`, `test_cli_architecture.py`, `test_zara_memory_regression.py`, `test_tool_dispatch.py`, `test_mic.py`, `eval_test_prompts.py`).
+    2. `archive/transient_tests/`: 14 exploratory test scripts (`test_terminal_animation.py`, `test_memory_subsystem.py`, `test_approval_timeout_fix.py`, `test_subagents.py`, `test_stage2_tui.py` through `test_stage5_digraph.py`, `test_harness.py`, `test_cli_architecture.py`, `test_person_memory_regression.py`, `test_tool_dispatch.py`, `test_mic.py`, `eval_test_prompts.py`).
     3. `archive/deprecated_pipelines/`: 6 superseded scripts (`daily_qa_generator.py`, `gemini_validator.py`, `migrate_memory_sqlite_to_obsidian.py`, `overnight_autonomous_pipeline.py`, `telegram_daemon.py`, `zaine_cascade.py`).
   - Authored comprehensive `archive/README.md` cataloging the purpose of every archived file for future reference by Zaine and E.D.I.T.H.
   - Verified 100% compilation clean across all 44 remaining root Python modules (`py_compile`).

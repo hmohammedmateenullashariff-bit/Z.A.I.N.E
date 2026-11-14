@@ -55,7 +55,7 @@ PROBE_PROMPTS = [
     # 1-5: Casual & Persona Conversation
     {"id": "P01_Greeting", "cat": "Persona", "text": "Good morning Zaine, what's our agenda for today?"},
     {"id": "P02_Identity", "cat": "Persona", "text": "Who are you and what are your primary operating directives?"},
-    {"id": "P03_ZaraProject", "cat": "Persona", "text": "Tell me about Zara's current book writing project."},
+    {"id": "P03_ProjectSummary", "cat": "Persona", "text": "Tell me about our current project architecture and directives."},
     {"id": "P04_SentienceCheck", "cat": "Persona", "text": "Zaine, how are you feeling today?"},
     {"id": "P05_MemoryRecall", "cat": "Persona", "text": "What was the last topic we discussed yesterday?"},
 
