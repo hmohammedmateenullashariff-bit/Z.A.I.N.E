@@ -16,6 +16,26 @@
 
 ---
 
+## 🎬 System Showcase & Demo Video
+
+<p align="center">
+  <video src="https://github.com/hmohammedmateenullashariff-bit/Z.A.I.N.E/raw/main/brag-output/brag.mp4" controls="controls" width="100%" style="max-height: 500px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.6);">
+    Your browser does not support the video tag.
+  </video>
+</p>
+
+<p align="center">
+  <a href="https://youtube.com/shorts/j77UEeUvWYw" target="_blank">
+    <img src="brag-output/brag.jpg" alt="Z.A.I.N.E Autonomous Demo" width="100%" style="max-height: 480px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.6);">
+  </a>
+  <br>
+  <b><a href="https://youtube.com/shorts/j77UEeUvWYw">▶️ Watch Autonomous Z.A.I.N.E in Action (YouTube Showcase with British Jarvis Voice)</a></b>
+  <br>
+  <sub><i>Featuring British Jarvis voiceover, real-time code synthesis, dual-persona transformation, and sovereign workstation execution.</i></sub>
+</p>
+
+---
+
 ## 🌟 Overview
 
 **Z.A.I.N.E** (*Zero-latency Autonomous Intelligent Neural Entity*) is a fully local, privacy-first, terminal-native AI agent. Operating directly inside your command-line environment, Zaine combines high-speed conversational reflexes, coding intelligence, system automation tools, an Obsidian-backed durable memory vault, and an optional Telegram remote bridge.
