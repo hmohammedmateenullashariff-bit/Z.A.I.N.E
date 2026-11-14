@@ -143,6 +143,11 @@ vault/Personal_Profile*.md
 *.zip
 *.tar.gz
 
+# Exception: Brag showcase video & audio assets (small, seminar demo)
+!brag-output/brag.mp4
+!brag-output/composition/assets/**/*.mp3
+!brag-output/composition/assets/**/*.wav
+
 # Logs & IDE
 logs/
 .vscode/
