@@ -113,10 +113,28 @@ def capture_webcam_base64(camera_index: int = 0, quality: int = 80) -> str:
 
 
 def analyze_image_with_ollama(base64_image: str, prompt: str = "Describe what you see in detail.") -> str:
-    """Sends an in-memory base64 image to Ollama's local Moondream vision model."""
+    """Analyzes an in-memory base64 image using NVIDIA Nemotron 120B Super VL (with automatic fallback to local Moondream)."""
     if not base64_image:
         return "Error: No image was provided for analysis."
 
+    # Tier 1 Multimodal Cloud Escalation: Nemotron 3.5 Super VL 120B (MoE)
+    try:
+        from autonomy.privacy import is_session_private
+        session_private = is_session_private()
+    except Exception:
+        session_private = False
+
+    if not session_private:
+        try:
+            import nvidia_client
+            if nvidia_client.is_nvidia_available():
+                cloud_res = nvidia_client.analyze_vision(base64_image, prompt=prompt)
+                if cloud_res and not cloud_res.startswith("Error") and not cloud_res.startswith("NVIDIA Vision Error"):
+                    return cloud_res
+        except Exception:
+            pass
+
+    # Tier 0 Local Fallback: Ollama Moondream
     payload = {
         "model": VISION_MODEL,
         "prompt": prompt,

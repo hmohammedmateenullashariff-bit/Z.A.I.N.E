@@ -56,14 +56,15 @@ TOOL_CLUSTERS = {
             "cascade", "pair programming", "coding assistant", "refactor", "function", "class", "bug", "fix",
             "toolmaker", "pip", "install", "package", "library", "hive mind", "llm architecture",
             "transformer", "roadmap", "free dev", "open source alternative", "oss alternative", "developer knowledge",
-            "reverse engineer", "api spec", "openapi", "website design", "web design", "frontend"
+            "reverse engineer", "api spec", "openapi", "website design", "web design", "frontend",
+            "nemotron", "nvidia", "frontier model", "ultra reasoning"
         ],
         "tools": [
             "write_workspace_file", "edit_workspace_file", "read_workspace_file",
             "list_workspace_files", "run_python_script", "run_workspace_tests", "code_assistant", "ponytail_coder",
             "code_review", "code_benchmarker", "lookup_algorithm", "system_design_advisor",
             "get_architecture_blueprint", "open_vscode", "read_code_definitions",
-            "launch_zaine_cascade",
+            "launch_zaine_cascade", "consult_nemotron_brain", "consult_nemotron",
             "create_custom_tool", "install_python_package", "list_custom_tools", "review_code",
             "ponytail", "custom_code_benchmarker", "hive_mind", "search_developer_knowledge",
             "lookup_llm_architecture", "get_career_roadmap", "find_free_developer_services", "find_oss_alternatives",
@@ -88,6 +89,7 @@ TOOL_CLUSTERS = {
 - system_design_advisor(topic, scale_metrics): Architecture scaling strategies.
 - get_architecture_blueprint(system_type): Step-by-step blueprints for building systems from scratch.
 - open_vscode(target_path, launch_cascade): Launches VS Code.
+- consult_nemotron_brain(query, domain): Consults NVIDIA Nemotron 550B reasoning core or 120B Super VL.
 - read_code_definitions(filepath): Outlines classes, functions, and docstrings in a Python file.
 - create_custom_tool(tool_name, python_code, description): Synthesizes and registers a new tool.
 - install_python_package(package_name): Autonomously installs required pip library.
@@ -103,19 +105,26 @@ TOOL_CLUSTERS = {
             "playlist", "trend", "viral", "manga recap", "channel",
             "export timeline", "capcut", "premiere", "davinci", "fcpxml", "edl",
             "youtube stats", "channel stats", "subscribers", "subscriber count",
+            "recent videos", "published videos", "last 3 videos", "youtube report",
             "isolate dialogue", "editing style", "learn style", "editing profile", "generate short", "create short",
             "edit timeline", "video edit", "timeline cut", "ffmpeg edit"
         ],
         "tools": [
             "upload_youtube_video", "youtube_studio_status", "trigger_youtube_pipeline",
+            "run_overnight_studio_cycle", "send_morning_creator_briefing",
             "track_viral_trends", "create_channel_playlists", "generate_manga_recap",
             "play_on_youtube", "separate_audio_stems", "change_voice", "toggle_ultron_mode",
             "export_timeline", "export_capcut_timeline", "edit_video_timeline",
             "generate_youtube_short", "get_youtube_stats", "get_youtube_channel_stats",
+            "report_recent_youtube_videos", "get_recent_youtube_videos",
             "isolate_dialogue", "learn_editing_style", "list_editing_styles"
         ],
         "prompt_snippet": """MEDIA & YOUTUBE STUDIO CLUSTER TOOLS:
-- upload_youtube_video(video_path, title, description, tags, privacy_status): Publishes video to YouTube Studio.
+- run_overnight_studio_cycle(): Executes the complete overnight sequence: learns editing skills, renders a viral video on trending topics, uploads to YouTube, and stages the 9:00 AM briefing.
+- send_morning_creator_briefing(): Compiles and dispatches the comprehensive 9:00 AM executive explanation to Telegram and Obsidian vault: breakdown of newly mastered editing skills, link and details of the uploaded video, and 24h retention critique.
+- upload_youtube_video(video_path, title, description, tags, privacy_status): Publishes video to YouTube Studio and reports the last 3 published videos via Telegram.
+- report_recent_youtube_videos(limit, send_telegram): Reports the last 3 published YouTube videos (and sends via Telegram when send_telegram=true).
+- get_recent_youtube_videos(limit): Fetches the last 3 published YouTube videos cleanly.
 - youtube_studio_status(): Returns channel health, 5 daily slots, and video metrics.
 - trigger_youtube_pipeline(genre): Forces autonomous creation and rendering cycle.
 - track_viral_trends(genre): Discovers viral memes and high-CTR video topics.

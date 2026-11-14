@@ -740,19 +740,33 @@ class TelegramBridge:
             self.answer_callback_query(query_id, text="🚀 Authorizing YouTube upload...")
             try:
                 from youtube_studio.uploader import publish_approved_video
-                up_res = publish_approved_video(proposal_id)
-                status = up_res.get("status", "SUCCESS")
+                up_res = publish_approved_video(proposal_id, notify_telegram=True, force_telegram=True)
+                status = str(up_res.get("status", "SUCCESS")).upper()
                 title = up_res.get("title", "YouTube Short")
                 v_url = up_res.get("video_url") or up_res.get("url", "Live on channel")
 
-                new_caption = (
-                    f"✅ **[APPROVED & PUBLISHED LIVE ON YOUTUBE]**\n\n"
-                    f"📹 **Title:** {title}\n"
-                    f"🔗 **Status:** {status}\n"
-                    f"🌐 **Link:** {v_url}\n\n"
-                    f"_Published per Mateen Sir's authorization._"
-                )
-                self.edit_message_caption(chat_id, message_id, new_caption, parse_mode="Markdown", reply_markup={"inline_keyboard": []})
+                if status in ("SUCCESS", "ALREADY_PUBLISHED"):
+                    report_note = (
+                        "\n📊 Last 3 published YouTube videos report sent to Telegram."
+                        if up_res.get("telegram_report_sent")
+                        else ""
+                    )
+                    new_caption = (
+                        f"✅ **[APPROVED & PUBLISHED LIVE ON YOUTUBE]**\n\n"
+                        f"📹 **Title:** {title}\n"
+                        f"🔗 **Status:** {status}\n"
+                        f"🌐 **Link:** {v_url}{report_note}\n\n"
+                        f"_Published per Mateen Sir's authorization._"
+                    )
+                    self.edit_message_caption(chat_id, message_id, new_caption, parse_mode="Markdown", reply_markup={"inline_keyboard": []})
+                else:
+                    err_detail = up_res.get("error") or up_res.get("details", {}).get("message") or "Upload did not complete."
+                    fail_caption = (
+                        f"⚠️ **[YOUTUBE UPLOAD {status}]**\n\n"
+                        f"📹 **Title:** {title}\n"
+                        f"❗ **Details:** {str(err_detail)[:400]}"
+                    )
+                    self.edit_message_caption(chat_id, message_id, fail_caption, parse_mode="Markdown")
             except Exception as e:
                 self.send_message(chat_id, f"⚠️ Error publishing approved video: {e}")
 
@@ -1001,6 +1015,21 @@ class TelegramBridge:
             self.send_message(chat_id, f"📋 *Tasks:*\n\n{tasks}")
             return
 
+        elif first_token in ("/ytreport", "/ytrecent"):
+            parts = clean.split()
+            limit = 3
+            if len(parts) > 1 and parts[1].isdigit():
+                limit = max(1, min(int(parts[1]), 10))
+            self.send_chat_action(chat_id, "typing")
+            try:
+                from youtube_studio.analytics import get_recent_published_videos, format_recent_videos_report
+                report_data = get_recent_published_videos(limit=limit)
+                report_html = format_recent_videos_report(report_data, limit=limit, html_mode=True)
+                self.send_message(chat_id, report_html, parse_mode="HTML")
+            except Exception as e:
+                self.send_message(chat_id, f"⚠️ Could not generate YouTube report: {e}")
+            return
+
         elif clean == "/reminders":
             from tools import list_reminders
             rems = list_reminders()
@@ -1186,6 +1215,7 @@ class TelegramBridge:
                 r"• `/camera` — 1-shot laptop webcam snapshot" + "\n"
                 r"• `/emails` — Check unread Gmail inbox" + "\n"
                 r"• `/tasks` — View active task list" + "\n"
+                r"• `/ytreport [count]` — Report last 3 published YouTube videos" + "\n"
                 r"• `/remind <time> | <msg>` — Set alarm/reminder" + "\n"
                 r"• `/reminders` — View scheduled alarms" + "\n"
                 r"• `/vault <query>` — Search Personal Second Brain" + "\n"
@@ -1232,6 +1262,7 @@ class TelegramBridge:
             {"command": "notes", "description": "List Second Brain notes"},
             {"command": "emails", "description": "Check unread Gmails"},
             {"command": "tasks", "description": "View active tasks"},
+            {"command": "ytreport", "description": "Report last 3 published YouTube videos"},
             {"command": "clear", "description": "Clear conversation memory"},
             {"command": "help", "description": "Commands guide"},
         ]

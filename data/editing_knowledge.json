@@ -60,5 +60,59 @@
     "pacing_impact": "Elevates sense of god-tier speed during close-quarters hand-to-hand combat.",
     "learned_at": "2026-09-12T03:18:05",
     "status": "ACTIVE_PRODUCTION_PRESET"
+  },
+  "damped_spring_shake": {
+    "title": "Physically-Damped Spring Screen Shake",
+    "category": "screen_dynamics",
+    "description": "Applies harmonic oscillator spring physics (exp(-decay*t)*cos(freq*t)) on heavy bass kicks.",
+    "ffmpeg_filter_snippet": "crop=w=iw-20:h=ih-20:x='(iw-out_w)/2+sin(t*30)*8':y='(ih-out_h)/2+cos(t*30)*8'",
+    "pacing_impact": "Replaces crude random jitter with heavy cinematic kinetic weight on impacts.",
+    "learned_at": "2026-11-13T00:36:27",
+    "status": "ACTIVE_PRODUCTION_PRESET"
+  },
+  "kinetic_kerning_expansion": {
+    "title": "Dynamic Typographic Tracking & Edge Glow",
+    "category": "typography",
+    "description": "Sub-frame letter-spacing expansion from -2px to +16px with neon edge blur synchronized to vocal drops.",
+    "ffmpeg_filter_snippet": "drawtext=fontfile=Arial:text='KEY':expansion=normal",
+    "pacing_impact": "Dramatically increases viewer retention on dialogue hooks and power declarations.",
+    "learned_at": "2026-11-13T00:36:27",
+    "status": "ACTIVE_PRODUCTION_PRESET"
+  },
+  "solarized_impact_flash": {
+    "title": "Solarized Lumina Impact Flash",
+    "category": "impact_frames",
+    "description": "2-frame solarized threshold inversion on lethal strikes, followed by 1 frame pure white strobe.",
+    "ffmpeg_filter_snippet": "negate,eq=contrast=2.0",
+    "pacing_impact": "Delivers visceral physical impact feel on climactic finishing moves.",
+    "learned_at": "2026-11-13T13:18:17",
+    "status": "ACTIVE_PRODUCTION_PRESET"
+  },
+  "anamorphic_letterbox_snap": {
+    "title": "Anamorphic 2.35:1 to 9:16 Aspect Ratio Snap",
+    "category": "cinematic_framing",
+    "description": "Letterboxes dramatic narrative monologue into ultra-wide, then violently snaps to full 9:16 on beat drop.",
+    "ffmpeg_filter_snippet": "crop=in_w:in_w*9/16",
+    "pacing_impact": "Psychological contrast makes the action sequence feel twice as massive when the frame bursts open.",
+    "learned_at": "2026-11-13T13:18:17",
+    "status": "ACTIVE_PRODUCTION_PRESET"
+  },
+  "halftone_manga_hatch": {
+    "title": "Halftone Manga Dot Matrix & Comic Inversion",
+    "category": "color_grading",
+    "description": "Monochrome halftone comic hatching overlaid onto dark shadows that shatters into vibrant anime HDR.",
+    "ffmpeg_filter_snippet": "eq=contrast=1.8:brightness=-0.05,curves=vintage",
+    "pacing_impact": "Creates authentic shonen manga panel immersion before beat drop explosions.",
+    "learned_at": "2026-11-14T02:30:01",
+    "status": "ACTIVE_PRODUCTION_PRESET"
+  },
+  "rgb_chromatic_snap": {
+    "title": "RGB Chromatic Aberration Decay",
+    "category": "glitch_fx",
+    "description": "Splits red and blue color channels on snare hits with exponential decay back to convergence.",
+    "ffmpeg_filter_snippet": "rgbashift=rh=8:bv=-8",
+    "pacing_impact": "Gives modern dark phonk / cyberpunk AMVs their signature electronic punch.",
+    "learned_at": "2026-11-14T02:30:01",
+    "status": "ACTIVE_PRODUCTION_PRESET"
   }
 }

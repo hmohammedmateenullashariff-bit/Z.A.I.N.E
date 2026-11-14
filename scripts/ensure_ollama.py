@@ -14,7 +14,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-DEFAULT_MODELS_DIR = "D:\\ollama\\models" if os.path.exists("D:\\ollama\\models") else os.path.expanduser("~\\.ollama\\models")
+DEFAULT_MODELS_DIR = "E:\\ollama\\models" if os.path.exists("E:\\ollama\\models") else ("D:\\ollama\\models" if os.path.exists("D:\\ollama\\models") else os.path.expanduser("~\\.ollama\\models"))
 OLLAMA_URL = "http://127.0.0.1:11434"
 
 

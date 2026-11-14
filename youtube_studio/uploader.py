@@ -212,6 +212,8 @@ def upload_youtube_video(
     category_id: str = "28",
     engagement_question: str = "",
     genre: str = "",
+    notify_telegram: bool = True,
+    force_telegram: bool = False,
 ) -> Dict[str, Any]:
     """
     Uploads a video to YouTube using the YouTube Data API v3.
@@ -339,22 +341,69 @@ def upload_youtube_video(
                 except Exception as pe:
                     print(f"[Uploader] Playlist assignment notice: {pe}")
 
-            # Update queue status
+            # Record published metadata in queue and archive even for direct / pending_review uploads
+            published_at_iso = datetime.datetime.now().isoformat()
             queue = get_upload_queue()
+            matched = False
             for q in queue:
-                if q["video_path"] == video_path:
+                if q.get("video_path") == video_path or (video_id and q.get("video_id") == video_id):
                     q["status"] = "PUBLISHED"
                     q["video_id"] = video_id
                     q["video_url"] = video_link
-                    q["published_at"] = datetime.datetime.now().isoformat()
+                    q["title"] = safe_title or title
+                    q["privacy_status"] = privacy_status
+                    q["published_at"] = published_at_iso
                     if engagement_question:
                         q["pinned_comment"] = engagement_question
                     if genre:
                         q["genre"] = genre
+                    matched = True
+            if not matched:
+                queue.append({
+                    "id": f"yt_{int(time.time())}",
+                    "video_path": video_path,
+                    "title": safe_title or title,
+                    "description": description,
+                    "tags": list(tags or []),
+                    "privacy_status": privacy_status,
+                    "genre": genre,
+                    "status": "PUBLISHED",
+                    "created_at": published_at_iso,
+                    "video_id": video_id,
+                    "video_url": video_link,
+                    "published_at": published_at_iso,
+                    **({"pinned_comment": engagement_question} if engagement_question else {}),
+                })
             save_upload_queue(queue)
 
             # Archive published entries to keep the active queue clean
             archive_published_entries()
+
+            # Dispatch Telegram report of the last 3 published YouTube videos
+            telegram_report_sent = False
+            recent_videos_report = None
+            if notify_telegram:
+                just_uploaded_record = {
+                    "video_id": video_id,
+                    "video_path": video_path,
+                    "title": safe_title or title,
+                    "video_url": video_link,
+                    "published_at": published_at_iso,
+                    "privacy_status": privacy_status,
+                    "genre": genre,
+                    "status": "PUBLISHED",
+                }
+                try:
+                    from .analytics import send_recent_videos_telegram_report
+                    tg_res = send_recent_videos_telegram_report(
+                        limit=3,
+                        just_uploaded=just_uploaded_record,
+                        force=force_telegram,
+                    )
+                    telegram_report_sent = bool(tg_res.get("sent"))
+                    recent_videos_report = tg_res.get("message")
+                except Exception as tg_err:
+                    print(f"[Uploader] Recent videos Telegram report notice: {tg_err}")
 
             success_msg = f"Successfully published to YouTube: {video_link}"
             if playlist_result and playlist_result.get("status") == "SUCCESS":
@@ -369,11 +418,13 @@ def upload_youtube_video(
                 "status": "SUCCESS",
                 "video_id": video_id,
                 "video_url": video_link,
-                "title": title,
+                "title": safe_title or title,
                 "privacy": privacy_status,
                 "message": success_msg,
                 "engagement_comment": comment_result,
                 "playlist_assignment": playlist_result,
+                "telegram_report_sent": telegram_report_sent,
+                "recent_videos_report": recent_videos_report,
             }
         else:
             return {"status": "FAILED", "error": f"Upload chunk transfer failed: {up_resp.text[:200]}"}
@@ -382,7 +433,11 @@ def upload_youtube_video(
         return {"status": "ERROR", "error": str(e)}
 
 
-def publish_approved_video(proposal_id: str) -> Dict[str, Any]:
+def publish_approved_video(
+    proposal_id: str,
+    notify_telegram: bool = True,
+    force_telegram: bool = False,
+) -> Dict[str, Any]:
     """
     Mandatory Human-in-the-Loop Approval Action:
     Takes an approved video from data/pending_review/{proposal_id}.json
@@ -417,29 +472,34 @@ def publish_approved_video(proposal_id: str) -> Dict[str, Any]:
         category_id=category_id,
         engagement_question=engagement_question,
         genre=genre,
+        notify_telegram=notify_telegram,
+        force_telegram=force_telegram,
     )
 
-    # If slot was tracked, mark it completed now that it's approved
-    if slot_id:
-        mark_slot_completed(slot_id, video_path=video_path)
+    upload_status = str(up_res.get("status", "")).upper()
+    if upload_status in ("SUCCESS", "ALREADY_PUBLISHED"):
+        # Mark slot completed and resolve Guardian entry only once actually uploaded
+        if slot_id:
+            mark_slot_completed(slot_id, video_path=video_path)
 
-    # Approve in approval registry as well
-    try:
-        ApprovalRegistry.approve(proposal_id, note="Approved via Telegram inline button")
-    except Exception:
-        pass
-
-    # Clean up review queue JSON
-    json_path = PENDING_REVIEW_DIR / f"{proposal_id}.json"
-    if json_path.exists():
         try:
-            json_path.unlink()
+            ApprovalRegistry.approve(proposal_id, note="Approved via Telegram inline button")
         except Exception:
             pass
+
+        json_path = PENDING_REVIEW_DIR / f"{proposal_id}.json"
+        if json_path.exists():
+            try:
+                json_path.unlink()
+            except Exception:
+                pass
 
     return {
         "status": up_res.get("status", "SUCCESS"),
         "title": title,
         "video_url": up_res.get("video_url") or up_res.get("url", "https://youtube.com/@Zaine"),
-        "details": up_res
+        "telegram_report_sent": up_res.get("telegram_report_sent", False),
+        "recent_videos_report": up_res.get("recent_videos_report"),
+        "error": up_res.get("error") or up_res.get("message", ""),
+        "details": up_res,
     }

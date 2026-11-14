@@ -63,6 +63,72 @@ class TieredBrainRouter:
             return self.reflex_model
         return CODER_MODEL
 
+    @property
+    def has_nvidia_api(self) -> bool:
+        try:
+            import nvidia_client
+            return nvidia_client.is_nvidia_available()
+        except Exception:
+            return False
+
+    @property
+    def nvidia_reasoning_model(self) -> str:
+        try:
+            import nvidia_client
+            return nvidia_client.get_reasoning_model()
+        except Exception:
+            return "nvidia/nemotron-3-ultra-550b-a55b"
+
+    @property
+    def nvidia_vision_model(self) -> str:
+        try:
+            import nvidia_client
+            return nvidia_client.get_vision_model()
+        except Exception:
+            return "nvidia/nemotron-3.5-super-vl-120b-a12b"
+
+    @property
+    def nvidia_backup_model(self) -> str:
+        try:
+            import nvidia_client
+            return nvidia_client.get_backup_model()
+        except Exception:
+            return "minimaxai/minimax-m3.1-flash"
+
+    def get_escalation_target(
+        self,
+        task_tier: str,
+        prompt: str = "",
+        session_private: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Determines if a task should escalate from local Ollama to NVIDIA Cloud.
+        Returns escalation metadata dict or None (keep local reflex).
+        """
+        if session_private:
+            return None
+
+        if not self.has_nvidia_api:
+            return None
+
+        if task_tier in ("DEEP_CODE", "DEEP_REASONING"):
+            return {
+                "provider": "nvidia",
+                "model": self.nvidia_reasoning_model,
+                "tier": task_tier,
+                "description": "NVIDIA Nemotron 3 Ultra 550B Frontier Reasoning Core",
+            }
+
+        if task_tier == "VISION":
+            return {
+                "provider": "nvidia",
+                "model": self.nvidia_vision_model,
+                "tier": "VISION",
+                "description": "NVIDIA Nemotron 3.5 Super VL 120B Multimodal Core",
+            }
+
+        return None
+
     def get_installed_models(self) -> set:
         """Fetches installed Ollama models with a 15-second cache to prevent spamming."""
         now = time.time()
@@ -201,11 +267,18 @@ class TieredBrainRouter:
         Generates immediate verbal feedback (< 300ms) for heavy or visual tasks
         so the user never hears awkward dead silence.
         """
+        has_nv = self.has_nvidia_api
         if task_tier == "VISION":
+            if has_nv:
+                return "Routing visual inspection to Nemotron 120B Super VL, Creator." if ultron_mode else "Analyzing your screen with Nemotron 120B Super VL, Sir..."
             return "Analyzing your screen right now, Creator." if ultron_mode else "Inspecting your screen now, Sir..."
         elif task_tier == "DEEP_CODE":
+            if has_nv:
+                return "Engaging 550B Nemotron code synthesis. Stand by, Creator." if ultron_mode else "Deliberating through 550B Nemotron architecture, Sir..."
             return "Engaging deep code synthesis. Stand by, Creator." if ultron_mode else "Deliberating through the architecture now, Sir..."
         elif task_tier == "DEEP_REASONING":
+            if has_nv:
+                return "Routing cognitive analysis to 550B Nemotron frontier core." if ultron_mode else "Consulting 550B Nemotron reasoning engine, Sir..."
             return "Processing multi-layer cognitive analysis." if ultron_mode else "Analyzing the parameters in depth now, Sir..."
         return None
 

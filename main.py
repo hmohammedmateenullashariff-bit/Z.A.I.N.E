@@ -48,7 +48,7 @@ import voice
 
 def ensure_ollama_ready():
     """Verifies Ollama is responsive; auto-launches with correct OLLAMA_MODELS if offline."""
-    models_dir = r"D:\ollama\models" if Path(r"D:\ollama\models").exists() else None
+    models_dir = r"E:\ollama\models" if Path(r"E:\ollama\models").exists() else (r"D:\ollama\models" if Path(r"D:\ollama\models").exists() else None)
     if models_dir and "OLLAMA_MODELS" not in os.environ:
         os.environ["OLLAMA_MODELS"] = models_dir
 

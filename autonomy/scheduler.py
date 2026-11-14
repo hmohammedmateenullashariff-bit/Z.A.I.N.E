@@ -112,6 +112,8 @@ class ScheduledGoal:
     obsidian_note_id: str = ""
     telegram_notified: bool = False
     run_count: int = 0
+    depends_on: List[str] = field(default_factory=list)
+    pass_context: bool = True
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 
@@ -120,6 +122,16 @@ class ScheduledGoal:
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "ScheduledGoal":
+        raw_deps = raw.get("depends_on") or []
+        if isinstance(raw_deps, str):
+            raw_deps = [p.strip() for p in raw_deps.split(",") if p.strip()]
+        deps: List[str] = []
+        seen: set[str] = set()
+        for d in raw_deps:
+            clean_d = str(d or "").strip().upper()
+            if clean_d and clean_d not in seen:
+                seen.add(clean_d)
+                deps.append(clean_d)
         return cls(
             job_id=str(raw.get("job_id") or f"JOB-{uuid.uuid4().hex[:8].upper()}"),
             goal=str(raw.get("goal") or ""),
@@ -141,6 +153,8 @@ class ScheduledGoal:
             obsidian_note_id=str(raw.get("obsidian_note_id") or ""),
             telegram_notified=bool(raw.get("telegram_notified", False)),
             run_count=int(raw.get("run_count") or 0),
+            depends_on=deps,
+            pass_context=bool(raw.get("pass_context", True)),
             created_at=str(raw.get("created_at") or utc_now_iso()),
             updated_at=str(raw.get("updated_at") or utc_now_iso()),
         )
@@ -710,12 +724,48 @@ class GoalScheduler:
                         return {"job_id": job.job_id, "status": "failed", "error": "coordinator_queue_timeout"}
 
                 set_current_request_id(req_id)
-                with unattended_run_scope(pause_on_approval=True):
-                    loop = self._build_loop(job, req_id)
-                    if resume_run_id:
-                        result = loop.resume(resume_run_id)
+                clean_goal = str(job.goal or "").strip()
+                if clean_goal.startswith("tool:") and not resume_run_id:
+                    tool_name = clean_goal[5:].strip()
+                    from tools import TOOL_REGISTRY
+                    from autonomy.loop import LoopResult
+                    t0 = time.time()
+                    if tool_name in TOOL_REGISTRY:
+                        try:
+                            t_out = TOOL_REGISTRY[tool_name]()
+                            result = LoopResult(
+                                run_id=f"RUN-{uuid.uuid4().hex[:8].upper()}",
+                                status="completed",
+                                summary=str(t_out),
+                                steps_executed=1,
+                                max_steps=job.max_steps,
+                                elapsed_s=round(time.time() - t0, 2),
+                            )
+                        except Exception as te:
+                            result = LoopResult(
+                                run_id=f"RUN-{uuid.uuid4().hex[:8].upper()}",
+                                status="error",
+                                summary=f"Direct tool execution error: {te}",
+                                steps_executed=1,
+                                max_steps=job.max_steps,
+                                errors=[str(te)],
+                                elapsed_s=round(time.time() - t0, 2),
+                            )
                     else:
-                        result = loop.run(job.goal)
+                        result = LoopResult(
+                            run_id=f"RUN-{uuid.uuid4().hex[:8].upper()}",
+                            status="error",
+                            summary=f"Unknown tool '{tool_name}'",
+                            steps_executed=0,
+                            max_steps=job.max_steps,
+                        )
+                else:
+                    with unattended_run_scope(pause_on_approval=True):
+                        loop = self._build_loop(job, req_id)
+                        if resume_run_id:
+                            result = loop.resume(resume_run_id)
+                        else:
+                            result = loop.run(job.goal)
 
                 now_utc = _utc_now()
                 note_id, tg_sent = self._deliver_notifications(job, result)

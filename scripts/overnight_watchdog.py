@@ -59,8 +59,8 @@ def run_watchdog():
         temp_c = get_cpu_temperature_celsius()
         cpu_pct = psutil.cpu_percent(interval=1)
         ram = psutil.virtual_memory()
-        disk = psutil.disk_usage("C:\\")
-        disk_free_gb = disk.free / (1024 ** 3)
+        disk_e = psutil.disk_usage("E:\\")
+        disk_free_gb = disk_e.free / (1024 ** 3)
 
         temp_str = f"{temp_c:.1f}°C" if temp_c is not None else "N/A"
         log(f"Telemetry: CPU Temp: {temp_str} | CPU: {cpu_pct}% | RAM: {ram.percent}% ({ram.used/(1024**3):.1f}GB/{ram.total/(1024**3):.1f}GB) | C: Free: {disk_free_gb:.2f}GB")

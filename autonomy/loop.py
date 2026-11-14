@@ -47,6 +47,7 @@ from autonomy.privacy import (
     PrivacyViolationError,
     assert_local_routing,
     get_privacy_state,
+    is_session_private,
     mark_session_private,
     scoped_privacy_session,
 )
@@ -165,9 +166,43 @@ CancelCheckFn = Callable[[], bool]
 
 
 def _default_ollama_stream(payload: Dict[str, Any], cancel_token: CancelToken, timeout_s: float) -> Iterator[Dict[str, Any]]:
-    """Streams /api/chat JSON chunks from Ollama while allowing instant socket cancellation."""
+    """Streams /api/chat JSON chunks from Ollama or NVIDIA Build while allowing instant socket cancellation."""
     if cancel_token.cancelled:
         return
+
+    model_name = str(payload.get("model", ""))
+    if model_name.startswith("nvidia/"):
+        try:
+            import nvidia_client
+            if nvidia_client.is_nvidia_available():
+                max_toks = int(payload.get("options", {}).get("num_predict", 1536))
+                temp = float(payload.get("options", {}).get("temperature", 0.2))
+                for chunk in nvidia_client.chat_completion_stream(
+                    payload.get("messages", []),
+                    model=model_name,
+                    max_tokens=max_toks,
+                    temperature=temp,
+                    timeout=timeout_s,
+                ):
+                    if cancel_token.cancelled:
+                        break
+                    ctype = chunk.get("type")
+                    if ctype == "content":
+                        yield {"message": {"content": chunk.get("text", "")}, "done": False}
+                    elif ctype == "reasoning":
+                        yield {"message": {"content": ""}, "done": False, "reasoning": chunk.get("text", "")}
+                    elif ctype == "done":
+                        yield {"done": True, "eval_count": 0, "wall_time_s": chunk.get("wall_time_s", 0)}
+                    elif ctype == "error":
+                        break
+                return
+        except Exception:
+            pass
+
+        # Graceful fallback: switch payload to local resident model before querying Ollama
+        from core_router import router
+        payload["model"] = router.resolve_model(router.reflex_model)
+
     resp = None
     watch_stop = threading.Event()
 
@@ -316,6 +351,8 @@ class AutonomousLoop:
 
     def _resolved_model(self) -> str:
         try:
+            if self.config.model_name and self.config.model_name.startswith("nvidia/"):
+                return self.config.model_name
             from core_router import router
             if router.single_model:
                 return router.resolve_model(self.config.model_name or "zaine-reflex-7b")
@@ -367,8 +404,9 @@ class AutonomousLoop:
         in_think = False
         metrics: Dict[str, Any] = {"model": active_model, "step": step_label}
 
-        route_url = os.getenv("ZAINE_OLLAMA_URL", "").strip() or OLLAMA_URL
-        assert_local_routing(route_url, context=f"loop.{step_label}")
+        if not active_model.startswith("nvidia/"):
+            route_url = os.getenv("ZAINE_OLLAMA_URL", "").strip() or OLLAMA_URL
+            assert_local_routing(route_url, context=f"loop.{step_label}")
 
         try:
             for chunk in self._model_stream_fn(payload, self.cancel_token, req_timeout):
@@ -719,6 +757,8 @@ class AutonomousLoop:
             if self.profile
             else "zaine-jarvis"
         )
+        is_cloud_target = bool(self.config.model_name and str(self.config.model_name).startswith("nvidia/"))
+        init_privacy = "LOCAL_ONLY" if is_session_private() else ("CLOUD_PERMITTED" if is_cloud_target else "LOCAL_ONLY")
         active_env = envelope or TaskEnvelope(
             goal=goal[:500],
             from_agent="user",
@@ -726,7 +766,7 @@ class AutonomousLoop:
             parent_request_id=self.request_id or rid,
             max_steps=max_steps,
             deadline_s=int(wall_timeout),
-            privacy_class="LOCAL_ONLY",
+            privacy_class=init_privacy,
         )
 
         tok_agent = current_agent_var.set(profile_id)
@@ -875,7 +915,6 @@ class AutonomousLoop:
                 try:
                     taint_now = initial_taint
                     try:
-                        from autonomy.privacy import is_session_private
                         if is_session_private():
                             taint_now = "LOCAL_ONLY"
                     except Exception:
@@ -946,7 +985,7 @@ class AutonomousLoop:
         )
         try:
             with audit_ctx, scoped_privacy_session(initial_taint=initial_taint):
-                if self._memory_context:
+                if self._memory_context and not is_cloud_target:
                     mark_session_private("initial_memory_context", "LOCAL_ONLY")
 
                 # ── 1. PLAN (or restore plan on resume) ──────────────────────
@@ -1621,7 +1660,6 @@ class AutonomousLoop:
                 try:
                     taint_now = initial_taint
                     try:
-                        from autonomy.privacy import is_session_private
                         if is_session_private():
                             taint_now = "LOCAL_ONLY"
                     except Exception:

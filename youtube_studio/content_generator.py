@@ -22,7 +22,7 @@ import random
 import datetime
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
@@ -954,6 +954,95 @@ GENRE_SCRIPTS = {
 }
 
 
+def _generate_viral_script_with_ai(topic: str, active_genre: str) -> Optional[Dict[str, Any]]:
+    """
+    Attempts bespoke viral script synthesis via NVIDIA API (Nemotron 550B with automated failover).
+    Falls back cleanly to template system if offline or unavailable.
+    """
+    try:
+        import nvidia_client
+        if not nvidia_client.is_nvidia_available():
+            return None
+
+        prompt = (
+            f"You are the head viral scriptwriter for Zaine Studio YouTube Shorts.\n"
+            f"Write an original, gripping 45-second YouTube Shorts script about: '{topic}'.\n"
+            f"Genre: {active_genre}.\n"
+            f"Formula:\n"
+            f"1. 0-3s Hook: Pattern interrupt that stops swiping.\n"
+            f"2. 3-15s Escalation: Build suspense or curiosity gap.\n"
+            f"3. 15-40s Core Content: Rapid-fire, dense value, no fluff.\n"
+            f"4. 40-50s Conclusion & Comment Bait: Ask a controversial or engaging question for the comments.\n"
+            f"5. End with: 'Subscribe to Zaine Studio for daily {active_genre} breakdowns!'\n\n"
+            f"Output ONLY a valid JSON object with keys: title, script, engagement_question, tags (list of 6-8 strings), category_badge."
+        )
+
+        # Inject continuous learning directives from previous video performance
+        try:
+            from .closed_loop import get_latest_learning_context
+            learnings_ctx = get_latest_learning_context()
+            if learnings_ctx:
+                prompt += f"\n\nCRITICAL AUDIENCE RETENTION DIRECTIVES:\n{learnings_ctx}\nApply these directives strictly to your hook and pacing."
+        except Exception:
+            pass
+
+        messages = [
+            {"role": "system", "content": "You are a master YouTube Shorts viral scriptwriter. Respond strictly in valid JSON."},
+            {"role": "user", "content": prompt},
+        ]
+
+        res = nvidia_client.chat_completion(
+            messages=messages,
+            temperature=0.35,
+            max_tokens=1024,
+            timeout=30.0,
+            enable_backup=True,
+        )
+
+        if not res.get("ok"):
+            return None
+
+        raw = res.get("content", "").strip()
+        if "```json" in raw:
+            raw = raw.split("```json", 1)[1].split("```", 1)[0].strip()
+        elif "```" in raw:
+            raw = raw.split("```", 1)[1].split("```", 1)[0].strip()
+
+        data = json.loads(raw)
+        title = data.get("title", f"{topic} #Shorts")
+        if len(title) > 95:
+            title = title[:92] + "..."
+        script = data.get("script", "").strip()
+        q_text = data.get("engagement_question", f"What are your thoughts on {topic}? Let me know below! 👇")
+        tags = data.get("tags", ["shorts", active_genre, "viral", "trending"])
+        badge = data.get("category_badge", f"⚡ {active_genre.upper()}")
+
+        if not script or len(script) < 50:
+            return None
+
+        cat_id = CATEGORY_IDS.get(active_genre, "28")
+        description = f"""{title} 🌟\n\n💬 Question of the day:\n{q_text}\n\nSubscribe to Zaine Studio for daily {active_genre} content!\n\n#Shorts #YouTubeShorts #Viral #{active_genre.capitalize()} #ZaineStudio"""
+
+        return {
+            "genre": active_genre,
+            "category_id": cat_id,
+            "title": title,
+            "description": description,
+            "tags": tags,
+            "script": script,
+            "topic": topic,
+            "category_badge": badge,
+            "voice": "en-US-ChristopherNeural" if active_genre in ("tech", "facts") else "en-US-GuyNeural",
+            "engagement_question": q_text,
+            "ai_generated": True,
+            "model_used": res.get("model", ""),
+            "backup_used": res.get("backup_used", False),
+        }
+    except Exception as e:
+        print(f"[YouTube Content Generator] AI script generation fallback to template: {e}")
+        return None
+
+
 def generate_viral_script(topic: str = "", genre: str = "auto") -> Dict[str, Any]:
     """
     Generates a high-retention YouTube Shorts script across genres:
@@ -1003,7 +1092,13 @@ def generate_viral_script(topic: str = "", genre: str = "auto") -> Dict[str, Any
         except Exception:
             pass
 
-    # 2. Pick from rich genre libraries with intelligent topic matching
+    # 2. If custom topic provided, synthesize via AI (Nemotron 550B with safety failover)
+    if topic and topic.strip():
+        ai_script = _generate_viral_script_with_ai(topic=topic.strip(), active_genre=active_genre)
+        if ai_script:
+            return ai_script
+
+    # 3. Pick from rich genre libraries with intelligent topic matching
     genre_pool = GENRE_SCRIPTS.get(active_genre, GENRE_SCRIPTS["anime"])
     chosen = None
 

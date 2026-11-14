@@ -5,8 +5,14 @@ real-time channel analytics, and daily scheduled automation.
 """
 
 from .content_generator import generate_youtube_short
-from .uploader import upload_youtube_video, get_upload_queue
-from .analytics import get_channel_analytics, format_analytics_dossier
+from .uploader import upload_youtube_video, get_upload_queue, publish_approved_video
+from .analytics import (
+    get_channel_analytics,
+    format_analytics_dossier,
+    get_recent_published_videos,
+    format_recent_videos_report,
+    send_recent_videos_telegram_report,
+)
 from .scheduler import check_and_run_daily_youtube_schedule, get_studio_status
 from .anime_editor import generate_anime_amv, harvest_anime_assets_during_idle, detect_audio_beats, split_raw_into_scenes, score_scene_motion
 from .audio_separator import separate_audio_stems, isolate_anime_dialogue
@@ -27,9 +33,13 @@ from .video_ai_hub import generate_action_scene, get_available_video_providers
 __all__ = [
     "generate_youtube_short",
     "upload_youtube_video",
+    "publish_approved_video",
     "get_upload_queue",
     "get_channel_analytics",
     "format_analytics_dossier",
+    "get_recent_published_videos",
+    "format_recent_videos_report",
+    "send_recent_videos_telegram_report",
     "check_and_run_daily_youtube_schedule",
     "get_studio_status",
     "generate_anime_amv",

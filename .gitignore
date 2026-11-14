@@ -114,6 +114,8 @@ custom_tools/IronHands/
 # Runtime Process State
 .zaine_core.json
 zaine_core.json
+.obsidian/
+*/.obsidian/
 
 # Workspace Scratchpad, Runs, Vault Copies & Audit
 workspace/

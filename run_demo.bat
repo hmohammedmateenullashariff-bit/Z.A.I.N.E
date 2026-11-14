@@ -1,6 +1,9 @@
 @echo off
 title Z.A.I.N.E Seminar Demo Environment
 cd /d "%~dp0"
+if exist "%~dp0.venv\Scripts\python.exe" (
+    set PATH=%~dp0.venv\Scripts;%PATH%
+)
 
 echo ======================================================================
 echo   Z.A.I.N.E - Autonomous Sovereign AI Assistant
@@ -10,7 +13,7 @@ echo.
 
 set ZAINE_DEMO=1
 set ZAINE_SINGLE_MODEL=1
-set OLLAMA_MODELS=D:\ollama\models
+set OLLAMA_MODELS=E:\ollama\models
 
 echo [1/2] Checking Ollama daemon and models...
 python scripts\ensure_ollama.py

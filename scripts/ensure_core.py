@@ -101,8 +101,12 @@ def start_core() -> subprocess.Popen:
     log.write(f"\n===== core start {time.strftime('%Y-%m-%d %H:%M:%S')} config={json.dumps(wanted_config())}\n")
     log.flush()
     # Output goes to a log file: a core printing into the console the TUI draws on corrupts the screen.
+    flags = 0
+    if sys.platform == "win32":
+        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200) | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
     return subprocess.Popen([sys.executable, "core_service.py"], cwd=str(PROJECT_ROOT),
-                            stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+                            stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                            creationflags=flags)
 
 
 def wait_ready(proc) -> bool:

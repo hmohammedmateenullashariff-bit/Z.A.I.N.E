@@ -1,6 +1,9 @@
 @echo off
 title Z.A.I.N.E - Autonomous Sovereign Intelligence
 cd /d "%~dp0"
+if exist "%~dp0.venv\Scripts\python.exe" (
+    set PATH=%~dp0.venv\Scripts;%PATH%
+)
 
 echo ======================================================================
 echo             Z . A . I . N . E   S Y S T E M   W A K E
@@ -13,7 +16,7 @@ set ZAINE_DEMO=1
 set ZAINE_SINGLE_MODEL=1
 set ZAINE_NUM_CTX=6144
 set ZAINE_WORKSPACE=%~dp0demo_workspace
-set OLLAMA_MODELS=D:\ollama\models
+set OLLAMA_MODELS=E:\ollama\models
 
 echo [1/3] Checking Ollama Neural Daemon and Models...
 python scripts\ensure_ollama.py

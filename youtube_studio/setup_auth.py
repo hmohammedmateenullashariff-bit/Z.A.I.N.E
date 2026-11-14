@@ -145,3 +145,16 @@ def setup_youtube_manual_credentials(client_id: str, client_secret: str, refresh
         json.dump(token_data, f, indent=2)
 
     return {"status": "success", "message": "Manual YouTube credentials saved."}
+
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("Z.A.I.N.E — YouTube OAuth2 Re-Authentication Setup")
+    print("=" * 60)
+    res = setup_youtube_oauth_from_file()
+    print(res.get("message", res))
+    if res.get("status") == "success":
+        print("\n✅ YouTube Data API v3 authenticated successfully!")
+    else:
+        print(f"\n❌ Setup status: {res.get('status')}")
+

@@ -34,7 +34,7 @@
   "status": "PENDING_REVIEW",
   "reminder_3h_sent": true,
   "reminder_6h_sent": true,
-  "video_sent": false,
+  "video_sent": true,
   "retry_count": 1,
   "last_retry_timestamp": 1793789987.7835553
 }

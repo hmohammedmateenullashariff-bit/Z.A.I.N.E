@@ -1534,13 +1534,41 @@ def upload_youtube_video_tool(video_path: str, title: str, description: str = ""
         from youtube_studio import upload_youtube_video
         tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
         res = upload_youtube_video(video_path, title, description, tags=tag_list, privacy_status=privacy_status)
-        if res.get("status") == "success":
-            return f"✅ Upload Complete! Live at {res.get('url')} (Video ID: {res.get('video_id')})"
-        elif res.get("status") == "queued":
+        status = str(res.get("status", "")).upper()
+        if status == "SUCCESS":
+            tg_note = " | Last 3 published videos report sent to Telegram." if res.get("telegram_report_sent") else ""
+            return f"✅ Upload Complete! Live at {res.get('video_url')} (Video ID: {res.get('video_id')}){tg_note}"
+        elif status == "ALREADY_PUBLISHED":
+            return f"ℹ️ {res.get('message')} ({res.get('video_url')})"
+        elif status in ("QUEUED", "QUEUED_PENDING_AUTH"):
             return f"📥 {res.get('message')} (Queued locally in data/youtube_queue.json)"
-        return f"❌ Upload error: {res.get('error')}"
+        return f"❌ Upload error: {res.get('error') or res.get('message') or 'unknown error'}"
     except Exception as e:
         return f"YouTube upload error: {e}"
+
+
+def report_recent_youtube_videos_tool(limit: int = 3, send_telegram: bool = True) -> str:
+    """Reports the last N (default 3) published YouTube videos and optionally dispatches the report via Telegram."""
+    try:
+        safe_limit = max(1, min(int(limit or 3), 10))
+        if isinstance(send_telegram, str):
+            should_send = send_telegram.strip().lower() not in ("false", "0", "no", "off", "")
+        else:
+            should_send = bool(send_telegram)
+        if should_send:
+            from youtube_studio import send_recent_videos_telegram_report
+            tg_res = send_recent_videos_telegram_report(limit=safe_limit, force=True)
+            delivery = (
+                "📲 Report delivered to Telegram."
+                if tg_res.get("sent")
+                else "⚠️ Telegram delivery skipped/unavailable (check TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_USER_ID)."
+            )
+            return f"{tg_res.get('message', '')}\n\n{delivery}".strip()
+        from youtube_studio import get_recent_published_videos, format_recent_videos_report
+        report_data = get_recent_published_videos(limit=safe_limit)
+        return format_recent_videos_report(report_data, limit=safe_limit, html_mode=False)
+    except Exception as e:
+        return f"Error reporting recent YouTube videos: {e}"
 
 
 def get_youtube_channel_stats_tool() -> str:
@@ -1732,6 +1760,42 @@ def launch_zaine_cascade_tool(target_path: str = "") -> str:
     return open_vscode(target_path=target_path, launch_cascade=True)
 
 
+def consult_nemotron_brain_tool(query: str, domain: str = "reasoning") -> str:
+    """
+    Consults NVIDIA Nemotron cloud cognitive cores for complex challenges:
+    - 'reasoning' or 'code': Routes to NVIDIA Nemotron 3 Ultra 550B (550B frontier reasoning/coding)
+    - 'vision': Routes to NVIDIA Nemotron 3.5 Super VL 120B (120B multimodal perception)
+    """
+    try:
+        from autonomy.privacy import is_session_private
+        if is_session_private():
+            return "Notice: NVIDIA Cloud consultation blocked because current session contains LOCAL_ONLY private data."
+
+        import nvidia_client
+        if not nvidia_client.is_nvidia_available():
+            return "Notice: NVIDIA_API_KEY is not configured in .env."
+
+        target_model = nvidia_client.get_vision_model() if domain.lower() == "vision" else nvidia_client.get_reasoning_model()
+        res = nvidia_client.chat_completion(
+            [{"role": "user", "content": query}],
+            model=target_model,
+            max_tokens=2048,
+            temperature=0.2,
+            timeout=120,
+        )
+        if not res.get("ok"):
+            return f"Nemotron consultation error: {res.get('error')}"
+
+        content = res.get("content", "").strip()
+        reasoning = res.get("reasoning", "").strip()
+        header = f"🧠 [NVIDIA Nemotron {res.get('model')} Output]:\n\n"
+        if reasoning and not content:
+            return header + reasoning
+        return header + content
+    except Exception as e:
+        return f"Nemotron consultation failed: {e}"
+
+
 def get_active_capabilities() -> str:
     """Introspects TOOL_REGISTRY and TOOL_CLUSTERS, returning a comprehensive categorized report of Zaine's active capabilities."""
     try:
@@ -1766,6 +1830,8 @@ TOOL_REGISTRY = {
     "identify_face": identify_face_tool,
     "enroll_face": enroll_face_tool,
     "launch_zaine_cascade": launch_zaine_cascade_tool,
+    "consult_nemotron_brain": consult_nemotron_brain_tool,
+    "consult_nemotron": consult_nemotron_brain_tool,
     "get_active_capabilities": get_active_capabilities,
     "change_voice": change_voice,
     "deep_search": deep_search,
@@ -1853,8 +1919,12 @@ TOOL_REGISTRY = {
     "upload_youtube_video": upload_youtube_video_tool,
     "get_youtube_stats": get_youtube_channel_stats_tool,
     "get_youtube_channel_stats": get_youtube_channel_stats_tool,
+    "report_recent_youtube_videos": report_recent_youtube_videos_tool,
+    "get_recent_youtube_videos": lambda limit=3: report_recent_youtube_videos_tool(limit=limit, send_telegram=False),
     "youtube_studio_status": youtube_studio_status_tool,
     "trigger_youtube_pipeline": trigger_youtube_pipeline_tool,
+    "run_overnight_studio_cycle": lambda: __import__("youtube_studio.overnight_creator", fromlist=["execute_overnight_production_and_learning"]).execute_overnight_production_and_learning(),
+    "send_morning_creator_briefing": lambda: __import__("youtube_studio.overnight_creator", fromlist=["compile_and_send_morning_briefing"]).compile_and_send_morning_briefing(send_telegram=True),
     "track_viral_trends": track_viral_trends_tool,
     "create_channel_playlists": create_channel_playlists_tool,
     "generate_manga_recap": generate_manga_recap_tool,
@@ -1922,7 +1992,9 @@ Available tools:
 - capture_gesture(execute_action: bool = True) -> captures webcam frame and classifies hand gestures (Thumbs Up, Peace, Open Palm, Fist, Pointing Up)
 - toggle_gesture_control(enable: bool = None) -> activates or deactivates continuous physical hand gesture tracking (pinch to drag, swipe to open holographic file browser)
 - generate_youtube_short(topic: str = "", genre: str = "auto", upload_now: bool = False) -> produces an autonomous AI-generated viral vertical YouTube Short (1080x1920) across genres: 'anime' (Naruto vs Sasuke, Luffy vs Imu, Goku vs Vegeta), 'gaming' (Elden Ring, GTA 6), 'facts' (mind-blowing space/science/psychology), 'cat' (funny cat videos/memes), 'kids' (funny child comedy/toddler logic), 'animated' (whimsical cartoon stories), 'tech' (AI breakthroughs & system architecture)
-- upload_youtube_video(video_path: str, title: str, description: str = "", tags: str = "", privacy_status: str = "public") -> uploads a video file to YouTube with SEO metadata or queues it locally
+- upload_youtube_video(video_path: str, title: str, description: str = "", tags: str = "", privacy_status: str = "public") -> uploads a video file to YouTube with SEO metadata and automatically reports the last 3 published videos via Telegram
+- report_recent_youtube_videos(limit: int = 3, send_telegram: bool = True) -> reports the last N (default 3) published YouTube videos with views, likes, and links, sending the report to Telegram when send_telegram=True
+- get_recent_youtube_videos(limit: int = 3) -> returns the last N published YouTube videos without sending to Telegram
 - get_youtube_stats() -> pulls live YouTube channel subscriber count, 24h subscriber gain/loss, total view count, and video library metrics
 - youtube_studio_status() -> checks the status of Zaine's daily 5-slot autonomous YouTube pipeline and upload queue
 - trigger_youtube_pipeline(genre: str = "auto") -> runs an immediate forced execution of the YouTube studio creation, upload, and analytics cycle
@@ -1945,6 +2017,7 @@ Available tools:
 - backup_memory() -> creates a timestamped safety backup snapshot of Zaine's SQLite memory store
 - recall_activity(query: str = "", lookback_minutes: int = 30) -> searches temporal memory ring buffer for recent events, edits, and tool executions
 - morning_briefing() -> generates comprehensive executive dossier for Sir (markets, weather, system health, simulations)
+- consult_nemotron_brain(query: str, domain: str = "reasoning") -> consults NVIDIA Nemotron cloud models (550B Reasoning or 120B Super VL) for high-complexity problems, deep mathematical analysis, architectural blueprints, or visual multimodal evaluation
 - hive_mind(goal: str) -> coordinates specialist sub-agents (Coder, Researcher, System Guardian, Executive Planner) with shared memory to autonomously solve complex multi-step objectives
 - browse_web(url: str, selector: str = "", extract_links: bool = False) -> reads, extracts, and summarizes the clean content of any website or online article
 - search_and_extract(query: str, max_pages: int = 2) -> conducts deep multi-page web research by visiting top search results and extracting full real-world content

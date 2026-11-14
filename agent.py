@@ -261,6 +261,10 @@ _TOOL_ALIAS_MAP = {
     "youtube_stats": "get_youtube_stats",
     "channel_stats": "get_youtube_stats",
     "youtube_analytics": "get_youtube_stats",
+    "recent_youtube_videos": "report_recent_youtube_videos",
+    "youtube_recent_videos": "report_recent_youtube_videos",
+    "last_youtube_videos": "report_recent_youtube_videos",
+    "youtube_report": "report_recent_youtube_videos",
     "youtube_studio_status": "youtube_studio_status",
     "studio_status": "youtube_studio_status",
     "trigger_youtube_pipeline": "trigger_youtube_pipeline",
@@ -510,6 +514,7 @@ You have complete authority over all Python tools. Execute them immediately via 
 - YouTube Autonomous Content Studio & Channel Growth:
   * {{"tool": "generate_youtube_short", "args": {{"topic": "...", "upload_now": true}}}}
   * {{"tool": "upload_youtube_video", "args": {{"video_path": "...", "title": "..."}}}}
+  * {{"tool": "report_recent_youtube_videos", "args": {{"limit": 3, "send_telegram": true}}}}
   * {{"tool": "get_youtube_stats", "args": {{}}}}
   * {{"tool": "youtube_studio_status", "args": {{}}}}
   * {{"tool": "trigger_youtube_pipeline", "args": {{}}}}
@@ -591,6 +596,7 @@ CRITICAL EXECUTION RULES:
    - When asked to search developer knowledge across the 17 repos: Call {{"tool": "search_developer_knowledge", "args": {{"query": "<query>"}}}}
    - When asked to create/generate an AI YouTube Short or video content (anime|gaming|facts|cat|kids|animated|tech|auto): Call {{"tool": "generate_youtube_short", "args": {{"topic": "<optional_topic>", "genre": "anime|gaming|facts|cat|kids|animated|tech|auto", "upload_now": false}}}}
    - When asked to upload a video or short to YouTube: Call {{"tool": "upload_youtube_video", "args": {{"video_path": "<path>", "title": "<title>"}}}}
+   - When asked about or to report the last 3 published YouTube videos (or send the report via Telegram): Call {{"tool": "report_recent_youtube_videos", "args": {{"limit": 3, "send_telegram": true}}}}
    - When asked about the YouTube studio schedule or 5-slot daily pipeline: Call {{"tool": "youtube_studio_status", "args": {{}}}}
    - When asked to trigger or force run the YouTube creation cycle: Call {{"tool": "trigger_youtube_pipeline", "args": {{"genre": "auto"}}}}
    - When asked to track viral trends, memes, or trending content ideas: Call {{"tool": "track_viral_trends", "args": {{"genre": "auto|anime|gaming|facts|cat|kids|animated|tech"}}}}
@@ -1548,9 +1554,35 @@ class ZaineAgent:
                 },
             }
             t0 = time.perf_counter()
-            resp = requests.post(OLLAMA_URL, json=payload, timeout=180)
-            resp.raise_for_status()
-            data = resp.json()
+            content = ""
+            data = {}
+            if str(model).startswith("nvidia/"):
+                try:
+                    import nvidia_client
+                    if nvidia_client.is_nvidia_available():
+                        res = nvidia_client.chat_completion(
+                            messages,
+                            model=model,
+                            max_tokens=300 if is_demo else 768,
+                            temperature=0.3,
+                            timeout=180,
+                        )
+                        if res.get("ok"):
+                            content = res.get("content", "")
+                            data = {
+                                "eval_count": res.get("usage", {}).get("completion_tokens", 0),
+                                "eval_duration": 0,
+                                "prompt_eval_count": res.get("usage", {}).get("prompt_tokens", 0),
+                                "load_duration": 0,
+                            }
+                except Exception:
+                    pass
+
+            if not content:
+                resp = requests.post(OLLAMA_URL, json=payload, timeout=180)
+                resp.raise_for_status()
+                data = resp.json()
+                content = (data.get("message") or {}).get("content", "")
             metrics = {
                 "model": model, "hop": hop, "agent": profile.agent_id,
                 "eval_count": data.get("eval_count", 0),
@@ -1794,15 +1826,28 @@ class ZaineAgent:
             active_clusters = [c for c in active_clusters if c != "DEV_CODE"]
 
         # Route to appropriate cognitive tier with dynamic installation resolver
-        if agent_enabled and getattr(router, "single_model", ZAINE_SINGLE_MODEL):
+        try:
+            from autonomy.privacy import is_session_private
+            is_priv = is_session_private()
+        except Exception:
+            is_priv = False
+
+        escalation = router.get_escalation_target(task_tier, user_message, session_private=is_priv)
+        if escalation and escalation.get("provider") == "nvidia":
+            active_model = escalation["model"]
+            target_model = active_model
+        elif agent_enabled and getattr(router, "single_model", ZAINE_SINGLE_MODEL):
             target_model = os.getenv("ZAINE_AGENT_MODEL", "zaine-reflex-7b")
+            active_model = router.resolve_model(target_model)
         elif task_tier == "DEEP_CODE":
             target_model = router.coder_model
+            active_model = router.resolve_model(target_model)
         elif task_tier == "DEEP_REASONING":
             target_model = router.deep_model
+            active_model = router.resolve_model(target_model)
         else:
             target_model = router.reflex_model
-        active_model = router.resolve_model(target_model)
+            active_model = router.resolve_model(target_model)
         self._turn_event_cb = on_tool_event
         self._turn_model = active_model
         self._turn_thread = threading.current_thread()
@@ -1891,30 +1936,47 @@ class ZaineAgent:
                 },
             }
             t_call_start = time.perf_counter()
-            try:
-                resp = requests.post(OLLAMA_URL, json=payload, stream=True, timeout=60)
-                resp.raise_for_status()
-            except Exception as e:
-                # Fallback to base model if specialized coder model is unavailable
-                if active_model != MODEL_NAME:
-                    try:
-                        payload["model"] = MODEL_NAME
-                        t_call_start = time.perf_counter()
-                        resp = requests.post(OLLAMA_URL, json=payload, stream=True, timeout=120)
-                        resp.raise_for_status()
-                        active_model = MODEL_NAME
-                    except Exception as fallback_e:
-                        err_msg = f"I couldn't reach my reasoning model ({fallback_e}). Please check Ollama."
+            nv_stream = None
+            resp = None
+            if str(active_model).startswith("nvidia/"):
+                try:
+                    import nvidia_client
+                    if nvidia_client.is_nvidia_available():
+                        nv_stream = nvidia_client.chat_completion_stream(
+                            messages,
+                            model=active_model,
+                            max_tokens=num_predict_val,
+                            temperature=0.2 if self.ultron_mode else 0.4,
+                            timeout=60,
+                        )
+                except Exception:
+                    nv_stream = None
+
+            if nv_stream is None:
+                try:
+                    resp = requests.post(OLLAMA_URL, json=payload, stream=True, timeout=60)
+                    resp.raise_for_status()
+                except Exception as e:
+                    # Fallback to base model if specialized coder model is unavailable
+                    if active_model != MODEL_NAME:
+                        try:
+                            payload["model"] = MODEL_NAME
+                            t_call_start = time.perf_counter()
+                            resp = requests.post(OLLAMA_URL, json=payload, stream=True, timeout=120)
+                            resp.raise_for_status()
+                            active_model = MODEL_NAME
+                        except Exception as fallback_e:
+                            err_msg = f"I couldn't reach my reasoning model ({fallback_e}). Please check Ollama."
+                            yield err_msg
+                            with self._chat_lock:
+                                self.memory.add("assistant", err_msg)
+                            return
+                    else:
+                        err_msg = f"I couldn't reach my reasoning model ({e}). Please check Ollama."
                         yield err_msg
                         with self._chat_lock:
                             self.memory.add("assistant", err_msg)
                         return
-                else:
-                    err_msg = f"I couldn't reach my reasoning model ({e}). Please check Ollama."
-                    yield err_msg
-                    with self._chat_lock:
-                        self.memory.add("assistant", err_msg)
-                    return
 
             full_content = ""
             sentence_buffer = ""
@@ -1923,14 +1985,29 @@ class ZaineAgent:
             is_tool_candidate = False
             checked_prefix = False
 
+            def _iter_incoming_chunks():
+                if nv_stream is not None:
+                    for it in nv_stream:
+                        itype = it.get("type")
+                        if itype == "content":
+                            yield {"message": {"content": it.get("text", "")}, "done": False}
+                        elif itype == "reasoning":
+                            yield {"message": {"content": ""}, "done": False, "reasoning": it.get("text", "")}
+                        elif itype == "done":
+                            yield {"done": True, "load_duration": 0, "eval_count": 0, "wall_time_s": it.get("wall_time_s", 0)}
+                        elif itype == "error":
+                            break
+                elif resp is not None:
+                    for line in resp.iter_lines():
+                        if not line:
+                            continue
+                        try:
+                            yield json.loads(line)
+                        except Exception:
+                            continue
+
             last_liveness_time = time.monotonic()
-            for line in resp.iter_lines():
-                if not line:
-                    continue
-                try:
-                    chunk = json.loads(line)
-                except Exception:
-                    continue
+            for chunk in _iter_incoming_chunks():
 
                 if chunk.get("done"):
                     call_wall = time.perf_counter() - t_call_start

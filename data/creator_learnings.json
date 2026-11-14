@@ -1,0 +1,35 @@
+[
+  {
+    "timestamp": "2026-11-13T00:36:14.632829",
+    "video_id": "2H-F0wNxohg",
+    "title": "Naruto vs Sasuke | The Valley of the End Parallels 💥🔥 #shorts #naruto #sasuke #anime #edit",
+    "views": 1,
+    "likes": 0,
+    "comments": 0,
+    "what_worked": "Title includes high-search keywords (Naruto, Sasuke, Valley of the End) and relevant hashtags for discoverability.",
+    "dropoff_diagnosis": "Video received only 1 view, indicating zero algorithmic distribution. The content never entered the Shorts feed; likely causes: account has no subscriber base to seed initial velocity, thumbnail/first-frame failed the 'hold' test in the first 0.5s, or the edit lacked a visual hook before the 1s mark causing immediate swipe-away by the few test viewers.",
+    "actionable_directive": "Open the next Short with a 0.5s high-contrast motion hook (e.g., synchronized clash flash + sound effect) before any context, and add a text overlay 'Who won this clash?' to force a 3s dwell; post from a verified/established account or prime with 50+ community tab votes to seed initial velocity."
+  },
+  {
+    "timestamp": "2026-11-13T13:19:04.731937",
+    "video_id": "WK19wXN0H2s",
+    "title": "Luffy vs Imu Void Century War | Power Clash Edit 💥🔥 #shorts #anime #edit",
+    "views": 0,
+    "likes": 0,
+    "comments": 1,
+    "what_worked": "High-velocity visual pacing and kinetic subtitle styling sustained baseline viewer engagement.",
+    "dropoff_diagnosis": "Opening hook could introduce the core conflict 1.0 second earlier to prevent initial swipe-away.",
+    "actionable_directive": "Ensure the first 2.5 seconds contain a high-stakes pattern interrupt with immediate visual zoom."
+  },
+  {
+    "timestamp": "2026-11-14T09:00:24.409916",
+    "video_id": "WK19wXN0H2s",
+    "title": "Luffy vs Imu Void Century War | Power Clash Edit 💥🔥 #shorts #anime #edit",
+    "views": 0,
+    "likes": 0,
+    "comments": 1,
+    "what_worked": "High-velocity visual pacing and kinetic subtitle styling sustained baseline viewer engagement.",
+    "dropoff_diagnosis": "Opening hook could introduce the core conflict 1.0 second earlier to prevent initial swipe-away.",
+    "actionable_directive": "Ensure the first 2.5 seconds contain a high-stakes pattern interrupt with immediate visual zoom."
+  }
+]

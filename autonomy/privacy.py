@@ -35,6 +35,8 @@ CLOUD_LLM_HOST_FRAGMENTS: Tuple[str, ...] = (
     "api.replicate.com",
     "openai.azure.com",
     "bedrock-runtime",
+    "integrate.api.nvidia.com",
+    "api.nvidia.com",
 )
 
 

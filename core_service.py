@@ -27,6 +27,12 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(PROJECT_ROOT / ".env")
+except ImportError:
+    pass
+
 
 def _env_flag(name: str, default: str = "0") -> bool:
     return os.getenv(name, default).strip().lower() in ("1", "true", "yes")
